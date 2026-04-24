@@ -113,6 +113,7 @@ const fmt=d=>{if(!d)return'—';const[y,m,dd]=d.split('-');return dd+'.'+m+'.'+y
 const curMonth=()=>new Date().toISOString().slice(0,7);
 const addDays=(d,n)=>{const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);};
 const uid=()=>'X'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+const norm=function(s){var m={'ı':'i','ə':'e','ş':'s','ç':'c','ö':'o','ü':'u','ğ':'g','İ':'i'};return(s||'').toLowerCase().split('').map(function(c){return m[c]||c;}).join('');};
 
 function activeSub(custId){
   const today=td();
@@ -267,8 +268,8 @@ function rHome(){
 }
 
 function rAtt(){
-  const q=S.search.toLowerCase();
-  const list=q?D.customers.filter(c=>c.name.toLowerCase().includes(q)||c.id.toLowerCase().includes(q)||c.phone.includes(q)):D.customers;
+  const q=norm(S.search);
+  const list=q?D.customers.filter(c=>norm(c.name).includes(q)||c.id.toLowerCase().includes(q)||c.phone.includes(q)):D.customers;
   let h='<div class="ph"><div class="pt">Davamiyyət Qeydiyyati</div></div>'
     +'<div class="sbar"><span class="sicon">&#128269;</span><input placeholder="Ad, ID və ya telefon..." value="'+S.search+'" oninput="ss(this.value)"></div>';
   if(!list.length)h+='<div class="empty">'+(S.search?'Tapilmadi':'Hələ müştəri yoxdur')+'</div>';
@@ -297,9 +298,9 @@ function rAtt(){
 }
 
 function rCusts(){
-  const q=S.search.toLowerCase();
+  const q=norm(S.search);
   let list=D.customers.filter(c=>{
-    if(q&&!c.name.toLowerCase().includes(q)&&!c.id.toLowerCase().includes(q)&&!c.phone.includes(q))return false;
+    if(q&&!norm(c.name).includes(q)&&!c.id.toLowerCase().includes(q)&&!c.phone.includes(q))return false;
     if(S.custTab==='active'){const s=activeSub(c.id);return s&&s.end_date>=td();}
     if(S.custTab==='expired'){const s=activeSub(c.id);return !s||s.end_date<td();}
     return true;
@@ -506,7 +507,7 @@ function submitFreeze(){
   doFreeze(S.freezeSub,days,note);
 }
 function sv(v){S.view=v;S.search='';S.selCust=null;render();}
-function ss(v){S.search=v;render();const el=document.querySelector('.sbar input');if(el){el.focus();el.setSelectionRange(v.length,v.length);}}
+function ss(v){S.search=v;render();setTimeout(function(){var el=document.querySelector('.sbar input');if(el){el.focus();el.setSelectionRange(v.length,v.length);}},0);}
 function selCust(id){S.selCust=id;S.search='';render();}
 
 loadAll();
