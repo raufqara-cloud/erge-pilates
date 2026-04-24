@@ -85,47 +85,74 @@ const BASE='https://ppdwpqiknepwcnsabhvy.supabase.co/rest/v1';
 const KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwZHdwcWlrbmVwd2Nuc2FiaHZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MzgyMTQsImV4cCI6MjA5MjUxNDIxNH0.BLKxsf8kcZ1Jk0gbQk56z9804Ktrclvu2tNr5zQSSiI';
 const H={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json','Prefer':'return=representation'};
 
-async function dbGet(table,params){
-  const url=BASE+'/'+table+(params?'?'+params:'');
-  const r=await fetch(url,{headers:H});
-  if(!r.ok){const t=await r.text();throw new Error(t);}
+async function dbGet(t,p){
+  var r=await fetch(BASE+'/'+t+(p?'?'+p:''),{headers:H});
+  if(!r.ok)throw new Error(await r.text());
   return r.json();
 }
-async function dbPost(table,body){
-  const r=await fetch(BASE+'/'+table,{method:'POST',headers:H,body:JSON.stringify(body)});
-  if(!r.ok){const t=await r.text();throw new Error(t);}
+async function dbPost(t,b){
+  var r=await fetch(BASE+'/'+t,{method:'POST',headers:H,body:JSON.stringify(b)});
+  if(!r.ok)throw new Error(await r.text());
   return r.json();
 }
-async function dbPatch(table,filter,body){
-  const r=await fetch(BASE+'/'+table+'?'+filter,{method:'PATCH',headers:{...H,'Prefer':'return=minimal'},body:JSON.stringify(body)});
-  if(!r.ok){const t=await r.text();throw new Error(t);}
+async function dbPatch(t,f,b){
+  var r=await fetch(BASE+'/'+t+'?'+f,{method:'PATCH',headers:Object.assign({},H,{'Prefer':'return=minimal'}),body:JSON.stringify(b)});
+  if(!r.ok)throw new Error(await r.text());
 }
 
-const TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
-let D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
-let S={view:'home',loading:true,saving:false,err:null,selCust:null,
+var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
+var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
+var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
   attCust:null,freezeSub:null,search:'',custTab:'all'};
 
-const ini=n=>n.trim().split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2);
-const td=()=>new Date().toISOString().slice(0,10);
-const fmt=d=>{if(!d)return'—';const[y,m,dd]=d.split('-');return dd+'.'+m+'.'+y;};
-const curMonth=()=>new Date().toISOString().slice(0,7);
-const addDays=(d,n)=>{const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);};
-const uid=()=>'X'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-const norm=function(s){var m={'ı':'i','ə':'e','ş':'s','ç':'c','ö':'o','ü':'u','ğ':'g','İ':'i'};return(s||'').toLowerCase().split('').map(function(c){return m[c]||c;}).join('');};
+function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
+function td(){return new Date().toISOString().slice(0,10);}
+function fmt(d){if(!d)return'--';var p=d.split('-');return p[2]+'.'+p[1]+'.'+p[0];}
+function curMonth(){return new Date().toISOString().slice(0,7);}
+function addDays(d,n){var dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);}
+function uid(){return 'X'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
+
+function norm(s){
+  if(!s)return '';
+  var result='';
+  var lower=s.toLowerCase();
+  for(var i=0;i<lower.length;i++){
+    var c=lower[i];
+    if(c==='\u0131')c='i';
+    else if(c==='\u0259')c='e';
+    else if(c==='\u015f')c='s';
+    else if(c==='\u00e7')c='c';
+    else if(c==='\u00f6')c='o';
+    else if(c==='\u00fc')c='u';
+    else if(c==='\u011f')c='g';
+    else if(c==='\u0130')c='i';
+    result+=c;
+  }
+  return result;
+}
 
 function activeSub(custId){
-  const today=td();
-  return D.subscriptions.find(s=>s.customer_id===custId&&s.is_active&&s.end_date>=today&&(s.is_partner||s.remaining>0));
+  var today=td();
+  for(var i=0;i<D.subscriptions.length;i++){
+    var s=D.subscriptions[i];
+    if(s.customer_id===custId&&s.is_active&&s.end_date>=today&&(s.is_partner||s.remaining>0))return s;
+  }
+  return null;
 }
+
 function subStatus(sub){
   if(!sub)return{t:'none',txt:'Abunəlik yoxdur'};
   if(!sub.is_active)return{t:'exp',txt:'Deaktiv'};
   if(sub.end_date<td())return{t:'exp',txt:'Muddət bitib'};
   if(sub.is_partner){
-    const used=D.attendances.filter(a=>a.subscription_id===sub.id&&a.class_date.startsWith(curMonth())).length;
-    const left=12-used;
+    var used=0;
+    var cm=curMonth();
+    for(var i=0;i<D.attendances.length;i++){
+      var a=D.attendances[i];
+      if(a.subscription_id===sub.id&&a.class_date.indexOf(cm)===0)used++;
+    }
+    var left=12-used;
     if(left<=0)return{t:'exp',txt:'Bu ay limiti dolub'};
     if(left<=2)return{t:'warn',txt:'Bu ay '+left+' ders qaldi'};
     return{t:'ok',txt:'Bu ay '+left+' ders qaldi'};
@@ -134,31 +161,30 @@ function subStatus(sub){
   if(sub.remaining<=2)return{t:'warn',txt:sub.remaining+' ders qaldi'};
   return{t:'ok',txt:sub.remaining+' ders qaldi'};
 }
+
 function custStatus(custId){return subStatus(activeSub(custId));}
 
 async function loadAll(){
   S.loading=true;S.err=null;render();
   try{
-    const[p,i,c,sub,att]=await Promise.all([
+    var res=await Promise.all([
       dbGet('programs','order=name'),
       dbGet('instructors','order=full_name'),
       dbGet('customers','order=name'),
       dbGet('subscriptions','order=start_date.desc'),
       dbGet('attendances','order=class_date.desc'),
     ]);
-    D.programs=p;D.instructors=i;D.customers=c;D.subscriptions=sub;D.attendances=att;
-  }catch(e){
-    S.err='Verilənlər bazasına qoşulmaq olmadı: '+e.message;
-    console.error(e);
-  }
+    D.programs=res[0];D.instructors=res[1];D.customers=res[2];
+    D.subscriptions=res[3];D.attendances=res[4];
+  }catch(e){S.err='Verilənlər bazasına qoşulmaq olmadi: '+e.message;}
   S.loading=false;render();
 }
 
 async function doAddCust(name,phone,birth){
   S.saving=true;render();
   try{
-    const rows=await dbPost('customers',{name,phone:phone||'',birth_date:birth||''});
-    const row=Array.isArray(rows)?rows[0]:rows;
+    var rows=await dbPost('customers',{name:name,phone:phone||'',birth_date:birth||''});
+    var row=Array.isArray(rows)?rows[0]:rows;
     if(row)D.customers.unshift(row);
     S.showAddCust=false;
   }catch(e){alert('Xeta: '+e.message);}
@@ -168,9 +194,10 @@ async function doAddCust(name,phone,birth){
 async function doAddSub(custId,progId,pricePaid){
   S.saving=true;render();
   try{
-    const prog=D.programs.find(p=>p.id===progId);
-    const end=addDays(td(),prog.duration_days);
-    const sub={id:uid(),customer_id:custId,program_id:progId,program_name:prog.name,
+    var prog=null;
+    for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){prog=D.programs[i];break;}}
+    var end=addDays(td(),prog.duration_days);
+    var sub={id:uid(),customer_id:custId,program_id:progId,program_name:prog.name,
       sessions_total:prog.sessions_total,remaining:prog.sessions_total,
       price_paid:parseFloat(pricePaid)||prog.list_price,
       start_date:td(),end_date:end,is_partner:prog.is_partner,is_active:true,freeze_end:null};
@@ -181,25 +208,26 @@ async function doAddSub(custId,progId,pricePaid){
   S.saving=false;render();
 }
 
-async function doAttendance(custId,subId,classTime,instructorId){
+async function doAtt(custId,subId,classTime,instId){
   S.saving=true;render();
   try{
-    const cust=D.customers.find(c=>c.id===custId);
-    const sub=D.subscriptions.find(s=>s.id===subId);
-    const inst=D.instructors.find(i=>i.id===instructorId);
-    const att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
+    var cust=null,sub=null,inst=null;
+    for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+    for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
+    for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
+    var att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
       program_id:sub.program_id,program_name:sub.program_name,
       class_date:td(),class_time:classTime,
-      instructor_id:instructorId,instructor_name:inst?inst.full_name:''};
+      instructor_id:instId,instructor_name:inst?inst.full_name:''};
     await dbPost('attendances',att);
     D.attendances.unshift(att);
     if(!sub.is_partner){
-      const nr=Math.max(0,sub.remaining-1);
+      var nr=Math.max(0,sub.remaining-1);
       await dbPatch('subscriptions','id=eq.'+subId,{remaining:nr});
       sub.remaining=nr;
     }
     S.showAtt=false;
-    S.showAlert={t:'ok',cust,st:subStatus(activeSub(custId))};
+    S.showAlert={t:'ok',cust:cust,st:subStatus(activeSub(custId))};
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -207,9 +235,10 @@ async function doAttendance(custId,subId,classTime,instructorId){
 async function doFreeze(subId,days,note){
   S.saving=true;render();
   try{
-    const sub=D.subscriptions.find(s=>s.id===subId);
-    const newEnd=addDays(sub.end_date,parseInt(days));
-    const fEnd=addDays(td(),parseInt(days));
+    var sub=null;
+    for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
+    var newEnd=addDays(sub.end_date,parseInt(days));
+    var fEnd=addDays(td(),parseInt(days));
     await dbPost('freezes',{id:uid(),subscription_id:subId,freeze_start:td(),freeze_end:fEnd,days_count:parseInt(days),note:note||''});
     await dbPatch('subscriptions','id=eq.'+subId,{end_date:newEnd,freeze_end:fEnd});
     sub.end_date=newEnd;sub.freeze_end=fEnd;
@@ -219,17 +248,14 @@ async function doFreeze(subId,days,note){
 }
 
 function render(){
-  const root=document.getElementById('root');
-  if(S.loading){
-    root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';
-    return;
-  }
-  let h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div><div class="nav">'
+  var root=document.getElementById('root');
+  if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
     +'</div></div><div class="content">';
-  if(S.err)h+='<div class="errbox">⚠ '+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yenidən cəhd et</button></div>';
+  if(S.err)h+='<div class="errbox">'+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yeniden cehd et</button></div>';
   if(S.saving)h+='<div class="al al-b"><span class="spin"></span>Saxlanilir...</div>';
   if(S.view==='home')h+=rHome();
   else if(S.view==='att')h+=rAtt();
@@ -244,45 +270,59 @@ function render(){
 }
 
 function rHome(){
-  const ta=D.attendances.filter(a=>a.class_date===td());
-  const ew=D.customers.filter(c=>custStatus(c.id).t==='warn');
-  const ex=D.customers.filter(c=>{const s=activeSub(c.id);return !s||custStatus(c.id).t==='exp';});
-  let h='<div class="ph"><div class="pt">Bu gun — '+fmt(td())+'</div></div>'
+  var ta=[];
+  for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].class_date===td())ta.push(D.attendances[i]);}
+  var ew=[],ex=[];
+  for(var i=0;i<D.customers.length;i++){
+    var st=custStatus(D.customers[i].id);
+    if(st.t==='warn')ew.push(D.customers[i]);
+    if(!activeSub(D.customers[i].id)||st.t==='exp')ex.push(D.customers[i]);
+  }
+  var h='<div class="ph"><div class="pt">Bu gun — '+fmt(td())+'</div></div>'
     +'<div class="sgrid">'
-    +'<div class="scard"><div class="snum">'+ta.length+'</div><div class="slbl">Bugunki iştirak</div></div>'
-    +'<div class="scard"><div class="snum">'+D.customers.length+'</div><div class="slbl">Müştəri</div></div>'
+    +'<div class="scard"><div class="snum">'+ta.length+'</div><div class="slbl">Bugunki istirak</div></div>'
+    +'<div class="scard"><div class="snum">'+D.customers.length+'</div><div class="slbl">Mustəri</div></div>'
     +'<div class="scard"><div class="snum">'+ew.length+'</div><div class="slbl">Abunə bitir</div></div>'
     +'</div>';
-  if(ex.length)h+='<div class="al al-r">⚠ '+ex.length+' müştərinin aktiv abunəliyi yoxdur</div>';
-  if(ew.length)h+='<div class="al al-y">◆ Az dərs qalan: '+ew.map(c=>c.name).join(', ')+'</div>';
-  h+='<div class="slabel">BU GUN IŞTIRAK ETDILƏR</div>';
+  if(ex.length)h+='<div class="al al-r">'+ex.length+' mustərinin aktiv abunəliyi yoxdur</div>';
+  if(ew.length)h+='<div class="al al-y">Az ders qalan: '+ew.map(function(c){return c.name;}).join(', ')+'</div>';
+  h+='<div class="slabel">BU GUN ISTIRAK ETDILER</div>';
   if(!ta.length)h+='<div class="empty">Hələ heç kim qeydiyyatdan keçməyib</div>';
-  ta.forEach(a=>{
-    h+='<div class="attitem"><div>'
-      +'<div style="font-size:11px;color:#aaa;font-weight:500">'+a.customer_id+'</div>'
+  for(var i=0;i<ta.length;i++){
+    var a=ta[i];
+    h+='<div class="attitem"><div><div style="font-size:11px;color:#aaa;font-weight:500">'+a.customer_id+'</div>'
       +'<div style="font-size:13px;font-weight:600">'+a.customer_name+'</div>'
-      +'<div style="font-size:11px;color:#bbb">'+a.class_time+' · '+a.instructor_name+' · '+a.program_name+'</div>'
-      +'</div><span class="badge b-green">✓ '+a.class_time+'</span></div>';
-  });
+      +'<div style="font-size:11px;color:#bbb">'+a.class_time+' - '+a.instructor_name+' - '+a.program_name+'</div>'
+      +'</div><span class="badge b-green">'+a.class_time+'</span></div>';
+  }
   return h;
 }
 
 function rAtt(){
-  const q=norm(S.search);
-  const list=q?D.customers.filter(c=>norm(c.name).includes(q)||c.id.toLowerCase().includes(q)||c.phone.includes(q)):D.customers;
-  let h='<div class="ph"><div class="pt">Davamiyyət Qeydiyyati</div></div>'
-    +'<div class="sbar"><span class="sicon">&#128269;</span><input placeholder="Ad, ID və ya telefon..." value="'+S.search+'" oninput="ss(this.value)"></div>';
-  if(!list.length)h+='<div class="empty">'+(S.search?'Tapilmadi':'Hələ müştəri yoxdur')+'</div>';
-  list.forEach(c=>{
-    const sub=activeSub(c.id);const st=subStatus(sub);
-    const bc=st.t==='ok'?'b-green':st.t==='warn'?'b-yellow':'b-red';
-    const isP=sub&&sub.is_partner;
-    const done=D.attendances.some(a=>a.customer_id===c.id&&a.class_date===td());
-    const frozen=sub&&sub.freeze_end&&sub.freeze_end>=td();
+  var q=norm(S.search);
+  var list=[];
+  for(var i=0;i<D.customers.length;i++){
+    var c=D.customers[i];
+    if(!q||norm(c.name).indexOf(q)>=0||c.id.toLowerCase().indexOf(q)>=0||c.phone.indexOf(q)>=0){
+      list.push(c);
+    }
+  }
+  var h='<div class="ph"><div class="pt">Davamiyyət Qeydiyyati</div></div>'
+    +'<div class="sbar"><span class="sicon">&#128269;</span>'
+    +'<input id="att-search" placeholder="Ad, ID veya telefon..." value="'+S.search+'" oninput="ss(this.value)"></div>';
+  if(!list.length)h+='<div class="empty">'+(S.search?'Tapilmadi':'Hələ mustəri yoxdur')+'</div>';
+  for(var i=0;i<list.length;i++){
+    var c=list[i];
+    var sub=activeSub(c.id);var st=subStatus(sub);
+    var bc=st.t==='ok'?'b-green':st.t==='warn'?'b-yellow':'b-red';
+    var isP=sub&&sub.is_partner;
+    var done=false;
+    for(var j=0;j<D.attendances.length;j++){if(D.attendances[j].customer_id===c.id&&D.attendances[j].class_date===td()){done=true;break;}}
+    var frozen=sub&&sub.freeze_end&&sub.freeze_end>=td();
     h+='<div class="card"><div class="cleft"><div class="av '+(isP?'av-p':'')+'">'+ini(c.name)+'</div>'
       +'<div><div class="cid">'+c.id+'</div><div class="cname">'+c.name+'</div><div class="csub">'+c.phone+'</div></div></div>'
       +'<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end">'
-      +(frozen?'<span class="badge b-blue">❄ Dondurulub</span>':'')
+      +(frozen?'<span class="badge b-blue">Dondurulub</span>':'')
       +(isP?'<span class="badge b-purple">Partner</span>':'')
       +'<span class="badge '+bc+'">'+st.txt+'</span>';
     if(frozen||done){
@@ -290,60 +330,70 @@ function rAtt(){
     }else if(st.t==='none'||st.t==='exp'){
       h+='<span class="badge b-red">Abunəlik lazimdir</span>';
     }else{
-      h+='<button class="btn btn-g btn-sm" '+(S.saving?'disabled':'')+' onclick="event.stopPropagation();openAtt(\''+c.id+'\')">+ İştirak</button>';
+      h+='<button class="btn btn-g btn-sm" '+(S.saving?'disabled':'')+' onclick="event.stopPropagation();openAtt(\''+c.id+'\')">+ Istirak</button>';
     }
     h+='</div></div>';
-  });
+  }
   return h;
 }
 
 function rCusts(){
-  const q=norm(S.search);
-  let list=D.customers.filter(c=>{
-    if(q&&!norm(c.name).includes(q)&&!c.id.toLowerCase().includes(q)&&!c.phone.includes(q))return false;
-    if(S.custTab==='active'){const s=activeSub(c.id);return s&&s.end_date>=td();}
-    if(S.custTab==='expired'){const s=activeSub(c.id);return !s||s.end_date<td();}
-    return true;
-  });
-  let h='<div class="ph"><div class="pt">Müştərilər</div><button class="btn btn-g" onclick="S.showAddCust=true;render()">+ Yeni Müştəri</button></div>'
-    +'<div class="sbar"><span class="sicon">&#128269;</span><input placeholder="Ad, ID və ya telefon..." value="'+S.search+'" oninput="ss(this.value)"></div>'
+  var q=norm(S.search);
+  var list=[];
+  for(var i=0;i<D.customers.length;i++){
+    var c=D.customers[i];
+    if(q&&norm(c.name).indexOf(q)<0&&c.id.toLowerCase().indexOf(q)<0&&c.phone.indexOf(q)<0)continue;
+    if(S.custTab==='active'){var s=activeSub(c.id);if(!s||s.end_date<td())continue;}
+    if(S.custTab==='expired'){var s=activeSub(c.id);if(s&&s.end_date>=td())continue;}
+    list.push(c);
+  }
+  var h='<div class="ph"><div class="pt">Mustərilər</div><button class="btn btn-g" onclick="S.showAddCust=true;render()">+ Yeni Mustəri</button></div>'
+    +'<div class="sbar"><span class="sicon">&#128269;</span>'
+    +'<input id="cust-search" placeholder="Ad, ID veya telefon..." value="'+S.search+'" oninput="ss(this.value)"></div>'
     +'<div class="tab-row">'
     +'<button class="tab '+(S.custTab==='all'?'active':'')+'" onclick="S.custTab=\'all\';render()">Hamisi ('+D.customers.length+')</button>'
     +'<button class="tab '+(S.custTab==='active'?'active':'')+'" onclick="S.custTab=\'active\';render()">Aktiv</button>'
     +'<button class="tab '+(S.custTab==='expired'?'active':'')+'" onclick="S.custTab=\'expired\';render()">Abunəsiz</button>'
     +'</div>';
   if(!list.length)h+='<div class="empty">Tapilmadi</div>';
-  list.forEach(c=>{
-    const sub=activeSub(c.id);const st=subStatus(sub);
-    const bc=st.t==='ok'?'b-green':st.t==='warn'?'b-yellow':'b-red';
-    const isP=sub&&sub.is_partner;
+  for(var i=0;i<list.length;i++){
+    var c=list[i];
+    var sub=activeSub(c.id);var st=subStatus(sub);
+    var bc=st.t==='ok'?'b-green':st.t==='warn'?'b-yellow':'b-red';
+    var isP=sub&&sub.is_partner;
     h+='<div class="card" onclick="selCust(\''+c.id+'\')"><div class="cleft"><div class="av '+(isP?'av-p':'')+'">'+ini(c.name)+'</div>'
       +'<div><div class="cid">'+c.id+'</div><div class="cname">'+c.name+'</div>'
-      +'<div class="csub">'+c.phone+(c.birth_date?' · '+fmt(c.birth_date):'')+'</div></div></div>'
+      +'<div class="csub">'+c.phone+(c.birth_date?' - '+fmt(c.birth_date):'')+'</div></div></div>'
       +'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'
       +(isP?'<span class="badge b-purple">Partner</span>':'')
       +'<span class="badge '+bc+'">'+st.txt+'</span></div></div>';
-  });
+  }
   return h;
 }
 
 function rDetail(){
-  const c=D.customers.find(x=>x.id===S.selCust);if(!c)return'';
-  const subs=D.subscriptions.filter(s=>s.customer_id===c.id).sort((a,b)=>b.start_date.localeCompare(a.start_date));
-  const atts=D.attendances.filter(a=>a.customer_id===c.id);
-  const activS=activeSub(c.id);const st=subStatus(activS);
-  const bc=st.t==='ok'?'b-green':st.t==='warn'?'b-yellow':'b-red';
-  let h='<button class="back" onclick="S.selCust=null;render()">← Geri</button>'
+  var c=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.selCust){c=D.customers[i];break;}}
+  if(!c)return'';
+  var subs=[];
+  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].customer_id===c.id)subs.push(D.subscriptions[i]);}
+  subs.sort(function(a,b){return b.start_date.localeCompare(a.start_date);});
+  var atts=[];
+  for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].customer_id===c.id)atts.push(D.attendances[i]);}
+  var activS=activeSub(c.id);var st=subStatus(activS);
+  var bc=st.t==='ok'?'b-green':st.t==='warn'?'b-yellow':'b-red';
+  var h='<button class="back" onclick="S.selCust=null;render()">← Geri</button>'
     +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">'
     +'<div class="av" style="width:46px;height:46px;font-size:15px;'+(activS&&activS.is_partner?'background:#EDE7F6;color:#5E35B1':'')+'">'
     +ini(c.name)+'</div><div>'
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:17px;font-weight:700">'+c.name+'</div>'
-    +'<div style="font-size:12px;color:#999">'+c.phone+(c.birth_date?' · '+fmt(c.birth_date):'')+'</div></div>'
+    +'<div style="font-size:12px;color:#999">'+c.phone+(c.birth_date?' - '+fmt(c.birth_date):'')+'</div></div>'
     +'<span class="badge '+bc+'" style="margin-left:auto">'+st.txt+'</span></div>';
   if(activS&&activS.is_partner){
-    const used=atts.filter(a=>a.subscription_id===activS.id&&a.class_date.startsWith(curMonth())).length;
-    h+='<div class="partner-strip"><div style="font-weight:600;margin-bottom:6px">Partner — '+activS.program_name+'</div>'
+    var used=0;var cm=curMonth();
+    for(var i=0;i<atts.length;i++){if(atts[i].subscription_id===activS.id&&atts[i].class_date.indexOf(cm)===0)used++;}
+    h+='<div class="partner-strip"><div style="font-weight:600;margin-bottom:6px">Partner - '+activS.program_name+'</div>'
       +'<div style="display:flex;align-items:center;gap:10px">'
       +'<div style="font-size:22px;font-weight:700;color:#6A1B9A">'+used+'/12</div>'
       +'<div style="flex:1"><div class="progress-bar"><div class="progress-fill '+(used>=10?'exp':used>=8?'warn':'')+'" style="width:'+Math.round(used/12*100)+'%"></div></div>'
@@ -351,163 +401,196 @@ function rDetail(){
   }
   h+='<div class="slabel">ABUNƏLİKLƏR <button class="btn btn-g btn-sm" onclick="S.showAddSub=true;render()">+ Əlavə et</button></div>';
   if(!subs.length)h+='<div class="empty" style="padding:14px">Abunəlik yoxdur</div>';
-  subs.forEach(sub=>{
-    const st2=subStatus(sub);const bc2=st2.t==='ok'?'b-green':st2.t==='warn'?'b-yellow':'b-red';
-    const frozen=sub.freeze_end&&sub.freeze_end>=td();
-    const pct=sub.is_partner?0:Math.min(100,Math.round((1-sub.remaining/sub.sessions_total)*100));
+  for(var i=0;i<subs.length;i++){
+    var sub=subs[i];
+    var st2=subStatus(sub);var bc2=st2.t==='ok'?'b-green':st2.t==='warn'?'b-yellow':'b-red';
+    var frozen=sub.freeze_end&&sub.freeze_end>=td();
+    var pct=sub.is_partner?0:Math.min(100,Math.round((1-sub.remaining/sub.sessions_total)*100));
     h+='<div class="subcard"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">'
       +'<div><div style="font-size:13px;font-weight:600">'+sub.program_name+'</div>'
       +'<div style="font-size:11px;color:#999;margin-top:2px">'+fmt(sub.start_date)+' → '+fmt(sub.end_date)+'</div></div>'
       +'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'
       +'<span class="badge '+bc2+'">'+st2.txt+'</span>'
-      +(frozen?'<span class="badge b-blue" style="font-size:10px">❄ '+fmt(sub.freeze_end)+'-dek</span>':'')
-      +(sub.is_active&&!frozen&&st2.t!=='exp'?'<button class="btn btn-gray btn-sm" onclick="openFreeze(\''+sub.id+'\')">❄ Dondur</button>':'')
+      +(frozen?'<span class="badge b-blue" style="font-size:10px">'+fmt(sub.freeze_end)+'-dek</span>':'')
+      +(sub.is_active&&!frozen&&st2.t!=='exp'?'<button class="btn btn-gray btn-sm" onclick="openFreeze(\''+sub.id+'\')">Dondur</button>':'')
       +'</div></div>';
     if(!sub.is_partner){
-      h+='<div style="font-size:12px;color:#888">'+sub.remaining+'/'+sub.sessions_total+' dərs · '+sub.price_paid+' AZN</div>'
+      h+='<div style="font-size:12px;color:#888">'+sub.remaining+'/'+sub.sessions_total+' ders - '+sub.price_paid+' AZN</div>'
         +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'" style="width:'+pct+'%"></div></div>';
     }
     h+='</div>';
-  });
-  h+='<div class="slabel">SON IŞTIRAKLAR ('+atts.length+')</div>';
-  if(!atts.length)h+='<div class="empty" style="padding:14px">Hələ iştirak yoxdur</div>';
-  atts.slice(0,20).forEach(a=>{
-    h+='<div class="attitem"><div>'
-      +'<div style="font-size:13px;font-weight:500">'+fmt(a.class_date)+' · '+a.class_time+'</div>'
-      +'<div style="font-size:11px;color:#aaa">'+a.instructor_name+' · '+a.program_name+'</div>'
-      +'</div><span class="badge b-green" style="font-size:11px">'+a.class_time+'</span></div>';
-  });
+  }
+  h+='<div class="slabel">SON ISTIRAKLAR ('+atts.length+')</div>';
+  if(!atts.length)h+='<div class="empty" style="padding:14px">Hələ istirak yoxdur</div>';
+  for(var i=0;i<Math.min(20,atts.length);i++){
+    var a=atts[i];
+    h+='<div class="attitem"><div><div style="font-size:13px;font-weight:500">'+fmt(a.class_date)+' - '+a.class_time+'</div>'
+      +'<div style="font-size:11px;color:#aaa">'+a.instructor_name+' - '+a.program_name+'</div></div>'
+      +'<span class="badge b-green" style="font-size:11px">'+a.class_time+'</span></div>';
+  }
   return h;
 }
 
 function rModalAddCust(){
   return '<div class="ov" onclick="S.showAddCust=false;render()"><div class="modal" onclick="event.stopPropagation()">'
-    +'<div class="mtitle">Yeni Müştəri</div>'
+    +'<div class="mtitle">Yeni Mustəri</div>'
     +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="m-name" placeholder="Leyla Əliyeva"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="m-phone" placeholder="+994 50 XXX XX XX"></div>'
-    +'<div class="fg"><label class="fl">Doğum tarixi</label><input class="fi" id="m-birth" type="date"></div>'
+    +'<div class="fg"><label class="fl">Dogum tarixi</label><input class="fi" id="m-birth" type="date"></div>'
     +'</div>'
-    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddCust=false;render()">Ləğv et</button>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddCust=false;render()">Legv et</button>'
     +'<button class="btn btn-g" onclick="submitCust()">Əlavə et</button></div>'
     +'</div></div>';
 }
 
 function rModalAddSub(){
-  const opts=D.programs.map(p=>'<option value="'+p.id+'">'+p.name+' — '+p.list_price+' AZN ('+p.sessions_total+' ders, '+p.duration_days+' gun)</option>').join('');
-  const defP=D.programs.length?D.programs[0].list_price:'';
+  var opts='';
+  for(var i=0;i<D.programs.length;i++){
+    var p=D.programs[i];
+    opts+='<option value="'+p.id+'">'+p.name+' — '+p.list_price+' AZN ('+p.sessions_total+' ders, '+p.duration_days+' gun)</option>';
+  }
+  var defP=D.programs.length?D.programs[0].list_price:'';
   return '<div class="ov" onclick="S.showAddSub=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Abunəlik Əlavə Et</div>'
     +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="m-prog" onchange="updatePrice()">'+opts+'</select></div>'
-    +'<div class="fg"><label class="fl">Ödənilən məbləğ (AZN)</label><input class="fi" id="m-price" type="number" value="'+defP+'"></div>'
+    +'<div class="fg"><label class="fl">Odənilən məbləğ (AZN)</label><input class="fi" id="m-price" type="number" value="'+defP+'"></div>'
     +'<div style="font-size:12px;color:#888;margin-top:-6px;margin-bottom:10px" id="m-phint">Siyahi qiymeti: '+defP+' AZN</div>'
-    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddSub=false;render()">Ləğv et</button>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddSub=false;render()">Legv et</button>'
     +'<button class="btn btn-g" onclick="submitSub()">Əlavə et</button></div>'
     +'</div></div>';
 }
 
 function rModalAtt(){
-  const c=D.customers.find(x=>x.id===S.attCust);if(!c)return'';
-  const sub=activeSub(c.id);
-  const tOpts=TIMES.map(t=>'<option value="'+t+'">'+t+'</option>').join('');
-  const iOpts=D.instructors.map(i=>'<option value="'+i.id+'">'+i.full_name+'</option>').join('');
+  var c=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.attCust){c=D.customers[i];break;}}
+  if(!c)return'';
+  var sub=activeSub(c.id);
+  var tOpts='';for(var i=0;i<TIMES.length;i++)tOpts+='<option value="'+TIMES[i]+'">'+TIMES[i]+'</option>';
+  var iOpts='';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
   return '<div class="ov" onclick="S.showAtt=false;render()"><div class="modal" onclick="event.stopPropagation()">'
-    +'<div class="mtitle">İştirak Qeydiyyati</div>'
+    +'<div class="mtitle">Istirak Qeydiyyati</div>'
     +'<div style="background:#f8faf8;border-radius:9px;padding:10px 12px;margin-bottom:14px">'
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:14px;font-weight:700">'+c.name+'</div>'
     +'<div style="font-size:12px;color:#1D9E75;margin-top:2px">'+(sub?sub.program_name:'')+'</div></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="m-time">'+tOpts+'</select></div>'
-    +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="m-inst">'+iOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Instruktor *</label><select class="fs" id="m-inst">'+iOpts+'</select></div>'
     +'</div>'
-    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAtt=false;render()">Ləğv et</button>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAtt=false;render()">Legv et</button>'
     +'<button class="btn btn-g" onclick="submitAtt()">Qeydə al</button></div>'
     +'</div></div>';
 }
 
 function rModalFreeze(){
-  const sub=D.subscriptions.find(s=>s.id===S.freezeSub);if(!sub)return'';
+  var sub=null;
+  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===S.freezeSub){sub=D.subscriptions[i];break;}}
+  if(!sub)return'';
   return '<div class="ov" onclick="S.showFreeze=false;render()"><div class="modal" onclick="event.stopPropagation()">'
-    +'<div class="mtitle">❄ Abunəliyi Dondur</div>'
+    +'<div class="mtitle">Abunəliyi Dondur</div>'
     +'<div style="background:#f8faf8;border-radius:9px;padding:10px 12px;margin-bottom:14px">'
     +'<div style="font-size:13px;font-weight:600">'+sub.program_name+'</div>'
     +'<div style="font-size:12px;color:#888">Cari bitmə tarixi: '+fmt(sub.end_date)+'</div></div>'
     +'<div class="fg"><label class="fl">Dondurma muddeti (gun, max 7)</label>'
     +'<input class="fi" id="m-fdays" type="number" min="1" max="30" value="7" oninput="updFP()"></div>'
-    +'<div style="font-size:12px;color:#1565C0;background:#E3F2FD;padding:8px 11px;border-radius:7px;margin-bottom:10px" id="fp-prev">'
-    +'Yeni bitmə tarixi: '+fmt(addDays(sub.end_date,7))+'</div>'
+    +'<div style="font-size:12px;color:#1565C0;background:#E3F2FD;padding:8px 11px;border-radius:7px;margin-bottom:10px" id="fp-prev">Yeni bitmə tarixi: '+fmt(addDays(sub.end_date,7))+'</div>'
     +'<div class="fg"><label class="fl">Qeyd (opsional)</label><input class="fi" id="m-fnote" placeholder="Məsələn: Xəstəlik"></div>'
-    +'<div class="mact"><button class="btn btn-gray" onclick="S.showFreeze=false;render()">Ləğv et</button>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showFreeze=false;render()">Legv et</button>'
     +'<button class="btn btn-b" onclick="submitFreeze()">Dondur</button></div>'
     +'</div></div>';
 }
 
 function rAlertModal(){
-  const{t,cust,st}=S.showAlert;
+  var t=S.showAlert.t,cust=S.showAlert.cust,st=S.showAlert.st;
   if(t==='block')return '<div class="ov" onclick="S.showAlert=null;render()"><div class="modal" onclick="event.stopPropagation()">'
-    +'<div class="al al-r" style="margin-bottom:11px">⛔ İştirak qeydə alinmadi</div>'
+    +'<div class="al al-r" style="margin-bottom:11px">Istirak qeydə alinmadi</div>'
     +'<div style="font-size:14px;font-weight:700;margin-bottom:5px">'+cust.name+'</div>'
     +'<div style="font-size:13px;color:#888;margin-bottom:14px">Aktiv abunəlik yoxdur.</div>'
-    +'<div class="mact"><button class="btn btn-g" onclick="S.showAlert=null;render()">Bağla</button></div>'
+    +'<div class="mact"><button class="btn btn-g" onclick="S.showAlert=null;render()">Bagla</button></div>'
     +'</div></div>';
-  const ac=st.t==='ok'?'al-g':st.t==='warn'?'al-y':'al-r';
+  var ac=st.t==='ok'?'al-g':st.t==='warn'?'al-y':'al-r';
   return '<div class="ov" onclick="S.showAlert=null;render()"><div class="modal" onclick="event.stopPropagation()">'
-    +'<div class="al '+ac+'" style="margin-bottom:11px">✓ İştirak uğurla qeydə alindi</div>'
+    +'<div class="al '+ac+'" style="margin-bottom:11px">✓ Istirak ugurla qeydə alindi</div>'
     +'<div style="font-size:14px;font-weight:700;margin-bottom:5px">'+cust.name+'</div>'
     +'<div style="font-size:13px;color:#888">'+st.txt+'</div>'
-    +(st.t==='warn'?'<div style="font-size:12px;color:#E65100;margin-top:6px;background:#FFF8E1;padding:7px 10px;border-radius:7px">⚠ Az dərs qaldi. Abunəni yeniləyin.</div>':'')
-    +'<div class="mact"><button class="btn btn-g" onclick="S.showAlert=null;render()">Bağla</button></div>'
+    +(st.t==='warn'?'<div style="font-size:12px;color:#E65100;margin-top:6px;background:#FFF8E1;padding:7px 10px;border-radius:7px">Az ders qaldi. Abunəni yeniləyin.</div>':'')
+    +'<div class="mact"><button class="btn btn-g" onclick="S.showAlert=null;render()">Bagla</button></div>'
     +'</div></div>';
 }
 
 function submitCust(){
-  const n=document.getElementById('m-name')?.value?.trim();
-  const p=document.getElementById('m-phone')?.value?.trim();
-  const b=document.getElementById('m-birth')?.value;
+  var n=document.getElementById('m-name').value.trim();
+  var p=document.getElementById('m-phone').value.trim();
+  var b=document.getElementById('m-birth').value;
   if(!n)return;
   doAddCust(n,p,b);
 }
 function updatePrice(){
-  const sel=document.getElementById('m-prog');
-  const prog=D.programs.find(p=>p.id===sel?.value);
+  var sel=document.getElementById('m-prog');
+  var prog=null;
+  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sel.value){prog=D.programs[i];break;}}
   if(prog){
-    const pi=document.getElementById('m-price');
-    const ph=document.getElementById('m-phint');
-    if(pi)pi.value=prog.list_price;
-    if(ph)ph.textContent='Siyahi qiymeti: '+prog.list_price+' AZN';
+    document.getElementById('m-price').value=prog.list_price;
+    document.getElementById('m-phint').textContent='Siyahi qiymeti: '+prog.list_price+' AZN';
   }
 }
 function submitSub(){
-  const progId=document.getElementById('m-prog')?.value;
-  const price=document.getElementById('m-price')?.value;
+  var progId=document.getElementById('m-prog').value;
+  var price=document.getElementById('m-price').value;
   if(!progId||!S.selCust)return;
   doAddSub(S.selCust,progId,price);
 }
 function openAtt(custId){S.attCust=custId;S.showAtt=true;render();}
 function submitAtt(){
-  const time=document.getElementById('m-time')?.value;
-  const inst=document.getElementById('m-inst')?.value;
+  var time=document.getElementById('m-time').value;
+  var inst=document.getElementById('m-inst').value;
   if(!time||!inst||!S.attCust)return;
-  const sub=activeSub(S.attCust);
-  if(!sub){S.showAtt=false;S.showAlert={t:'block',cust:D.customers.find(c=>c.id===S.attCust),st:{}};render();return;}
-  doAttendance(S.attCust,sub.id,time,inst);
+  var sub=activeSub(S.attCust);
+  if(!sub){
+    var c=null;for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.attCust){c=D.customers[i];break;}}
+    S.showAtt=false;S.showAlert={t:'block',cust:c,st:{}};render();return;
+  }
+  doAtt(S.attCust,sub.id,time,inst);
 }
 function openFreeze(subId){S.freezeSub=subId;S.showFreeze=true;render();}
 function updFP(){
-  const days=parseInt(document.getElementById('m-fdays')?.value)||0;
-  const sub=D.subscriptions.find(s=>s.id===S.freezeSub);
-  const el=document.getElementById('fp-prev');
+  var days=parseInt(document.getElementById('m-fdays').value)||0;
+  var sub=null;for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===S.freezeSub){sub=D.subscriptions[i];break;}}
+  var el=document.getElementById('fp-prev');
   if(sub&&el)el.textContent='Yeni bitmə tarixi: '+fmt(addDays(sub.end_date,days));
 }
 function submitFreeze(){
-  const days=parseInt(document.getElementById('m-fdays')?.value);
-  const note=document.getElementById('m-fnote')?.value;
+  var days=parseInt(document.getElementById('m-fdays').value);
+  var note=document.getElementById('m-fnote').value;
   if(!days||days<1||!S.freezeSub)return;
   doFreeze(S.freezeSub,days,note);
 }
+
 function sv(v){S.view=v;S.search='';S.selCust=null;render();}
-function ss(v){S.search=v;render();setTimeout(function(){var el=document.querySelector('.sbar input');if(el){el.focus();el.setSelectionRange(v.length,v.length);}},0);}
+function ss(v){
+  S.search=v;
+  // Don't re-render, just filter the visible cards
+  filterCards(v);
+}
+function filterCards(q){
+  var nq=norm(q);
+  var cards=document.querySelectorAll('.card');
+  for(var i=0;i<cards.length;i++){
+    var card=cards[i];
+    var cid=card.querySelector('.cid');
+    var cname=card.querySelector('.cname');
+    var csub=card.querySelector('.csub');
+    var idText=cid?cid.textContent:'';
+    var nameText=cname?cname.textContent:'';
+    var phoneText=csub?csub.textContent:'';
+    if(!nq||norm(nameText).indexOf(nq)>=0||idText.toLowerCase().indexOf(nq)>=0||phoneText.indexOf(nq)>=0){
+      card.style.display='';
+    }else{
+      card.style.display='none';
+    }
+  }
+}
 function selCust(id){S.selCust=id;S.search='';render();}
 
 loadAll();
