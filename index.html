@@ -303,7 +303,7 @@ function rAtt(){
   var list=[];
   for(var i=0;i<D.customers.length;i++){
     var c=D.customers[i];
-    if(!q||norm(c.name).indexOf(q)>=0||c.id.toLowerCase().indexOf(q)>=0||c.phone.indexOf(q)>=0){
+    if(!q||norm(c.name).indexOf(q)>=0||c.id.toLowerCase().indexOf(q)>=0||(c.phone||'').indexOf(q)>=0){
       list.push(c);
     }
   }
@@ -342,7 +342,7 @@ function rCusts(){
   var list=[];
   for(var i=0;i<D.customers.length;i++){
     var c=D.customers[i];
-    if(q&&norm(c.name).indexOf(q)<0&&c.id.toLowerCase().indexOf(q)<0&&c.phone.indexOf(q)<0)continue;
+    if(q&&norm(c.name).indexOf(q)<0&&c.id.toLowerCase().indexOf(q)<0&&(c.phone||'').indexOf(q)<0)continue;
     if(S.custTab==='active'){var s=activeSub(c.id);if(!s||s.end_date<td())continue;}
     if(S.custTab==='expired'){var s=activeSub(c.id);if(s&&s.end_date>=td())continue;}
     list.push(c);
