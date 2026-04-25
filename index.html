@@ -169,12 +169,12 @@ async function loadAll(){
   try{
     var res=await Promise.all([
       dbGet('programs','order=sort_order'),
-      dbGet('instructors','order=full_name&is_active=eq.true'),
+      dbGet('instructors','order=full_name'),
       dbGet('customers','order=name'),
       dbGet('subscriptions','order=start_date.desc'),
       dbGet('attendances','order=class_date.desc'),
     ]);
-    D.programs=res[0];D.instructors=res[1];D.customers=res[2];
+    D.programs=res[0];D._allInstructors=res[1];D.instructors=res[1].filter(function(x){return x.is_active!==false;});D.customers=res[2];
     D.subscriptions=res[3];D.attendances=res[4];
   }catch(e){S.err='Verilənlər bazasına qoşulmaq olmadi: '+e.message;}
   S.loading=false;render();
@@ -254,12 +254,14 @@ function render(){
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
+    +'<button class="'+(S.view===\'admin\'?\'active\':\'')+'" onclick="sv(\\'admin\\')">'+'Admin'+'</button>'
     +'</div></div><div class="content">';
   if(S.err)h+='<div class="errbox">'+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yeniden cehd et</button></div>';
   if(S.saving)h+='<div class="al al-b"><span class="spin"></span>Saxlanilir...</div>';
   if(S.view==='home')h+=rHome();
   else if(S.view==='att')h+=rAtt();
   else if(S.view==='cust')h+=(S.selCust?rDetail():rCusts());
+  else if(S.view==='admin')h+=rAdmin();
   h+='</div>';
   if(S.showAddCust)h+=rModalAddCust();
   if(S.showAddSub)h+=rModalAddSub();
@@ -272,6 +274,7 @@ function render(){
 function rHome(){
   var ta=[];
   for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].class_date===td())ta.push(D.attendances[i]);}
+  ta.sort(function(a,b){return a.class_time.localeCompare(b.class_time);});
   var ew=[],ex=[];
   for(var i=0;i<D.customers.length;i++){
     var st=custStatus(D.customers[i].id);
@@ -520,6 +523,53 @@ function rAlertModal(){
     +'</div></div>';
 }
 
+
+function rAdmin(){
+  var h='<div class="ph"><div class="pt">Admin Panel</div></div>';
+  h+='<div class="slabel">PROQRAMLAR</div>';
+  var allProgs=D.programs.slice();
+  for(var i=0;i<allProgs.length;i++){
+    var p=allProgs[i];
+    var act=p.is_active!==false;
+    h+='<div class="attitem">'
+      +'<div><div style="font-size:13px;font-weight:600">'+p.id+'</div>'
+      +'<div style="font-size:12px;color:#888">'+p.name+'</div></div>'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<span class="badge '+(act?'b-green':'b-gray')+'">'+(act?'Aktiv':'Deaktiv')+'</span>'
+      +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleProg(\''+p.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
+      +'</div></div>';
+  }
+  h+='<div class="slabel" style="margin-top:16px">INSTRUKTORLAR</div>';
+  var allInst=D._allInstructors||D.instructors;
+  for(var i=0;i<allInst.length;i++){
+    var ins=allInst[i];
+    var act=ins.is_active!==false;
+    h+='<div class="attitem">'
+      +'<div style="font-size:13px;font-weight:600">'+ins.full_name+'</div>'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<span class="badge '+(act?'b-green':'b-gray')+'">'+(act?'Aktiv':'Deaktiv')+'</span>'
+      +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleInst(\''+ins.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
+      +'</div></div>';
+  }
+  return h;
+}
+async function toggleProg(id,val){
+  try{
+    await dbPatch('programs','id=eq.'+id,{is_active:val});
+    for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===id){D.programs[i].is_active=val;break;}}
+    render();
+  }catch(e){alert('Xeta: '+e.message);}
+}
+async function toggleInst(id,val){
+  try{
+    await dbPatch('instructors','id=eq.'+id,{is_active:val});
+    var all=D._allInstructors||D.instructors;
+    for(var i=0;i<all.length;i++){if(all[i].id===id){all[i].is_active=val;break;}}
+    D._allInstructors=all;
+    D.instructors=all.filter(function(x){return x.is_active!==false;});
+    render();
+  }catch(e){alert('Xeta: '+e.message);}
+}
 function submitCust(){
   var n=document.getElementById('m-name').value.trim();
   var p=document.getElementById('m-phone').value.trim();
