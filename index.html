@@ -168,8 +168,8 @@ async function loadAll(){
   S.loading=true;S.err=null;render();
   try{
     var res=await Promise.all([
-      dbGet('programs','order=name'),
-      dbGet('instructors','order=full_name'),
+      dbGet('programs','order=sort_order'),
+      dbGet('instructors','order=full_name&is_active=eq.true'),
       dbGet('customers','order=name'),
       dbGet('subscriptions','order=start_date.desc'),
       dbGet('attendances','order=class_date.desc'),
@@ -448,6 +448,7 @@ function rModalAddSub(){
   var opts='';
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
+    if(!p.is_active)continue;
     opts+='<option value="'+p.id+'">'+p.name+' — '+p.list_price+' AZN ('+p.sessions_total+' ders, '+p.duration_days+' gun)</option>';
   }
   var defP=D.programs.length?D.programs[0].list_price:'';
