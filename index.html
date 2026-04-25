@@ -254,7 +254,7 @@ function render(){
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
-    +'<button class="'+(S.view===\'admin\'?\'active\':\'')+'" onclick="sv(\\'admin\\')">'+'Admin'+'</button>'
+    +'<button class="'+(S.view==='admin'?'active':'')+'" onclick="sv(\'admin\')">Admin</button>'
     +'</div></div><div class="content">';
   if(S.err)h+='<div class="errbox">'+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yeniden cehd et</button></div>';
   if(S.saving)h+='<div class="al al-b"><span class="spin"></span>Saxlanilir...</div>';
