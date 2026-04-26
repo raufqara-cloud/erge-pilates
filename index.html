@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -266,6 +266,7 @@ function render(){
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
     +'<button class="'+(S.view==='admin'?'active':'')+'" onclick="sv(\'admin\')">Admin</button>'
+    +'<button class="'+(S.view==='report'?'active':'')+'" onclick="sv(\'report\')">Hesabat</button>'
     +'</div></div><div class="content">';
   if(S.err)h+='<div class="errbox">'+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yeniden cehd et</button></div>';
   if(S.saving)h+='<div class="al al-b"><span class="spin"></span>Saxlanilir...</div>';
@@ -273,6 +274,7 @@ function render(){
   else if(S.view==='att')h+=rAtt();
   else if(S.view==='cust')h+=(S.selCust?rDetail():rCusts());
   else if(S.view==='admin')h+=rAdmin();
+  else if(S.view==='report')h+=rReport();
   h+='</div>';
   if(S.showAddCust)h+=rModalAddCust();
   if(S.showAddSub)h+=rModalAddSub();
@@ -562,6 +564,140 @@ function rAlertModal(){
 }
 
 
+
+async function fetchReport(month){
+  S.reportLoading=true;S.reportData=null;render();
+  try{
+    // Get all attendances for the month
+    var atts=await dbGet('attendances','class_date=gte.'+month+'-01&class_date=lte.'+month+'-31&order=class_date');
+    // Get programs for prices
+    var progMap={};
+    for(var i=0;i<D.programs.length;i++){progMap[D.programs[i].id]=D.programs[i];}
+    // Get all instructors (including commission)
+    var allInst=D._allInstructors||D.instructors;
+    var instMap={};
+    for(var i=0;i<allInst.length;i++){instMap[allInst[i].id]=allInst[i];}
+    
+    // Calculate per instructor
+    var instData={};
+    for(var i=0;i<allInst.length;i++){
+      instData[allInst[i].id]={
+        name:allInst[i].full_name,
+        pct:allInst[i].commission_pct||30,
+        sessions:0,
+        gross:0,
+        commission:0
+      };
+    }
+    
+    for(var i=0;i<atts.length;i++){
+      var a=atts[i];
+      if(!a.instructor_id||!instData[a.instructor_id])continue;
+      
+      // Find subscription to get price and sessions_total
+      var subPrice=0;
+      var subSessions=1;
+      if(a.subscription_id){
+        for(var j=0;j<D.subscriptions.length;j++){
+          if(D.subscriptions[j].id===a.subscription_id){
+            var sub=D.subscriptions[j];
+            // Use price_due if available, else price_paid
+            subPrice=sub.price_due||sub.price_paid||0;
+            subSessions=sub.sessions_total||1;
+            break;
+          }
+        }
+      } else {
+        // Single entry - use program list price
+        var prog=progMap[a.program_id];
+        if(prog){subPrice=prog.list_price||0;subSessions=1;}
+      }
+      
+      var perSession=subSessions>0?subPrice/subSessions:0;
+      var inst=instData[a.instructor_id];
+      inst.sessions+=1;
+      inst.gross+=perSession;
+      inst.commission+=perSession*(inst.pct/100);
+    }
+    
+    S.reportData={month:month,instData:instData,totalAtts:atts.length};
+  }catch(e){alert('Hesabat xetasi: '+e.message);}
+  S.reportLoading=false;render();
+}
+
+function rReport(){
+  var now=new Date();
+  var curMonth=now.getFullYear()+'-'+(String(now.getMonth()+1).padStart(2,'0'));
+  if(!S.reportMonth)S.reportMonth=curMonth;
+  
+  var h='<div class="ph"><div class="pt">Hesabat — Trener Əmək Haqqı</div></div>';
+  
+  // Month selector
+  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'
+    +'<input type="month" value="'+S.reportMonth+'" max="'+curMonth+'" onchange="S.reportMonth=this.value;S.reportData=null;render()" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
+    +'<button class="btn btn-g" onclick="fetchReport(S.reportMonth)">Hesabla</button>'
+    +'</div>';
+  
+  if(S.reportLoading){
+    h+='<div class="empty"><span class="spin"></span> Hesablanir...</div>';
+    return h;
+  }
+  
+  if(!S.reportData){
+    h+='<div class="empty">Ay seçib "Hesabla" düyməsinə basın</div>';
+    return h;
+  }
+  
+  var d=S.reportData;
+  var instList=Object.values(d.instData).filter(function(x){return x.sessions>0;});
+  instList.sort(function(a,b){return b.commission-a.commission;});
+  
+  var totalComm=instList.reduce(function(s,x){return s+x.commission;},0);
+  var totalGross=instList.reduce(function(s,x){return s+x.gross;},0);
+  
+  // Summary
+  h+='<div class="sgrid" style="grid-template-columns:repeat(3,1fr)">'
+    +'<div class="scard"><div class="snum">'+d.totalAtts+'</div><div class="slbl">Ümumi iştirak</div></div>'
+    +'<div class="scard"><div class="snum">'+Math.round(totalGross)+' ₼</div><div class="slbl">Ümumi gəlir (dərslər üzrə)</div></div>'
+    +'<div class="scard"><div class="snum">'+Math.round(totalComm)+' ₼</div><div class="slbl">Ümumi trener haqqı</div></div>'
+    +'</div>';
+  
+  if(!instList.length){
+    h+='<div class="empty">Bu ay üçün məlumat yoxdur</div>';
+    return h;
+  }
+  
+  // Per instructor table
+  h+='<div class="slabel">TRENER ÜZRƏ DETALLAR</div>';
+  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;overflow:hidden">';
+  h+='<div style="display:grid;grid-template-columns:1fr 60px 100px 60px 110px;padding:10px 14px;background:#f8faf8;font-size:11px;font-weight:600;color:#888;letter-spacing:.4px">'
+    +'<div>TRENER</div><div style="text-align:right">DƏRS</div><div style="text-align:right">ÜMUMI MƏBLƏĞ</div><div style="text-align:right">FAİZ</div><div style="text-align:right">HAQQQ</div>'
+    +'</div>';
+  
+  for(var i=0;i<instList.length;i++){
+    var ins=instList[i];
+    var bg=i%2===0?'#fff':'#fafcfa';
+    h+='<div style="display:grid;grid-template-columns:1fr 60px 100px 60px 110px;padding:11px 14px;background:'+bg+';border-top:1px solid #f0f0f0;font-size:13px;align-items:center">'
+      +'<div style="font-weight:500">'+ins.name+'</div>'
+      +'<div style="text-align:right;color:#666">'+ins.sessions+'</div>'
+      +'<div style="text-align:right;color:#666">'+Math.round(ins.gross)+' ₼</div>'
+      +'<div style="text-align:right;color:#666">'+ins.pct+'%</div>'
+      +'<div style="text-align:right;font-weight:600;color:#0F6E56">'+Math.round(ins.commission)+' ₼</div>'
+      +'</div>';
+  }
+  
+  // Total row
+  h+='<div style="display:grid;grid-template-columns:1fr 60px 100px 60px 110px;padding:11px 14px;background:#E8F5EE;border-top:2px solid #b2dfc8;font-size:13px;font-weight:700">'
+    +'<div>CƏMİ</div>'
+    +'<div style="text-align:right">'+instList.reduce(function(s,x){return s+x.sessions;},0)+'</div>'
+    +'<div style="text-align:right">'+Math.round(totalGross)+' ₼</div>'
+    +'<div></div>'
+    +'<div style="text-align:right;color:#0F6E56">'+Math.round(totalComm)+' ₼</div>'
+    +'</div>';
+  
+  h+='</div>';
+  return h;
+}
 function rAdmin(){
   var h='<div class="ph"><div class="pt">Admin Panel</div></div>';
   h+='<div class="slabel">PROQRAMLAR</div>';
@@ -582,14 +718,31 @@ function rAdmin(){
   for(var i=0;i<allInst.length;i++){
     var ins=allInst[i];
     var act=ins.is_active!==false;
+    var pct=ins.commission_pct||30;
     h+='<div class="attitem">'
-      +'<div style="font-size:13px;font-weight:600">'+ins.full_name+'</div>'
-      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<div><div style="font-size:13px;font-weight:600">'+ins.full_name+'</div>'
+      +'<div style="font-size:11px;color:#888">Komissiya: '+pct+'%</div></div>'
+      +'<div style="display:flex;align-items:center;gap:6px">'
+      +'<input type="number" min="1" max="100" value="'+pct+'" id="pct-'+ins.id+'" style="width:60px;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-size:12px;text-align:center">'
+      +'<button class="btn btn-gray btn-sm" onclick="saveInstPct(\''+ins.id+'\')">Saxla</button>'
       +'<span class="badge '+(act?'b-green':'b-gray')+'">'+(act?'Aktiv':'Deaktiv')+'</span>'
       +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleInst(\''+ins.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
       +'</div></div>';
   }
   return h;
+}
+
+async function saveInstPct(id){
+  var inp=document.getElementById('pct-'+id);
+  if(!inp)return;
+  var pct=parseFloat(inp.value)||30;
+  try{
+    await dbPatch('instructors','id=eq.'+id,{commission_pct:pct});
+    var all=D._allInstructors||D.instructors;
+    for(var i=0;i<all.length;i++){if(all[i].id===id){all[i].commission_pct=pct;break;}}
+    D._allInstructors=all;
+    alert('Saxlandı: '+pct+'%');
+  }catch(e){alert('Xeta: '+e.message);}
 }
 async function toggleProg(id,val){
   try{
