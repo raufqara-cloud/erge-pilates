@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,search:'',custTab:'all'};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all'};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -269,6 +269,8 @@ function render(){
   if(S.showAddSub)h+=rModalAddSub();
   if(S.showAtt)h+=rModalAtt();
   if(S.showFreeze)h+=rModalFreeze();
+  if(S.editSub)h+=rModalEditSub();
+  if(S.showSingleAtt)h+=rModalSingleAtt();
   if(S.showAlert)h+=rAlertModal();
   root.innerHTML=h;
 }
@@ -333,9 +335,12 @@ function rAtt(){
     if(frozen||done){
       h+='<span class="badge b-gray">'+(done?'Qeydə alindi':'Dondurulub')+'</span>';
     }else if(st.t==='none'||st.t==='exp'){
-      h+='<span class="badge b-red">Abunəlik lazimdir</span>';
+      h+='<button class="btn btn-b btn-sm" '+(S.saving?'disabled':'')+' onclick="event.stopPropagation();openSingleAtt(\''+c.id+'\')">+ Tək giriş</button>';
+      if(st.t==='exp'){h+='<button class="btn btn-g btn-sm" '+(S.saving?'disabled':'')+' onclick="event.stopPropagation();openAtt(\''+c.id+'\')">+ Abunə ilə</button>';}
+    }else if(sub&&['ROF','RPP','RPS','ROTG','ROTI'].indexOf(sub.program_id)>=0){
+      h+='<button class="btn btn-g btn-sm" '+(S.saving?'disabled':'')+' onclick="event.stopPropagation();openAtt(\''+c.id+'\')">+ İştirak</button>';
     }else{
-      h+='<button class="btn btn-g btn-sm" '+(S.saving?'disabled':'')+' onclick="event.stopPropagation();openAtt(\''+c.id+'\')">+ Istirak</button>';
+      h+='<button class="btn btn-g btn-sm" '+(S.saving?'disabled':'')+' onclick="event.stopPropagation();openAtt(\''+c.id+'\')">+ İştirak</button>';
     }
     h+='</div></div>';
   }
@@ -578,6 +583,139 @@ async function toggleInst(id,val){
     D.instructors=all.filter(function(x){return x.is_active!==false;});
     render();
   }catch(e){alert('Xeta: '+e.message);}
+}
+
+
+function openSingleAtt(custId){S.singleCust=custId;S.showSingleAtt=true;render();}
+
+function rModalSingleAtt(){
+  var c=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.singleCust){c=D.customers[i];break;}}
+  if(!c)return'';
+  var singleProgs=['ROF','RPP','RPS','ROTG','ROTI'];
+  var progOpts='';
+  for(var i=0;i<D.programs.length;i++){
+    var p=D.programs[i];
+    if(!p.is_active)continue;
+    if(singleProgs.indexOf(p.id)<0)continue;
+    progOpts+='<option value="'+p.id+'" data-price="'+p.list_price+'">'+p.name+' — '+p.list_price+' AZN</option>';
+  }
+  var tOpts='';for(var i=0;i<TIMES.length;i++)tOpts+='<option value="'+TIMES[i]+'">'+TIMES[i]+'</option>';
+  var iOpts='';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
+  var firstPrice=D.programs.filter(function(p){return p.is_active&&singleProgs.indexOf(p.id)>=0;})[0];
+  var defPrice=firstPrice?firstPrice.list_price:0;
+  return '<div class="ov" onclick="S.showSingleAtt=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">Tək Giriş Qeydiyyatı</div>'
+    +'<div style="background:#f8faf8;border-radius:9px;padding:10px 12px;margin-bottom:14px">'
+    +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
+    +'<div style="font-size:14px;font-weight:700">'+c.name+'</div></div>'
+    +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="updateSinglePrice()">'+progOpts+'</select></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="sa-time">'+tOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="sa-inst">'+iOpts+'</select></div>'
+    +'</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Ödənilməli (AZN)</label><input class="fi" id="sa-due" type="number" value="'+defPrice+'" readonly style="background:#f5f5f5"></div>'
+    +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="sa-paid" type="number" value="'+defPrice+'"></div>'
+    +'</div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showSingleAtt=false;render()">Legv et</button>'
+    +'<button class="btn btn-g" onclick="submitSingleAtt()">Qeydə al</button></div>'
+    +'</div></div>';
+}
+
+function updateSinglePrice(){
+  var sel=document.getElementById('sa-prog');
+  if(!sel)return;
+  var prog=null;
+  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sel.value){prog=D.programs[i];break;}}
+  if(prog){
+    var due=document.getElementById('sa-due');
+    var paid=document.getElementById('sa-paid');
+    if(due)due.value=prog.list_price;
+    if(paid)paid.value=prog.list_price;
+  }
+}
+
+async function submitSingleAtt(){
+  var progId=document.getElementById('sa-prog').value;
+  var time=document.getElementById('sa-time').value;
+  var instId=document.getElementById('sa-inst').value;
+  var due=parseFloat(document.getElementById('sa-due').value)||0;
+  var paid=parseFloat(document.getElementById('sa-paid').value)||0;
+  if(!progId||!time||!instId||!S.singleCust)return;
+  S.saving=true;render();
+  try{
+    var c=null,inst=null,prog=null;
+    for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.singleCust){c=D.customers[i];break;}}
+    for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
+    for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){prog=D.programs[i];break;}}
+    var att={id:uid(),customer_id:S.singleCust,customer_name:c.name,
+      subscription_id:null,
+      program_id:progId,program_name:prog.name,
+      class_date:td(),class_time:time,
+      instructor_id:instId,instructor_name:inst?inst.full_name:'',
+      price_due:due,price_paid:paid};
+    await dbPost('attendances',att);
+    D.attendances.unshift(att);
+    S.showSingleAtt=false;
+    S.showAlert={t:'ok',cust:c,st:{t:'ok',txt:'Tək giriş qeydə alindi'}};
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+function openEditSub(subId){S.editSub=subId;render();}
+
+function rModalEditSub(){
+  var sub=null;
+  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===S.editSub){sub=D.subscriptions[i];break;}}
+  if(!sub)return'';
+  var due=sub.price_due||sub.price_paid||0;
+  var paid=sub.price_paid||0;
+  return '<div class="ov" onclick="S.editSub=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">✏ Abunəlik Düzəliş</div>'
+    +'<div style="background:#f8faf8;border-radius:9px;padding:10px 12px;margin-bottom:14px">'
+    +'<div style="font-size:13px;font-weight:600">'+sub.program_name+'</div></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Başlama tarixi</label><input class="fi" id="es-start" type="date" value="'+sub.start_date+'"></div>'
+    +'<div class="fg"><label class="fl">Bitmə tarixi</label><input class="fi" id="es-end" type="date" value="'+sub.end_date+'"></div>'
+    +'</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Ödənilməli (AZN)</label><input class="fi" id="es-due" type="number" value="'+due+'"></div>'
+    +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="es-paid" type="number" value="'+paid+'"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Qalan dərs sayı</label><input class="fi" id="es-remaining" type="number" value="'+sub.remaining+'" min="0" max="'+sub.sessions_total+'"></div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.editSub=null;render()">Legv et</button>'
+    +'<button class="btn btn-g" onclick="submitEditSub()">Saxla</button></div>'
+    +'</div></div>';
+}
+
+async function submitEditSub(){
+  var start=document.getElementById('es-start').value;
+  var end=document.getElementById('es-end').value;
+  var due=parseFloat(document.getElementById('es-due').value)||0;
+  var paid=parseFloat(document.getElementById('es-paid').value)||0;
+  var remaining=parseInt(document.getElementById('es-remaining').value)||0;
+  if(!start||!end||!S.editSub)return;
+  S.saving=true;render();
+  try{
+    await dbPatch('subscriptions','id=eq.'+S.editSub,{
+      start_date:start,end_date:end,
+      price_due:due,price_paid:paid,remaining:remaining,
+      is_active:true
+    });
+    for(var i=0;i<D.subscriptions.length;i++){
+      if(D.subscriptions[i].id===S.editSub){
+        D.subscriptions[i].start_date=start;
+        D.subscriptions[i].end_date=end;
+        D.subscriptions[i].price_due=due;
+        D.subscriptions[i].price_paid=paid;
+        D.subscriptions[i].remaining=remaining;
+        D.subscriptions[i].is_active=true;
+        break;
+      }
+    }
+    S.editSub=null;
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
 }
 function submitCust(){
   var n=document.getElementById('m-name').value.trim();
