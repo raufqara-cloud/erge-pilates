@@ -590,30 +590,43 @@ async function fetchReport(month){
       };
     }
     
+    var cutoff='2026-01-01';
+    var singleProgs=['ROF','RPS','RPP','ROTG','ROTI'];
+    
     for(var i=0;i<atts.length;i++){
       var a=atts[i];
       if(!a.instructor_id||!instData[a.instructor_id])continue;
       
-      // Find subscription to get price and sessions_total
-      var subPrice=0;
-      var subSessions=1;
-      if(a.subscription_id){
+      var prog=progMap[a.program_id];
+      var perSession=0;
+      
+      // Single-session programs: list_price * commission (no division)
+      if(singleProgs.indexOf(a.program_id)>=0){
+        perSession=prog?prog.list_price||0:0;
+      } else if(a.subscription_id){
+        // Find subscription
+        var sub=null;
         for(var j=0;j<D.subscriptions.length;j++){
-          if(D.subscriptions[j].id===a.subscription_id){
-            var sub=D.subscriptions[j];
-            // Use price_due if available, else price_paid
-            subPrice=sub.price_due||sub.price_paid||0;
-            subSessions=sub.sessions_total||1;
-            break;
+          if(D.subscriptions[j].id===a.subscription_id){sub=D.subscriptions[j];break;}
+        }
+        if(sub){
+          var subSessions=sub.sessions_total||1;
+          // Before 2026-01-01: use price_paid; from 2026-01-01: use list_price
+          if(a.class_date<cutoff){
+            perSession=(sub.price_paid||0)/subSessions;
+          } else {
+            perSession=prog?(prog.list_price||0)/subSessions:0;
           }
         }
       } else {
-        // Single entry - use program list price
-        var prog=progMap[a.program_id];
-        if(prog){subPrice=prog.list_price||0;subSessions=1;}
+        // No subscription - use list_price
+        if(a.class_date<cutoff){
+          perSession=0; // arxiv, no price info
+        } else {
+          perSession=prog?prog.list_price||0:0;
+        }
       }
       
-      var perSession=subSessions>0?subPrice/subSessions:0;
       var inst=instData[a.instructor_id];
       inst.sessions+=1;
       inst.gross+=perSession;
