@@ -191,16 +191,18 @@ async function doAddCust(name,phone,birth){
   S.saving=false;render();
 }
 
-async function doAddSub(custId,progId,pricePaid){
+async function doAddSub(custId,progId,priceDue,pricePaid,startDate){
   S.saving=true;render();
   try{
     var prog=null;
     for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){prog=D.programs[i];break;}}
-    var end=addDays(td(),prog.duration_days);
+    var sd=startDate||td();
+    var end=addDays(sd,prog.duration_days);
     var sub={id:uid(),customer_id:custId,program_id:progId,program_name:prog.name,
       sessions_total:prog.sessions_total,remaining:prog.sessions_total,
-      price_paid:parseFloat(pricePaid)||prog.list_price,
-      start_date:td(),end_date:end,is_partner:prog.is_partner,is_active:true,freeze_end:null};
+      price_due:parseFloat(priceDue)||prog.list_price,
+      price_paid:parseFloat(pricePaid)||0,
+      start_date:sd,end_date:end,is_partner:prog.is_partner,is_active:true,freeze_end:null};
     await dbPost('subscriptions',sub);
     D.subscriptions.unshift(sub);
     S.showAddSub=false;
@@ -449,17 +451,24 @@ function rModalAddCust(){
 
 function rModalAddSub(){
   var opts='';
+  var firstActive=null;
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
     if(!p.is_active)continue;
+    if(!firstActive)firstActive=p;
     opts+='<option value="'+p.id+'">'+p.name+' — '+p.list_price+' AZN ('+p.sessions_total+' ders, '+p.duration_days+' gun)</option>';
   }
-  var defP=D.programs.length?D.programs[0].list_price:'';
+  var defP=firstActive?firstActive.list_price:'';
+  var todayVal=td();
   return '<div class="ov" onclick="S.showAddSub=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Abunəlik Əlavə Et</div>'
     +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="m-prog" onchange="updatePrice()">'+opts+'</select></div>'
-    +'<div class="fg"><label class="fl">Odənilən məbləğ (AZN)</label><input class="fi" id="m-price" type="number" value="'+defP+'"></div>'
-    +'<div style="font-size:12px;color:#888;margin-top:-6px;margin-bottom:10px" id="m-phint">Siyahi qiymeti: '+defP+' AZN</div>'
+    +'<div class="fg"><label class="fl">Başlama tarixi *</label><input class="fi" id="m-startdate" type="date" value="'+todayVal+'"></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Ödənilməli (AZN)</label><input class="fi" id="m-price-due" type="number" value="'+defP+'" readonly style="background:#f5f5f5"></div>'
+    +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="m-price-paid" type="number" value="'+defP+'"></div>'
+    +'</div>'
+    +'<div style="font-size:12px;color:#1565C0;background:#E3F2FD;padding:7px 10px;border-radius:7px;margin-bottom:10px" id="m-phint">Siyahi qiymeti: '+defP+' AZN</div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddSub=false;render()">Legv et</button>'
     +'<button class="btn btn-g" onclick="submitSub()">Əlavə et</button></div>'
     +'</div></div>';
@@ -579,18 +588,25 @@ function submitCust(){
 }
 function updatePrice(){
   var sel=document.getElementById('m-prog');
+  if(!sel)return;
   var prog=null;
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sel.value){prog=D.programs[i];break;}}
   if(prog){
-    document.getElementById('m-price').value=prog.list_price;
-    document.getElementById('m-phint').textContent='Siyahi qiymeti: '+prog.list_price+' AZN';
+    var due=document.getElementById('m-price-due');
+    var paid=document.getElementById('m-price-paid');
+    var hint=document.getElementById('m-phint');
+    if(due)due.value=prog.list_price;
+    if(paid)paid.value=prog.list_price;
+    if(hint)hint.textContent='Siyahi qiymeti: '+prog.list_price+' AZN';
   }
 }
 function submitSub(){
   var progId=document.getElementById('m-prog').value;
-  var price=document.getElementById('m-price').value;
+  var priceDue=document.getElementById('m-price-due').value;
+  var pricePaid=document.getElementById('m-price-paid').value;
+  var startDate=document.getElementById('m-startdate').value;
   if(!progId||!S.selCust)return;
-  doAddSub(S.selCust,progId,price);
+  doAddSub(S.selCust,progId,priceDue,pricePaid,startDate);
 }
 function openAtt(custId){S.attCust=custId;S.showAtt=true;render();}
 function submitAtt(){
