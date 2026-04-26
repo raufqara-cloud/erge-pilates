@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all'};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -277,7 +277,7 @@ function render(){
 
 function rHome(){
   var ta=[];
-  for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].class_date===td())ta.push(D.attendances[i]);}
+  for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].class_date===viewDate)ta.push(D.attendances[i]);}
   ta.sort(function(a,b){return a.class_time.localeCompare(b.class_time);});
   var ew=[],ex=[];
   for(var i=0;i<D.customers.length;i++){
@@ -285,7 +285,13 @@ function rHome(){
     if(st.t==='warn')ew.push(D.customers[i]);
     if(!activeSub(D.customers[i].id)||st.t==='exp')ex.push(D.customers[i]);
   }
-  var h='<div class="ph"><div class="pt">Bu gun — '+fmt(td())+'</div></div>'
+  var viewDate=S.selDate||td();
+  var isToday=viewDate===td();
+  var h='<div class="ph"><div class="pt">'+(isToday?'Bu gun — '+fmt(td()):fmt(viewDate))+'</div>'
+    +'<div style="display:flex;align-items:center;gap:8px">'
+    +'<input type="date" value="'+viewDate+'" max="'+td()+'" onchange="S.selDate=this.value;render()" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
+    +(isToday?'':'<button class="btn btn-gray btn-sm" onclick="S.selDate=null;render()">Bu gun</button>')
+    +'</div></div>'
     +'<div class="sgrid">'
     +'<div class="scard"><div class="snum">'+ta.length+'</div><div class="slbl">Bugunki istirak</div></div>'
     +'<div class="scard"><div class="snum">'+D.customers.length+'</div><div class="slbl">Mustəri</div></div>'
@@ -294,7 +300,7 @@ function rHome(){
   if(ex.length)h+='<div class="al al-r">'+ex.length+' mustərinin aktiv abunəliyi yoxdur</div>';
   if(ew.length)h+='<div class="al al-y">Az ders qalan: '+ew.map(function(c){return c.name;}).join(', ')+'</div>';
   h+='<div class="slabel">BU GUN ISTIRAK ETDILER</div>';
-  if(!ta.length)h+='<div class="empty">Hələ heç kim qeydiyyatdan keçməyib</div>';
+  if(!ta.length)h+='<div class="empty">'+(isToday?'Hələ heç kim qeydiyyatdan keçməyib':fmt(viewDate)+' tarixində iştirak yoxdur')+'</div>';
   for(var i=0;i<ta.length;i++){
     var a=ta[i];
     h+='<div class="attitem"><div><div style="font-size:11px;color:#aaa;font-weight:500">'+a.customer_id+'</div>'
