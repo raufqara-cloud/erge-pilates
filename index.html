@@ -452,11 +452,14 @@ function rDetail(){
   }
   h+='<div class="slabel">SON ISTIRAKLAR ('+atts.length+')</div>';
   if(!atts.length)h+='<div class="empty" style="padding:14px">Hələ istirak yoxdur</div>';
-  for(var i=0;i<Math.min(20,atts.length);i++){
+  for(var i=0;i<Math.min(50,atts.length);i++){
     var a=atts[i];
     h+='<div class="attitem"><div><div style="font-size:13px;font-weight:500">'+fmt(a.class_date)+' - '+a.class_time+'</div>'
       +'<div style="font-size:11px;color:#aaa">'+a.instructor_name+' - '+a.program_name+'</div></div>'
-      +'<span class="badge b-green" style="font-size:11px">'+a.class_time+'</span></div>';
+      +'<div style="display:flex;align-items:center;gap:6px">'
+      +'<span class="badge b-green" style="font-size:11px">'+a.class_time+'</span>'
+      +'<button class="btn btn-gray btn-sm" style="color:#C62828;font-size:11px;padding:3px 8px" onclick="deleteAtt(\''+a.id+'\',\''+a.subscription_id+'\',\''+a.class_date+'\')">✕</button>'
+      +'</div></div>';
   }
   return h;
 }
@@ -682,6 +685,32 @@ async function submitSingleAtt(){
     D.attendances.unshift(att);
     S.showSingleAtt=false;
     S.showAlert={t:'ok',cust:c,st:{t:'ok',txt:'Tək giriş qeydə alindi'}};
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function deleteAtt(attId, subId, attDate){
+  if(!confirm(attDate+' tarixli məşqi silmək istədiyinizdən əminsinizmi?\nAbunəlik qalığı avtomatik +1 artacaq.'))return;
+  S.saving=true;render();
+  try{
+    // Delete attendance
+    var r=await fetch(BASE+'/attendances?id=eq.'+attId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(!r.ok)throw new Error(await r.text());
+    
+    // Remove from local data
+    D.attendances=D.attendances.filter(function(a){return a.id!==attId;});
+    
+    // If has subscription, restore remaining +1
+    if(subId&&subId!=='null'){
+      var sub=null;
+      for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
+      if(sub){
+        var newRem=sub.remaining+1;
+        await dbPatch('subscriptions','id=eq.'+subId,{remaining:newRem});
+        sub.remaining=newRem;
+      }
+    }
+    S.showAlert={t:'ok',cust:{name:'Məşq silindi'},st:{t:'ok',txt:'Abunəlik qalığı +1 artırıldı'}};
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
