@@ -219,7 +219,7 @@ async function doAddSub(custId,progId,priceDue,pricePaid,startDate){
   S.saving=false;render();
 }
 
-async function doAtt(custId,subId,classTime,instId){
+async function doAtt(custId,subId,classTime,instId,attDate){
   S.saving=true;render();
   try{
     var cust=null,sub=null,inst=null;
@@ -228,7 +228,7 @@ async function doAtt(custId,subId,classTime,instId){
     for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
     var att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
       program_id:sub.program_id,program_name:sub.program_name,
-      class_date:td(),class_time:classTime,
+      class_date:attDate||td(),class_time:classTime,
       instructor_id:instId,instructor_name:inst?inst.full_name:''};
     await dbPost('attendances',att);
     D.attendances.unshift(att);
@@ -513,6 +513,7 @@ function rModalAtt(){
     +'<div style="font-size:14px;font-weight:700">'+c.name+'</div>'
     +'<div style="font-size:12px;color:#1D9E75;margin-top:2px">'+(sub?sub.program_name:'')+'</div></div>'
     +'<div class="fi-row">'
+     +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="m-attdate" type="date" value="'+td()+'"></div>'
     +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="m-time">'+tOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Instruktor *</label><select class="fs" id="m-inst">'+iOpts+'</select></div>'
     +'</div>'
@@ -630,6 +631,7 @@ function rModalSingleAtt(){
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:14px;font-weight:700">'+c.name+'</div></div>'
     +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="updateSinglePrice()">'+progOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sa-date" type="date" value="'+td()+'"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="sa-time">'+tOpts+'</select></div>'
     +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="sa-inst">'+iOpts+'</select></div>'
@@ -658,6 +660,7 @@ function updateSinglePrice(){
 
 async function submitSingleAtt(){
   var progId=document.getElementById('sa-prog').value;
+  var saDate=document.getElementById('sa-date')?document.getElementById('sa-date').value:td();
   var time=document.getElementById('sa-time').value;
   var instId=document.getElementById('sa-inst').value;
   var due=parseFloat(document.getElementById('sa-due').value)||0;
@@ -672,7 +675,7 @@ async function submitSingleAtt(){
     var att={id:uid(),customer_id:S.singleCust,customer_name:c.name,
       subscription_id:null,
       program_id:progId,program_name:prog.name,
-      class_date:td(),class_time:time,
+      class_date:saDate||td(),class_time:time,
       instructor_id:instId,instructor_name:inst?inst.full_name:'',
       price_due:due,price_paid:paid};
     await dbPost('attendances',att);
@@ -768,6 +771,7 @@ function submitSub(){
 }
 function openAtt(custId){S.attCust=custId;S.showAtt=true;render();}
 function submitAtt(){
+  var attDate=document.getElementById('m-attdate')?document.getElementById('m-attdate').value:td();
   var time=document.getElementById('m-time').value;
   var inst=document.getElementById('m-inst').value;
   if(!time||!inst||!S.attCust)return;
@@ -776,7 +780,7 @@ function submitAtt(){
     var c=null;for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.attCust){c=D.customers[i];break;}}
     S.showAtt=false;S.showAlert={t:'block',cust:c,st:{}};render();return;
   }
-  doAtt(S.attCust,sub.id,time,inst);
+  doAtt(S.attCust,sub.id,time,inst,attDate);
 }
 function openFreeze(subId){S.freezeSub=subId;S.showFreeze=true;render();}
 function updFP(){
