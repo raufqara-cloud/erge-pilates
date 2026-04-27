@@ -716,7 +716,7 @@ function getSlotExceptions(day, time, dateStr){
     var ex=S.bronExceptions[i];
     if(ex.exception_date!==dateStr)continue;
     if(ex.type==='absent'&&bids.indexOf(ex.booking_id)>=0)absents.push(ex);
-    if(ex.type==='temp_add'&&ex.exception_date===dateStr)temps.push(ex);
+    if(ex.type==='temp_add'&&ex.day_of_week===day&&ex.time_slot===time)temps.push(ex);
   }
   return{absents:absents,temps:temps};
 }
@@ -973,7 +973,9 @@ async function submitAddBron(){
       var eid='EX'+Date.now();
       var ex={id:eid,booking_id:null,exception_date:S.selBronDate||td(),
         type:'temp_add',temp_customer_id:custId,
-        temp_customer_name:cust?cust.name:'',note:note||null};
+        temp_customer_name:cust?cust.name:'',
+        day_of_week:S.selBronDay,time_slot:S.selBronTime,
+        note:note||null};
       await dbPost('booking_exceptions',ex);
       if(!S.bronExceptions)S.bronExceptions=[];
       S.bronExceptions.push(ex);
