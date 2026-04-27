@@ -580,87 +580,74 @@ function rAlertModal(){
 async function fetchReport(month){
   S.reportLoading=true;S.reportData=null;render();
   try{
-    // Get all attendances for the month
-    var atts=await dbGet('attendances','class_date=gte.'+month+'-01&class_date=lte.'+month+'-31&order=class_date');
-    // Get programs for prices
-    var progMap={};
-    for(var i=0;i<D.programs.length;i++){progMap[D.programs[i].id]=D.programs[i];}
-    // Get all instructors (including commission)
     var allInst=D._allInstructors||D.instructors;
     var instMap={};
     for(var i=0;i<allInst.length;i++){instMap[allInst[i].id]=allInst[i];}
+
+    // Fetch attendances WITH subscription and program data joined via separate queries
+    var atts=await dbGet('attendances','class_date=gte.'+month+'-01&class_date=lte.'+month+'-31&order=class_date');
     
-    // Calculate per instructor
+    // Fetch ALL subscriptions referenced in these attendances
+    var subIds=[...new Set(atts.filter(function(a){return a.subscription_id;}).map(function(a){return a.subscription_id;}))];
+    var subMap={};
+    // Fetch in batches of 100
+    for(var b=0;b<subIds.length;b+=100){
+      var batch=subIds.slice(b,b+100);
+      var subs=await dbGet('subscriptions','id=in.('+batch.join(',')+')'+'&select=id,price_paid,sessions_total,program_id');
+      for(var i=0;i<subs.length;i++){subMap[subs[i].id]=subs[i];}
+    }
+
+    var progMap={};
+    for(var i=0;i<D.programs.length;i++){progMap[D.programs[i].id]=D.programs[i];}
+
     var instData={};
     for(var i=0;i<allInst.length;i++){
       instData[allInst[i].id]={
         name:allInst[i].full_name,
         pct:allInst[i].commission_pct||30,
-        sessions:0,
-        gross:0,
-        commission:0
+        sessions:0,gross:0,commission:0,days:{}
       };
     }
-    
+
     var cutoff='2026-01-01';
     var singleProgs=['ROF','RPS','RPP','ROTG','ROTI'];
-    
+
     for(var i=0;i<atts.length;i++){
       var a=atts[i];
       if(!a.instructor_id||!instData[a.instructor_id])continue;
-      
       var prog=progMap[a.program_id];
       var perSession=0;
-      
-      // Single-session programs: list_price * commission (no division)
+
       if(singleProgs.indexOf(a.program_id)>=0){
         perSession=prog?prog.list_price||0:0;
-      } else if(a.subscription_id){
-        // Find subscription
-        var sub=null;
-        for(var j=0;j<D.subscriptions.length;j++){
-          if(D.subscriptions[j].id===a.subscription_id){sub=D.subscriptions[j];break;}
-        }
-        if(sub){
-          var subSessions=sub.sessions_total||1;
-          // Before 2026-01-01: use price_paid; from 2026-01-01: use list_price
-          if(a.class_date<cutoff){
-            perSession=(sub.price_paid||0)/subSessions;
-          } else {
-            perSession=prog?(prog.list_price||0)/subSessions:0;
-          }
+      } else if(a.subscription_id&&subMap[a.subscription_id]){
+        var sub=subMap[a.subscription_id];
+        var subSessions=sub.sessions_total||1;
+        if(a.class_date<cutoff){
+          perSession=(sub.price_paid||0)/subSessions;
+        } else {
+          perSession=prog?(prog.list_price||0)/subSessions:0;
         }
       } else {
-        // No subscription - use list_price divided by program's sessions_total
-        // (müştəri abunəliyi bitib amma məşqə gəlib)
         if(a.class_date<cutoff){
           perSession=0;
-        } else {
-          if(prog){
-            var progSessions=prog.sessions_total||1;
-            // Single session programs
-            if(singleProgs.indexOf(a.program_id)>=0){
-              perSession=prog.list_price||0;
-            } else {
-              perSession=(prog.list_price||0)/progSessions;
-            }
-          }
+        } else if(prog){
+          var pSess=singleProgs.indexOf(a.program_id)>=0?1:(prog.sessions_total||1);
+          perSession=(prog.list_price||0)/pSess;
         }
       }
-      
+
       var inst=instData[a.instructor_id];
       inst.sessions+=1;
       inst.gross+=perSession;
       inst.commission+=perSession*(inst.pct/100);
-      // Daily breakdown
-      if(!inst.days)inst.days={};
-      var dayKey=a.class_date;
-      if(!inst.days[dayKey])inst.days[dayKey]={sessions:0,gross:0,commission:0};
-      inst.days[dayKey].sessions+=1;
-      inst.days[dayKey].gross+=perSession;
-      inst.days[dayKey].commission+=perSession*(inst.pct/100);
+      var dk=a.class_date;
+      if(!inst.days[dk])inst.days[dk]={sessions:0,gross:0,commission:0};
+      inst.days[dk].sessions+=1;
+      inst.days[dk].gross+=perSession;
+      inst.days[dk].commission+=perSession*(inst.pct/100);
     }
-    
+
     S.reportData={month:month,instData:instData,totalAtts:atts.length};
   }catch(e){alert('Hesabat xetasi: '+e.message);}
   S.reportLoading=false;render();
