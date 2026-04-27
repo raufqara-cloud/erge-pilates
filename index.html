@@ -673,9 +673,31 @@ function rReport(){
   
   var h='<div class="ph"><div class="pt">Hesabat — Trener Əmək Haqqı</div></div>';
   
-  // Month selector
-  h+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">'
-    +'<input type="month" value="'+S.reportMonth+'" max="'+curMonth+'" onchange="S.reportMonth=this.value;S.reportData=null;render()" style="padding:7px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
+  // Year/Month selector
+  var curYear=now.getFullYear();
+  var years=[];
+  for(var y=2023;y<=curYear;y++)years.push(y);
+  var selYear=S.reportMonth?parseInt(S.reportMonth.split('-')[0]):curYear;
+  var months=[
+    {v:'01',n:'Yanvar'},{v:'02',n:'Fevral'},{v:'03',n:'Mart'},
+    {v:'04',n:'Aprel'},{v:'05',n:'May'},{v:'06',n:'İyun'},
+    {v:'07',n:'İyul'},{v:'08',n:'Avqust'},{v:'09',n:'Sentyabr'},
+    {v:'10',n:'Oktyabr'},{v:'11',n:'Noyabr'},{v:'12',n:'Dekabr'}
+  ];
+  var selMon=S.reportMonth?S.reportMonth.split('-')[1]:'01';
+  
+  var yearOpts='';
+  for(var i=0;i<years.length;i++){
+    yearOpts+='<option value="'+years[i]+'"'+(years[i]===selYear?' selected':'')+'>'+years[i]+'</option>';
+  }
+  var monOpts='';
+  for(var i=0;i<months.length;i++){
+    monOpts+='<option value="'+months[i].v+'"'+(months[i].v===selMon?' selected':'')+'>'+months[i].n+'</option>';
+  }
+  
+  h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">'
+    +'<select class="fs" style="width:100px" id="rep-year" onchange="S.reportMonth=document.getElementById(\'rep-year\').value+\'-\'+document.getElementById(\'rep-mon\').value;S.reportData=null;render()">'+yearOpts+'</select>'
+    +'<select class="fs" style="width:130px" id="rep-mon" onchange="S.reportMonth=document.getElementById(\'rep-year\').value+\'-\'+document.getElementById(\'rep-mon\').value;S.reportData=null;render()">'+monOpts+'</select>'
     +'<button class="btn btn-g" onclick="fetchReport(S.reportMonth)">Hesabla</button>'
     +'</div>';
   
