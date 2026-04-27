@@ -609,18 +609,19 @@ async function fetchIzleme(){
   if(S.izlemeData)return;
   S.izlemeLoading=true;render();
   try{
+    var singleProgs=['ROF','RPS','RPP','ROTG','ROTI'];
     var today=td();
     var day7=addDays(today,-7);
     var day30=addDays(today,-30);
 
     // 1. All active subscriptions
-    var activeSubs=await dbGet('subscriptions','is_active=eq.true&order=end_date');
-    // 2. All subscriptions with debt
-    var debtSubs=await dbGet('subscriptions','is_active=eq.true');
+    var activeSubs=await dbGet('subscriptions','is_active=eq.true&order=end_date&select=id,customer_id,program_id,end_date,remaining,sessions_total,price_paid,price_due,is_partner,is_active');
+    // 2. Debt subs handled via activeSubs
+    var debtSubs=activeSubs;
     // 3. Recent attendances (last 30 days)
     var recentAtts=await dbGet('attendances','class_date=gte.'+day30+'&order=class_date.desc');
     // 4. Expired subs with recent attendance
-    var expiredSubs=await dbGet('subscriptions','is_active=eq.false&end_date=gte.'+day30+'&order=end_date.desc');
+    var expiredSubs=await dbGet('subscriptions','is_active=eq.false&end_date=gte.'+day30+'&order=end_date.desc&select=id,customer_id,program_id,end_date,remaining,sessions_total,price_paid,price_due,is_partner');
 
     // Build last attendance map
     var lastAtt={};
