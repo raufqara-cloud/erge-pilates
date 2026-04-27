@@ -185,6 +185,16 @@ async function loadAll(){
     ]);
     D.programs=res[0];D._allInstructors=res[1];D.instructors=res[1].filter(function(x){return x.is_active!==false;});D.customers=res[2];
     D.subscriptions=res[3];D.attendances=res[4];
+    // Fetch today's attendances separately to avoid 1000-row limit issue
+    try{
+      var todayAtts=await dbGet('attendances','class_date=eq.'+td()+'&order=class_time');
+      // Merge: add today's atts not already in cache
+      var existingIds={};
+      for(var i=0;i<D.attendances.length;i++)existingIds[D.attendances[i].id]=true;
+      for(var i=0;i<todayAtts.length;i++){
+        if(!existingIds[todayAtts[i].id])D.attendances.unshift(todayAtts[i]);
+      }
+    }catch(e){}
   }catch(e){S.err='Verilənlər bazasına qoşulmaq olmadi: '+e.message;}
   S.loading=false;render();
 }
@@ -619,11 +629,20 @@ async function fetchReport(month){
           }
         }
       } else {
-        // No subscription - use list_price
+        // No subscription - use list_price divided by program's sessions_total
+        // (müştəri abunəliyi bitib amma məşqə gəlib)
         if(a.class_date<cutoff){
-          perSession=0; // arxiv, no price info
+          perSession=0;
         } else {
-          perSession=prog?prog.list_price||0:0;
+          if(prog){
+            var progSessions=prog.sessions_total||1;
+            // Single session programs
+            if(singleProgs.indexOf(a.program_id)>=0){
+              perSession=prog.list_price||0;
+            } else {
+              perSession=(prog.list_price||0)/progSessions;
+            }
+          }
         }
       }
       
