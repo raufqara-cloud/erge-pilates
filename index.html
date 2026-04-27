@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -291,6 +291,7 @@ function render(){
   if(S.showAtt)h+=rModalAtt();
   if(S.showFreeze)h+=rModalFreeze();
   if(S.editSub)h+=rModalEditSub();
+  if(S.editCust)h+=rModalEditCust();
   if(S.showSingleAtt)h+=rModalSingleAtt();
   if(S.showAlert)h+=rAlertModal();
   root.innerHTML=h;
@@ -431,7 +432,8 @@ function rDetail(){
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:17px;font-weight:700">'+c.name+'</div>'
     +'<div style="font-size:12px;color:#999">'+c.phone+(c.birth_date?' - '+fmt(c.birth_date):'')+'</div></div>'
-    +'<span class="badge '+bc+'" style="margin-left:auto">'+st.txt+'</span></div>';
+    +'<span class="badge '+bc+'" style="margin-left:auto">'+st.txt+'</span>'
+    +'<button class="btn btn-gray btn-sm" onclick="S.editCust=\''+c.id+'\';render()">✏ Düzəliş</button></div>';
   if(activS&&activS.is_partner){
     var used=0;var cm=curMonth();
     for(var i=0;i<atts.length;i++){if(atts[i].subscription_id===activS.id&&atts[i].class_date.indexOf(cm)===0)used++;}
@@ -929,6 +931,44 @@ async function deleteAtt(attId, subId, attDate){
 }
 function openEditSub(subId){S.editSub=subId;render();}
 
+
+function rModalEditCust(){
+  var c=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.editCust){c=D.customers[i];break;}}
+  if(!c)return'';
+  return '<div class="ov" onclick="S.editCust=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">✏ Müştəri Məlumatları</div>'
+    +'<div style="font-size:11px;color:#aaa;font-weight:600;margin-bottom:12px">'+c.id+'</div>'
+    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="ec-name" value="'+(c.name||'').replace(/"/g,"&quot;")+'"></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="ec-phone" value="'+(c.phone||'')+'" placeholder="+994 50 XXX XX XX"></div>'
+    +'<div class="fg"><label class="fl">Doğum tarixi</label><input class="fi" id="ec-birth" type="date" value="'+(c.birth_date||'')+'"></div>'
+    +'</div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.editCust=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitEditCust()">Saxla</button></div>'
+    +'</div></div>';
+}
+
+async function submitEditCust(){
+  var name=document.getElementById('ec-name').value.trim();
+  var phone=document.getElementById('ec-phone').value.trim();
+  var birth=document.getElementById('ec-birth').value;
+  if(!name||!S.editCust)return;
+  S.saving=true;render();
+  try{
+    await dbPatch('customers','id=eq.'+S.editCust,{name:name,phone:phone||'',birth_date:birth||null});
+    for(var i=0;i<D.customers.length;i++){
+      if(D.customers[i].id===S.editCust){
+        D.customers[i].name=name;
+        D.customers[i].phone=phone||'';
+        D.customers[i].birth_date=birth||null;
+        break;
+      }
+    }
+    S.editCust=null;
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
 function rModalEditSub(){
   var sub=null;
   for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===S.editSub){sub=D.subscriptions[i];break;}}
