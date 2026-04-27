@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronSlot:null,selBronDay:null,selBronTime:null,showAddBron:false,bronWeekOffset:0};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -273,6 +273,7 @@ function render(){
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
     +'<button class="'+(S.view==='admin'?'active':'')+'" onclick="sv(\'admin\')">Admin</button>'
     +'<button class="'+(S.view==='report'?'active':'')+'" onclick="sv(\'report\')">Hesabat</button>'
+    +'<button class="'+(S.view==='bron'?'active':'')+'" onclick="sv(\'bron\')">Bron</button>'
     +'</div></div><div class="content">';
   if(S.err)h+='<div class="errbox">'+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yeniden cehd et</button></div>';
   if(S.saving)h+='<div class="al al-b"><span class="spin"></span>Saxlanilir...</div>';
@@ -281,6 +282,7 @@ function render(){
   else if(S.view==='cust')h+=(S.selCust?rDetail():rCusts());
   else if(S.view==='admin')h+=rAdmin();
   else if(S.view==='report')h+=rReport();
+  else if(S.view==='bron')h+=rBron();
   h+='</div>';
   if(S.showAddCust)h+=rModalAddCust();
   if(S.showAddSub)h+=rModalAddSub();
@@ -607,6 +609,204 @@ function rAlertModal(){
 
 
 
+
+var DAYS_AZ=['Bazar ertəsi','Çərşənbə axşamı','Çərşənbə','Cümə axşamı','Cümə','Şənbə'];
+var DAYS_SHORT=['B.e','Ç.a','Çər','C.a','Cüm','Şnb'];
+var MAX_PER_SLOT=8;
+
+async function fetchBron(){
+  if(S.bronData)return;
+  S.bronLoading=true;render();
+  try{
+    var brons=await dbGet('bookings','is_active=eq.true&order=day_of_week,time_slot');
+    S.bronData=brons||[];
+  }catch(e){alert('Xeta: '+e.message);}
+  S.bronLoading=false;render();
+}
+
+async function reloadBron(){
+  S.bronData=null;
+  await fetchBron();
+}
+
+function getBronSlot(day,time){
+  if(!S.bronData)return[];
+  return S.bronData.filter(function(b){return b.day_of_week===day&&b.time_slot===time;});
+}
+
+function rBron(){
+  if(!S.bronData&&!S.bronLoading){fetchBron();}
+  var h='<div class="ph"><div class="pt">Bron Cədvəli</div>'
+    +'<button class="btn btn-gray btn-sm" onclick="reloadBron()">↻ Yenilə</button></div>';
+
+  if(S.bronLoading)return h+'<div class="empty"><span class="spin"></span> Yüklənir...</div>';
+  if(!S.bronData)return h+'<div class="empty">Yüklənir...</div>';
+
+  // Get all unique time slots
+  var times=[];
+  for(var i=0;i<S.bronData.length;i++){
+    if(times.indexOf(S.bronData[i].time_slot)<0)times.push(S.bronData[i].time_slot);
+  }
+  times.sort();
+
+  // Grid
+  var colW='minmax(80px,1fr)';
+  var gridCols='70px '+Array(6).fill(colW).join(' ');
+
+  h+='<div style="overflow-x:auto;margin-bottom:16px">';
+  h+='<div style="min-width:560px">';
+
+  // Header row
+  h+='<div style="display:grid;grid-template-columns:'+gridCols+';gap:3px;margin-bottom:3px">';
+  h+='<div></div>';
+  for(var d=1;d<=6;d++){
+    h+='<div style="text-align:center;font-size:11px;font-weight:700;color:#555;padding:6px 2px;background:#f8faf8;border-radius:6px">'+DAYS_SHORT[d-1]+'</div>';
+  }
+  h+='</div>';
+
+  // Time rows
+  for(var ti=0;ti<times.length;ti++){
+    var time=times[ti];
+    h+='<div style="display:grid;grid-template-columns:'+gridCols+';gap:3px;margin-bottom:3px">';
+    // Time label
+    h+='<div style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#888;padding:4px">'+time+'</div>';
+    for(var d=1;d<=6;d++){
+      var slot=getBronSlot(d,time);
+      var count=slot.length;
+      var empty=MAX_PER_SLOT-count;
+      var isSelected=S.selBronDay===d&&S.selBronTime===time;
+      var bg=count===0?'#f8f8f8':count>=MAX_PER_SLOT?'#FFEBEE':count>=6?'#FFF3E0':'#E8F5EE';
+      var border=isSelected?'2px solid #1D9E75':'2px solid transparent';
+      h+='<div style="background:'+bg+';border:'+border+';border-radius:8px;padding:5px 4px;cursor:pointer;min-height:52px" onclick="selBronSlot('+d+',\''+time+'\')">';
+      if(count>0){
+        // Show first 3 names
+        for(var si=0;si<Math.min(3,slot.length);si++){
+          var b=slot[si];
+          var nameDisplay=b.customer_name||'?';
+          // Short name: first word only
+          var shortName=nameDisplay.split(' ')[0];
+          var isPending=!b.customer_id;
+          h+='<div style="font-size:10px;color:'+(isPending?'#E65100':'#1a1a1a')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">'+shortName+'</div>';
+        }
+        if(count>3)h+='<div style="font-size:10px;color:#999">+' +(count-3)+' daha</div>';
+      }
+      if(empty>0&&count>0){
+        h+='<div style="font-size:10px;color:#1D9E75;font-weight:600;margin-top:2px">'+empty+' boş</div>';
+      } else if(count===0){
+        h+='<div style="font-size:11px;color:#ccc;text-align:center;line-height:52px">—</div>';
+      }
+      h+='</div>';
+    }
+    h+='</div>';
+
+    // Expanded slot detail
+    if(S.selBronDay&&S.selBronTime===time){
+      var selSlot=getBronSlot(S.selBronDay,time);
+      var selEmpty=MAX_PER_SLOT-selSlot.length;
+      h+='<div style="background:#f0faf5;border:1px solid #b2dfc8;border-radius:10px;padding:12px;margin:4px 0 8px 0">';
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+      h+='<div style="font-size:13px;font-weight:700">'+DAYS_AZ[S.selBronDay-1]+' '+time+' <span style="color:#888;font-weight:400">'+selSlot.length+'/'+MAX_PER_SLOT+' yer</span></div>';
+      h+=(selEmpty>0?'<button class="btn btn-g btn-sm" onclick="openAddBron('+S.selBronDay+',\''+time+'\')">+ Bron əlavə et</button>':'<span style="font-size:11px;color:#C62828;font-weight:600">Dolu</span>');
+      h+='</div>';
+      for(var si=0;si<selSlot.length;si++){
+        var b=selSlot[si];
+        var isPending=!b.customer_id;
+        var validNote=b.valid_from?' ('+fmt(b.valid_from)+'-dən)':'';
+        h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#fff;border-radius:7px;margin-bottom:4px">';
+        h+='<div>'
+          +'<div style="font-size:13px;font-weight:500;color:'+(isPending?'#E65100':'#1a1a1a')+'">'+( b.customer_name||'Naməlum')+validNote+'</div>'
+          +(b.customer_id?'<div style="font-size:11px;color:#aaa">'+b.customer_id+'</div>':'<div style="font-size:11px;color:#E65100">Manual əlavə gözlənilir</div>')
+          +'</div>';
+        h+='<div style="display:flex;gap:6px">';
+        if(b.type==='temporary')h+='<span class="badge b-blue" style="font-size:10px">Müvəqqəti</span>';
+        h+='<button class="btn btn-gray btn-sm" style="color:#C62828;font-size:11px" onclick="deleteBron(\''+b.id+'\')">✕</button>';
+        h+='</div></div>';
+      }
+      if(selSlot.length===0)h+='<div style="color:#aaa;font-size:13px;text-align:center;padding:10px">Bu slot boşdur</div>';
+      h+='</div>';
+    }
+  }
+
+  h+='</div></div>';
+
+  // Add bron modal
+  if(S.showAddBron)h+=rModalAddBron();
+
+  return h;
+}
+
+function selBronSlot(day,time){
+  if(S.selBronDay===day&&S.selBronTime===time){
+    S.selBronDay=null;S.selBronTime=null;
+  } else {
+    S.selBronDay=day;S.selBronTime=time;
+  }
+  render();
+}
+
+function openAddBron(day,time){
+  S.selBronDay=day;S.selBronTime=time;S.showAddBron=true;render();
+}
+
+function rModalAddBron(){
+  var day=S.selBronDay;
+  var time=S.selBronTime;
+  var custOpts='<option value="">— Müştəri seç —</option>';
+  var sorted=D.customers.slice().sort(function(a,b){return a.name.localeCompare(b.name,'az');});
+  for(var i=0;i<sorted.length;i++){
+    custOpts+='<option value="'+sorted[i].id+'">'+sorted[i].name+'</option>';
+  }
+  return '<div class="ov" onclick="S.showAddBron=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">+ Bron Əlavə Et</div>'
+    +'<div style="background:#f0faf5;border-radius:8px;padding:10px;margin-bottom:14px;font-size:13px">'
+    +DAYS_AZ[day-1]+' — '+time+' | Maks: '+MAX_PER_SLOT+' yer'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Müştəri *</label><select class="fs" id="ab-cust">'+custOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Növ</label>'
+    +'<select class="fs" id="ab-type">'
+    +'<option value="permanent">Daimi bron</option>'
+    +'<option value="temporary">Müvəqqəti</option>'
+    +'</select></div>'
+    +'<div class="fg"><label class="fl">Başlama tarixi (əgər gec başlayırsa)</label><input class="fi" id="ab-from" type="date"></div>'
+    +'<div class="fg"><label class="fl">Bitmə tarixi (müvəqqəti üçün)</label><input class="fi" id="ab-until" type="date"></div>'
+    +'<div class="fg"><label class="fl">Qeyd</label><input class="fi" id="ab-note" placeholder="İstəyə görə"></div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddBron=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitAddBron()">Əlavə et</button></div>'
+    +'</div></div>';
+}
+
+async function submitAddBron(){
+  var custId=document.getElementById('ab-cust').value;
+  var type=document.getElementById('ab-type').value;
+  var from=document.getElementById('ab-from').value;
+  var until=document.getElementById('ab-until').value;
+  var note=document.getElementById('ab-note').value;
+  if(!custId)return alert('Müştəri seçin');
+  var cust=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  S.saving=true;render();
+  try{
+    var bid='BK'+Date.now();
+    var bron={id:bid,customer_id:custId,customer_name:cust?cust.name:'',
+      day_of_week:S.selBronDay,time_slot:S.selBronTime,type:type,
+      valid_from:from||null,valid_until:until||null,
+      note:note||null,is_active:true};
+    await dbPost('bookings',bron);
+    S.bronData.push(bron);
+    S.showAddBron=false;
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function deleteBron(id){
+  if(!confirm('Bu bronu silmək istədiyinizdən əminsinizmi?'))return;
+  S.saving=true;render();
+  try{
+    await fetch(BASE+'/bookings?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    S.bronData=S.bronData.filter(function(b){return b.id!==id;});
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
 async function fetchIzleme(){
   if(S.izlemeData)return;
   S.izlemeLoading=true;render();
