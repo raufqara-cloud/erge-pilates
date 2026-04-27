@@ -425,15 +425,32 @@ function rDetail(){
   for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].customer_id===c.id)atts.push(D.attendances[i]);}
   var activS=activeSub(c.id);var st=subStatus(activS);
   var bc=st.t==='ok'?'b-green':st.t==='warn'?'b-yellow':'b-red';
+  // Stats
+  var totalSubs=subs.length;
+  var totalAtts=atts.length;
+  var activeSubs=subs.filter(function(s){return s.is_active&&s.end_date>=td();}).length;
+
   var h='<button class="back" onclick="S.selCust=null;render()">← Geri</button>'
-    +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">'
+    +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">'
     +'<div class="av" style="width:46px;height:46px;font-size:15px;'+(activS&&activS.is_partner?'background:#EDE7F6;color:#5E35B1':'')+'">'
     +ini(c.name)+'</div><div>'
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:17px;font-weight:700">'+c.name+'</div>'
     +'<div style="font-size:12px;color:#999">'+c.phone+(c.birth_date?' - '+fmt(c.birth_date):'')+'</div></div>'
     +'<span class="badge '+bc+'" style="margin-left:auto">'+st.txt+'</span>'
-    +'<button class="btn btn-gray btn-sm" onclick="S.editCust=\''+c.id+'\';render()">✏ Düzəliş</button></div>';
+    +'<button class="btn btn-gray btn-sm" onclick="S.editCust=\''+c.id+'\';render()">✏ Düzəliş</button></div>'
+    // Stats row
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">'
+    +'<div style="background:#f8faf8;border:1px solid #e8ede8;border-radius:9px;padding:10px;text-align:center">'
+    +'<div style="font-size:20px;font-weight:700;color:#1a1a1a">'+totalSubs+'</div>'
+    +'<div style="font-size:11px;color:#999;margin-top:2px">Ümumi abunəlik</div></div>'
+    +'<div style="background:#f8faf8;border:1px solid #e8ede8;border-radius:9px;padding:10px;text-align:center">'
+    +'<div style="font-size:20px;font-weight:700;color:#1D9E75">'+activeSubs+'</div>'
+    +'<div style="font-size:11px;color:#999;margin-top:2px">Aktiv abunəlik</div></div>'
+    +'<div style="background:#f8faf8;border:1px solid #e8ede8;border-radius:9px;padding:10px;text-align:center">'
+    +'<div style="font-size:20px;font-weight:700;color:#1a1a1a">'+totalAtts+'</div>'
+    +'<div style="font-size:11px;color:#999;margin-top:2px">Ümumi məşq</div></div>'
+    +'</div>';
   if(activS&&activS.is_partner){
     var used=0;var cm=curMonth();
     for(var i=0;i<atts.length;i++){if(atts[i].subscription_id===activS.id&&atts[i].class_date.indexOf(cm)===0)used++;}
@@ -450,6 +467,11 @@ function rDetail(){
     var st2=subStatus(sub);var bc2=st2.t==='ok'?'b-green':st2.t==='warn'?'b-yellow':'b-red';
     var frozen=sub.freeze_end&&sub.freeze_end>=td();
     var pct=sub.is_partner?0:Math.min(100,Math.round((1-sub.remaining/sub.sessions_total)*100));
+    // Count actual attendances for this subscription
+    var subAttCount=0;
+    for(var ai=0;ai<atts.length;ai++){if(atts[ai].subscription_id===sub.id)subAttCount++;}
+    var usedCount=sub.sessions_total-sub.remaining;
+
     h+='<div class="subcard"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">'
       +'<div><div style="font-size:13px;font-weight:600">'+sub.program_name+'</div>'
       +'<div style="font-size:11px;color:#999;margin-top:2px">'+fmt(sub.start_date)+' → '+fmt(sub.end_date)+'</div></div>'
@@ -459,7 +481,13 @@ function rDetail(){
       +(sub.is_active&&!frozen&&st2.t!=='exp'?'<button class="btn btn-gray btn-sm" onclick="openFreeze(\''+sub.id+'\')">Dondur</button>':'')
       +'</div></div>';
     if(!sub.is_partner){
-      h+='<div style="font-size:12px;color:#888">'+sub.remaining+'/'+sub.sessions_total+' ders - '+sub.price_paid+' AZN</div>'
+      var due=sub.price_due||sub.price_paid||0;
+      var paid=sub.price_paid||0;
+      var debtHtml=due>paid?'<span style="color:#C62828;font-weight:600"> | Borc: '+(due-paid)+' ₼</span>':'';
+      h+='<div style="display:flex;justify-content:space-between;align-items:center">'
+        +'<div style="font-size:12px;color:#888">İstifadə: '+usedCount+'/'+sub.sessions_total+' | Qalan: '+sub.remaining+' dərs</div>'
+        +'<div style="font-size:12px;color:#888">'+paid+' ₼ ödənilib'+debtHtml+'</div>'
+        +'</div>'
         +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'" style="width:'+pct+'%"></div></div>';
     }
     h+='</div>';
