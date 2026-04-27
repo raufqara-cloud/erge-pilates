@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -418,11 +418,10 @@ function rDetail(){
   var c=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.selCust){c=D.customers[i];break;}}
   if(!c)return'';
-  var subs=[];
-  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].customer_id===c.id)subs.push(D.subscriptions[i]);}
-  subs.sort(function(a,b){return b.start_date.localeCompare(a.start_date);});
-  var atts=[];
-  for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].customer_id===c.id)atts.push(D.attendances[i]);}
+  // Use fresh DB data if available
+  var subs=S.custDetail?S.custDetail.subs:(function(){var r=[];for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].customer_id===c.id)r.push(D.subscriptions[i]);}return r.sort(function(a,b){return b.start_date.localeCompare(a.start_date);});})();
+  var atts=S.custDetail?S.custDetail.atts:(function(){var r=[];for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].customer_id===c.id)r.push(D.attendances[i]);}return r;})();
+  if(S.custDetailLoading){return '<button class="back" onclick="S.selCust=null;render()">← Geri</button><div class="empty"><span class="spin"></span> Yüklənir...</div>';}
   var activS=activeSub(c.id);var st=subStatus(activS);
   var bc=st.t==='ok'?'b-green':st.t==='warn'?'b-yellow':'b-red';
   // Stats
@@ -969,6 +968,23 @@ async function deleteAtt(attId, subId, attDate){
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
+
+async function fetchCustDetail(custId){
+  try{
+    var res=await Promise.all([
+      dbGet('subscriptions','customer_id=eq.'+custId+'&order=start_date.desc'),
+      dbGet('attendances','customer_id=eq.'+custId+'&order=class_date.desc')
+    ]);
+    S.custDetail={subs:res[0]||[],atts:res[1]||[]};
+    // Update local cache too
+    var existSubIds={};
+    for(var i=0;i<D.subscriptions.length;i++)existSubIds[D.subscriptions[i].id]=true;
+    for(var i=0;i<S.custDetail.subs.length;i++){
+      if(!existSubIds[S.custDetail.subs[i].id])D.subscriptions.push(S.custDetail.subs[i]);
+    }
+  }catch(e){S.custDetail={subs:[],atts:[]};}
+  S.custDetailLoading=false;render();
+}
 function openEditSub(subId){S.editSub=subId;render();}
 
 
@@ -1142,7 +1158,7 @@ function filterCards(q){
     }
   }
 }
-function selCust(id){S.selCust=id;S.search='';render();}
+function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoading=true;render();fetchCustDetail(id);}
 
 loadAll();
 </script>
