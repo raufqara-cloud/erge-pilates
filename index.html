@@ -242,6 +242,7 @@ async function doAtt(custId,subId,classTime,instId,attDate){
       instructor_id:instId,instructor_name:inst?inst.full_name:''};
     await dbPost('attendances',att);
     D.attendances.unshift(att);
+     if(att.class_date===td()&&S.selDateAtts!==null){S.selDateAtts.unshift(att);}
     if(!sub.is_partner){
       var nr=Math.max(0,sub.remaining-1);
       await dbPatch('subscriptions','id=eq.'+subId,{remaining:nr});
@@ -898,6 +899,9 @@ async function submitSingleAtt(){
       price_due:due,price_paid:paid};
     await dbPost('attendances',att);
     D.attendances.unshift(att);
+    if(att.class_date===td()&&S.selDateAtts!==null){
+      S.selDateAtts.unshift(att);
+    }
     S.showSingleAtt=false;
     S.showAlert={t:'ok',cust:c,st:{t:'ok',txt:'Tək giriş qeydə alindi'}};
   }catch(e){alert('Xeta: '+e.message);}
