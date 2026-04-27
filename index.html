@@ -185,16 +185,11 @@ async function loadAll(){
     ]);
     D.programs=res[0];D._allInstructors=res[1];D.instructors=res[1].filter(function(x){return x.is_active!==false;});D.customers=res[2];
     D.subscriptions=res[3];D.attendances=res[4];
-    // Fetch today's attendances separately to avoid 1000-row limit issue
+    // Fetch today's attendances from DB directly
     try{
       var todayAtts=await dbGet('attendances','class_date=eq.'+td()+'&order=class_time');
-      // Merge: add today's atts not already in cache
-      var existingIds={};
-      for(var i=0;i<D.attendances.length;i++)existingIds[D.attendances[i].id]=true;
-      for(var i=0;i<todayAtts.length;i++){
-        if(!existingIds[todayAtts[i].id])D.attendances.unshift(todayAtts[i]);
-      }
-    }catch(e){}
+      S.selDateAtts=todayAtts||[];
+    }catch(e){S.selDateAtts=[];}
   }catch(e){S.err='Verilənlər bazasına qoşulmaq olmadi: '+e.message;}
   S.loading=false;render();
 }
@@ -300,9 +295,13 @@ function render(){
 
 function rHome(){
   var ta=[];
-  if(!isToday&&S.selDateAtts!==null){
+  if(S.selDateAtts!==null){
     ta=S.selDateAtts.slice();
+    ta.sort(function(a,b){return a.class_time.localeCompare(b.class_time);});
+  }else if(S.selDateLoading){
+    ta=[];
   }else{
+    // Fallback: filter local cache
     for(var i=0;i<D.attendances.length;i++){if(D.attendances[i].class_date===viewDate)ta.push(D.attendances[i]);}
     ta.sort(function(a,b){return a.class_time.localeCompare(b.class_time);});
   }
@@ -316,7 +315,7 @@ function rHome(){
   var isToday=viewDate===td();
   var h='<div class="ph"><div class="pt">'+(isToday?'Bu gun — '+fmt(td()):fmt(viewDate))+'</div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
-    +'<input type="date" value="'+viewDate+'" max="'+td()+'" onchange="S.selDate=this.value;S.selDateAtts=null;fetchAttByDate(this.value);" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
+    +'<input type="date" value="'+viewDate+'" max="'+td()+'" onchange="S.selDate=this.value===td()?null:this.value;fetchAttByDate(this.value);" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
     +(isToday?'':'<button class="btn btn-gray btn-sm" onclick="S.selDate=null;render()">Bu gun</button>')
     +'</div></div>'
     +'<div class="sgrid">'
