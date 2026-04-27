@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -651,7 +651,7 @@ async function fetchIzleme(){
     var expiredCusts={};
     for(var i=0;i<expiredSubs.length;i++){
       var s=expiredSubs[i];
-      if(s.end_date<today&&lastAtt[s.customer_id]&&!expiredCusts[s.customer_id]){
+      if(s.end_date<today&&lastAtt[s.customer_id]&&!expiredCusts[s.customer_id]&&singleProgs.indexOf(s.program_id)<0){
         var c=custMap[s.customer_id];
         // Make sure they don't have another active sub
         var hasActive=false;
@@ -669,7 +669,7 @@ async function fetchIzleme(){
     var almostDone=[];
     for(var i=0;i<activeSubs.length;i++){
       var s=activeSubs[i];
-      if(s.remaining===1&&!s.is_partner){
+      if(s.remaining===1&&!s.is_partner&&singleProgs.indexOf(s.program_id)<0){
         var c=custMap[s.customer_id];
         if(c)almostDone.push({c:c,s:s,last:lastAtt[c.id]||''});
       }
@@ -739,25 +739,30 @@ function rIzleme(){
     return t;
   }
 
-  // Section 1
-  h+='<div class="slabel" style="color:#C62828">DƏRS SAYI TAMAMLANANLAR ('+d.completedSessions.length+')</div>';
-  h+=izlemeTable(d.completedSessions,false);
+  var sections=[
+    {key:'s1',label:'DƏRS SAYI TAMAMLANANLAR',color:'#C62828',bg:'#FFF5F5',list:d.completedSessions,debt:false},
+    {key:'s2',label:'VAXT BİTƏNLƏR',color:'#C62828',bg:'#FFF5F5',list:d.expiredTime,debt:false},
+    {key:'s3',label:'TEZ BİTƏCƏK — 1 DƏRS QALIB',color:'#E65100',bg:'#FFF8F0',list:d.almostDone,debt:false},
+    {key:'s4',label:'BU HƏFTƏ GƏLMƏYƏNLƏRİ',color:'#1565C0',bg:'#F0F4FF',list:d.notThisWeek,debt:false},
+    {key:'s5',label:'BORCLULAR',color:'#6A1B9A',bg:'#FAF0FF',list:d.debtors,debt:true}
+  ];
 
-  // Section 2
-  h+='<div class="slabel" style="color:#C62828;margin-top:14px">VAXT BİTƏNLƏR ('+d.expiredTime.length+')</div>';
-  h+=izlemeTable(d.expiredTime,false);
-
-  // Section 3
-  h+='<div class="slabel" style="color:#E65100;margin-top:14px">TƏZ BİTƏCƏK — 1 DƏRS QALIB ('+d.almostDone.length+')</div>';
-  h+=izlemeTable(d.almostDone,false);
-
-  // Section 4
-  h+='<div class="slabel" style="color:#1565C0;margin-top:14px">BU HƏFTƏ GƏLMƏYƏNLƏRİ ('+d.notThisWeek.length+')</div>';
-  h+=izlemeTable(d.notThisWeek,false);
-
-  // Section 5
-  h+='<div class="slabel" style="color:#6A1B9A;margin-top:14px">BORCLULAR ('+d.debtors.length+')</div>';
-  h+=izlemeTable(d.debtors,true);
+  for(var si=0;si<sections.length;si++){
+    var sec=sections[si];
+    var isOpen=S.selIzleme===sec.key;
+    h+='<div style="margin-bottom:8px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(isOpen?sec.bg:'#fff')+';cursor:pointer" onclick="S.selIzleme='+(isOpen?'null':"'"+sec.key+"'")+';render()">'
+      +'<div style="display:flex;align-items:center;gap:10px">'
+      +'<span style="font-size:12px;font-weight:700;color:'+sec.color+'">'+sec.label+'</span>'
+      +'<span style="background:'+sec.color+';color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+sec.list.length+'</span>'
+      +'</div>'
+      +'<span style="color:'+sec.color+';font-size:14px">'+(isOpen?'▲':'▼')+'</span>'
+      +'</div>';
+    if(isOpen){
+      h+=izlemeTable(sec.list,sec.debt);
+    }
+    h+='</div>';
+  }
 
   return h;
 }
