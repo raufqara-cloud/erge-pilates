@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -287,6 +287,7 @@ function render(){
   if(S.showAtt)h+=rModalAtt();
   if(S.showFreeze)h+=rModalFreeze();
   if(S.editSub)h+=rModalEditSub();
+  if(S.showAddProg)h+=rModalAddProg();
   if(S.editCust)h+=rModalEditCust();
   if(S.showSingleAtt)h+=rModalSingleAtt();
   if(S.showAlert)h+=rAlertModal();
@@ -976,17 +977,18 @@ function rReport(){
 }
 function rAdmin(){
   var h='<div class="ph"><div class="pt">Admin Panel</div></div>';
-  h+='<div class="slabel">PROQRAMLAR</div>';
+  h+='<div class="slabel">PROQRAMLAR <button class="btn btn-g btn-sm" onclick="S.showAddProg=true;render()">+ Yeni</button></div>';
   var allProgs=D.programs.slice();
   for(var i=0;i<allProgs.length;i++){
     var p=allProgs[i];
     var act=p.is_active!==false;
     h+='<div class="attitem">'
-      +'<div><div style="font-size:13px;font-weight:600">'+p.id+'</div>'
+      +'<div><div style="font-size:13px;font-weight:600">'+p.id+' <span style="font-size:11px;color:#aaa">'+p.sessions_total+' dərs | '+p.list_price+' ₼</span></div>'
       +'<div style="font-size:12px;color:#888">'+p.name+'</div></div>'
-      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<div style="display:flex;align-items:center;gap:6px">'
       +'<span class="badge '+(act?'b-green':'b-gray')+'">'+(act?'Aktiv':'Deaktiv')+'</span>'
       +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleProg(\''+p.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
+      +'<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteProg(\''+p.id+'\')">❌ Sil</button>'
       +'</div></div>';
   }
   h+='<div class="slabel" style="margin-top:16px">INSTRUKTORLAR</div>';
@@ -1020,6 +1022,58 @@ async function saveInstPct(id){
     alert('Saxlandı: '+pct+'%');
   }catch(e){alert('Xeta: '+e.message);}
 }
+
+function rModalAddProg(){
+  return '<div class="ov" onclick="S.showAddProg=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">+ Yeni Proqram</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">ID (məs: R8, ROF)</label><input class="fi" id="ap-id" placeholder="RTEST" style="text-transform:uppercase"></div>'
+    +'<div class="fg"><label class="fl">Sıra (sort)</label><input class="fi" id="ap-sort" type="number" value="99"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Ad *</label><input class="fi" id="ap-name" placeholder="Reformer sınaq məşqi"></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Qiymət (AZN)</label><input class="fi" id="ap-price" type="number" value="0"></div>'
+    +'<div class="fg"><label class="fl">Dərs sayı</label><input class="fi" id="ap-sessions" type="number" value="1"></div>'
+    +'<div class="fg"><label class="fl">Müddət (gün)</label><input class="fi" id="ap-days" type="number" value="30"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Növ</label>'
+    +'<select class="fs" id="ap-partner"><option value="false">Adi abunəlik</option><option value="true">Partner</option></select>'
+    +'</div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddProg=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitAddProg()">Əlavə et</button></div>'
+    +'</div></div>';
+}
+
+async function submitAddProg(){
+  var id=document.getElementById('ap-id').value.trim().toUpperCase();
+  var name=document.getElementById('ap-name').value.trim();
+  var price=parseFloat(document.getElementById('ap-price').value)||0;
+  var sessions=parseInt(document.getElementById('ap-sessions').value)||1;
+  var days=parseInt(document.getElementById('ap-days').value)||30;
+  var sort=parseInt(document.getElementById('ap-sort').value)||99;
+  var isPartner=document.getElementById('ap-partner').value==='true';
+  if(!id||!name)return;
+  S.saving=true;render();
+  try{
+    var prog={id:id,name:name,list_price:price,sessions_total:sessions,duration_days:days,is_partner:isPartner,is_active:true,sort_order:sort};
+    await dbPost('programs',prog);
+    D.programs.push(prog);
+    D.programs.sort(function(a,b){return (a.sort_order||99)-(b.sort_order||99);});
+    S.showAddProg=false;
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function deleteProg(id){
+  if(!confirm('\''+id+'\' proqramını silmək istədiyinizdən əminsinizmi?\nBu proqramla əlaqəli davamiyyət qeydləri silinməyəcək.'))return;
+  S.saving=true;render();
+  try{
+    var r=await fetch(BASE+'/programs?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(!r.ok)throw new Error(await r.text());
+    D.programs=D.programs.filter(function(p){return p.id!==id;});
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
 async function toggleProg(id,val){
   try{
     await dbPatch('programs','id=eq.'+id,{is_active:val});
@@ -1050,12 +1104,12 @@ function rModalSingleAtt(){
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
     if(!p.is_active)continue;
-    if(singleProgs.indexOf(p.id)<0)continue;
+    if(p.sessions_total!==1)continue;
     progOpts+='<option value="'+p.id+'" data-price="'+p.list_price+'">'+p.name+' — '+p.list_price+' AZN</option>';
   }
   var tOpts='';for(var i=0;i<TIMES.length;i++)tOpts+='<option value="'+TIMES[i]+'">'+TIMES[i]+'</option>';
   var iOpts='';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
-  var firstPrice=D.programs.filter(function(p){return p.is_active&&singleProgs.indexOf(p.id)>=0;})[0];
+  var firstPrice=D.programs.filter(function(p){return p.is_active&&p.sessions_total===1;})[0];
   var defPrice=firstPrice?firstPrice.list_price:0;
   return '<div class="ov" onclick="S.showSingleAtt=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Tək Giriş Qeydiyyatı</div>'
