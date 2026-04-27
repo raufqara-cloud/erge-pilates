@@ -843,7 +843,7 @@ function rBron(){
         +' <span style="font-size:12px;color:'+(activeCount2>=MAX_PER_SLOT?'#C62828':'#1D9E75')+';font-weight:600"> '+activeCount2+'/'+MAX_PER_SLOT+'</span></div>';
       h+='<div style="display:flex;gap:6px">';
       if(canAdd)h+='<button class="btn btn-g btn-sm" onclick="openAddBron('+sd+',\''+st+'\',\''+sdate+'\')">+ Bron</button>';
-      h+='<button class="btn btn-gray btn-sm" onclick="S.selBronDay=null;S.selBronTime=null;render()">✕</button>';
+h+='<button class="btn btn-gray btn-sm" onclick="event.stopPropagation();S.selBronDay=null;S.selBronTime=null;render()">✕ Bağla</button>';
       h+='</div></div>';
 
       // Permanent bookings
