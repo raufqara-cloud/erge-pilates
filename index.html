@@ -479,6 +479,7 @@ function rDetail(){
       +'<span class="badge '+bc2+'">'+st2.txt+'</span>'
       +(frozen?'<span class="badge b-blue" style="font-size:10px">'+fmt(sub.freeze_end)+'-dek</span>':'')
       +(sub.is_active&&!frozen&&st2.t!=='exp'?'<button class="btn btn-gray btn-sm" onclick="openFreeze(\''+sub.id+'\')">Dondur</button>':'')
+      +'<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteSub(\''+sub.id+'\')">❌ Sil</button>'
       +'</div></div>';
     if(!sub.is_partner){
       var due=sub.price_due||sub.price_paid||0;
@@ -1216,6 +1217,32 @@ async function fetchCustDetail(custId){
     }
   }catch(e){S.custDetail={subs:[],atts:[]};}
   S.custDetailLoading=false;render();
+}
+
+async function deleteSub(subId){
+  if(!confirm('Bu abunəliyi silmək istədiyinizdən əminsinizmi?\nBağlı davamiyyət qeydləri saxlanacaq, sadəcə abunəliklə əlaqəsi kəsiləcək.'))return;
+  S.saving=true;render();
+  try{
+    // Unlink attendances first
+    var r1=await fetch(BASE+'/attendances?subscription_id=eq.'+subId,{
+      method:'PATCH',
+      headers:Object.assign({},H,{'Prefer':'return=minimal'}),
+      body:JSON.stringify({subscription_id:null})
+    });
+    if(!r1.ok)throw new Error(await r1.text());
+    // Delete subscription
+    var r2=await fetch(BASE+'/subscriptions?id=eq.'+subId,{
+      method:'DELETE',
+      headers:Object.assign({},H,{'Prefer':'return=minimal'})
+    });
+    if(!r2.ok)throw new Error(await r2.text());
+    // Update local data
+    D.subscriptions=D.subscriptions.filter(function(s){return s.id!==subId;});
+    if(S.custDetail){
+      S.custDetail.subs=S.custDetail.subs.filter(function(s){return s.id!==subId;});
+    }
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
 }
 function openEditSub(subId){S.editSub=subId;render();}
 
