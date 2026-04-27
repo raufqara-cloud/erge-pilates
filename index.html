@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -631,6 +631,13 @@ async function fetchReport(month){
       inst.sessions+=1;
       inst.gross+=perSession;
       inst.commission+=perSession*(inst.pct/100);
+      // Daily breakdown
+      if(!inst.days)inst.days={};
+      var dayKey=a.class_date;
+      if(!inst.days[dayKey])inst.days[dayKey]={sessions:0,gross:0,commission:0};
+      inst.days[dayKey].sessions+=1;
+      inst.days[dayKey].gross+=perSession;
+      inst.days[dayKey].commission+=perSession*(inst.pct/100);
     }
     
     S.reportData={month:month,instData:instData,totalAtts:atts.length};
@@ -689,14 +696,35 @@ function rReport(){
   
   for(var i=0;i<instList.length;i++){
     var ins=instList[i];
+    var instId=Object.keys(d.instData).find(function(k){return d.instData[k]===ins;});
     var bg=i%2===0?'#fff':'#fafcfa';
-    h+='<div style="display:grid;grid-template-columns:1fr 60px 100px 60px 110px;padding:11px 14px;background:'+bg+';border-top:1px solid #f0f0f0;font-size:13px;align-items:center">'
-      +'<div style="font-weight:500">'+ins.name+'</div>'
+    var isSelected=S.selReportInst===instId;
+    h+='<div style="display:grid;grid-template-columns:1fr 60px 100px 60px 110px;padding:11px 14px;background:'+(isSelected?'#E8F5EE':bg)+';border-top:1px solid #f0f0f0;font-size:13px;align-items:center;cursor:pointer" onclick="S.selReportInst='+(isSelected?'null':'\''+instId+'\'')+';render()">'
+      +'<div style="font-weight:500">'+ins.name+' <span style="font-size:11px;color:#1D9E75">'+(isSelected?'▲ bağla':'▼ detallar')+'</span></div>'
       +'<div style="text-align:right;color:#666">'+ins.sessions+'</div>'
       +'<div style="text-align:right;color:#666">'+Math.round(ins.gross)+' ₼</div>'
       +'<div style="text-align:right;color:#666">'+ins.pct+'%</div>'
       +'<div style="text-align:right;font-weight:600;color:#0F6E56">'+Math.round(ins.commission)+' ₼</div>'
       +'</div>';
+    // Daily breakdown
+    if(isSelected&&ins.days){
+      var days=Object.keys(ins.days).sort();
+      h+='<div style="background:#f0faf5;border-top:1px solid #c8e6c9;padding:8px 14px">'
+        +'<div style="display:grid;grid-template-columns:120px 1fr 100px 110px;font-size:11px;font-weight:600;color:#888;padding:4px 0;border-bottom:1px solid #ddd;margin-bottom:4px">'
+        +'<div>TARİX</div><div style="text-align:right">MƏŞQ</div><div style="text-align:right">MƏBLƏĞ</div><div style="text-align:right">HAQQQ</div></div>';
+      for(var j=0;j<days.length;j++){
+        var day=days[j];
+        var dd=ins.days[day];
+        var dp=day.split('-');
+        h+='<div style="display:grid;grid-template-columns:120px 1fr 100px 110px;font-size:12px;padding:5px 0;border-bottom:1px solid #e8f5e9">'
+          +'<div style="color:#444">'+dp[2]+'.'+dp[1]+'.'+dp[0]+'</div>'
+          +'<div style="text-align:right;color:#666">'+dd.sessions+'</div>'
+          +'<div style="text-align:right;color:#666">'+Math.round(dd.gross)+' ₼</div>'
+          +'<div style="text-align:right;font-weight:600;color:#0F6E56">'+Math.round(dd.commission*100)/100+' ₼</div>'
+          +'</div>';
+      }
+      h+='</div>';
+    }
   }
   
   // Total row
