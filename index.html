@@ -76,6 +76,33 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tab-row{display:flex;gap:4px;margin-bottom:14px}
 .tab{background:#f0f0f0;border:none;padding:6px 13px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;color:#666}
 .tab.active{background:#1D9E75;color:#fff}
+
+/* === RESPONSIVE MOBILE === */
+@media (max-width: 600px) {
+  .topbar { padding: 0 10px; }
+  .logo { font-size: 14px; }
+  .nav button { font-size: 11px; padding: 6px 8px; }
+  .content { padding: 10px; }
+  .ph { flex-wrap: wrap; gap: 8px; }
+  .pt { font-size: 15px; }
+  .sgrid { grid-template-columns: repeat(3,1fr) !important; gap: 8px; }
+  .scard { padding: 10px 8px; }
+  .snum { font-size: 20px; }
+  .modal { width: 96vw; max-width: 96vw; padding: 16px; }
+  .fi-row { flex-direction: column; gap: 0; }
+  .attitem { padding: 8px 10px; }
+  .subcard { padding: 10px; }
+  .tab-row { gap: 4px; }
+  .tab { font-size: 12px; padding: 7px 10px; }
+  /* Bron grid mobile */
+  .bron-grid { font-size: 10px; }
+  .bron-cell { min-height: 44px; padding: 3px; }
+  .bron-day-header { font-size: 10px; padding: 4px 1px; }
+}
+@media (max-width: 400px) {
+  .nav button { font-size: 10px; padding: 5px 6px; }
+  .sgrid { grid-template-columns: repeat(2,1fr) !important; }
+}
 </style>
 </head>
 <body>
@@ -737,7 +764,7 @@ function rBron(){
   var colW='minmax(80px,1fr)';
   var gridCols='60px '+Array(6).fill(colW).join(' ');
 
-  h+='<div style="overflow-x:auto"><div style="min-width:520px">';
+  h+='<div style="overflow-x:auto"><div class="bron-grid" style="min-width:520px">';
 
   // Day headers with dates
   h+='<div style="display:grid;grid-template-columns:'+gridCols+';gap:3px;margin-bottom:4px">';
@@ -884,7 +911,10 @@ function rModalAddBron(){
     +'<div style="background:#f0faf5;border-radius:8px;padding:10px;margin-bottom:14px;font-size:13px">'
     +DAYS_AZ[day-1]+' — '+time+' | '+fmt(date)
     +'</div>'
-    +'<div class="fg"><label class="fl">Müştəri *</label><select class="fs" id="ab-cust">'+custOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Müştəri *</label>'
+    +'<input class="fi" id="ab-cust-search" placeholder="Ad ilə axtar..." oninput="filterBronCusts()" autocomplete="off" style="margin-bottom:4px">'
+    +'<select class="fs" id="ab-cust" size="5" style="height:120px">'+custOpts+'</select>'
+    +'</div>'
     +'<div class="fg"><label class="fl">Növ</label>'
     +'<select class="fs" id="ab-type" onchange="toggleBronType()">'
     +'<option value="permanent">Daimi bron</option>'
@@ -899,6 +929,22 @@ function rModalAddBron(){
     +'</div></div>';
 }
 
+
+function filterBronCusts(){
+  var inp=document.getElementById('ab-cust-search');
+  var sel=document.getElementById('ab-cust');
+  if(!inp||!sel)return;
+  var q=inp.value.toLowerCase().replace(/ı/g,'i').replace(/ə/g,'e').replace(/ü/g,'u').replace(/ö/g,'o').replace(/ğ/g,'g').replace(/ş/g,'s').replace(/ç/g,'c');
+  var opts=sel.options;
+  for(var i=0;i<opts.length;i++){
+    var name=opts[i].text.toLowerCase().replace(/ı/g,'i').replace(/ə/g,'e').replace(/ü/g,'u').replace(/ö/g,'o').replace(/ğ/g,'g').replace(/ş/g,'s').replace(/ç/g,'c');
+    opts[i].style.display=(i===0||name.indexOf(q)>=0)?'':'none';
+  }
+  // Auto-select if only one visible
+  var visible=[];
+  for(var i=1;i<opts.length;i++){if(opts[i].style.display!=='none')visible.push(i);}
+  if(visible.length===1)sel.selectedIndex=visible[0];
+}
 function toggleBronType(){
   var type=document.getElementById('ab-type').value;
   var permOpts=document.getElementById('ab-perm-opts');
