@@ -104,7 +104,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -604,6 +604,163 @@ function rAlertModal(){
 
 
 
+
+async function fetchIzleme(){
+  if(S.izlemeData)return;
+  S.izlemeLoading=true;render();
+  try{
+    var today=td();
+    var day7=addDays(today,-7);
+    var day30=addDays(today,-30);
+
+    // 1. All active subscriptions
+    var activeSubs=await dbGet('subscriptions','is_active=eq.true&order=end_date');
+    // 2. All subscriptions with debt
+    var debtSubs=await dbGet('subscriptions','is_active=eq.true');
+    // 3. Recent attendances (last 30 days)
+    var recentAtts=await dbGet('attendances','class_date=gte.'+day30+'&order=class_date.desc');
+    // 4. Expired subs with recent attendance
+    var expiredSubs=await dbGet('subscriptions','is_active=eq.false&end_date=gte.'+day30+'&order=end_date.desc');
+
+    // Build last attendance map
+    var lastAtt={};
+    for(var i=0;i<recentAtts.length;i++){
+      var a=recentAtts[i];
+      if(!lastAtt[a.customer_id]||a.class_date>lastAtt[a.customer_id])
+        lastAtt[a.customer_id]=a.class_date;
+    }
+
+    // Build customer map
+    var custMap={};
+    for(var i=0;i<D.customers.length;i++){
+      custMap[D.customers[i].id]=D.customers[i];
+    }
+
+    // Category 1: Dərs sayı tamamlananlar (remaining=0, end_date >= today, is_active=true)
+    var completedSessions=[];
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
+      if(s.remaining===0&&s.end_date>=today&&!s.is_partner){
+        var c=custMap[s.customer_id];
+        if(c)completedSessions.push({c:c,s:s,last:lastAtt[c.id]||''});
+      }
+    }
+
+    // Category 2: Vaxtı bitənlər (end_date < today, had attendance in last 30 days)
+    var expiredTime=[];
+    var expiredCusts={};
+    for(var i=0;i<expiredSubs.length;i++){
+      var s=expiredSubs[i];
+      if(s.end_date<today&&lastAtt[s.customer_id]&&!expiredCusts[s.customer_id]){
+        var c=custMap[s.customer_id];
+        // Make sure they don't have another active sub
+        var hasActive=false;
+        for(var j=0;j<activeSubs.length;j++){
+          if(activeSubs[j].customer_id===s.customer_id){hasActive=true;break;}
+        }
+        if(!hasActive&&c){
+          expiredCusts[s.customer_id]=true;
+          expiredTime.push({c:c,s:s,last:lastAtt[c.id]||''});
+        }
+      }
+    }
+
+    // Category 3: Tez bitəcək (remaining=1, active)
+    var almostDone=[];
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
+      if(s.remaining===1&&!s.is_partner){
+        var c=custMap[s.customer_id];
+        if(c)almostDone.push({c:c,s:s,last:lastAtt[c.id]||''});
+      }
+    }
+
+    // Category 4: Bu həftə gəlməyənlər (active sub, no attendance in last 7 days)
+    var notThisWeek=[];
+    var weekCusts={};
+    for(var i=0;i<recentAtts.length;i++){
+      if(recentAtts[i].class_date>=day7)weekCusts[recentAtts[i].customer_id]=true;
+    }
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
+      if(!weekCusts[s.customer_id]&&lastAtt[s.customer_id]){
+        var c=custMap[s.customer_id];
+        if(c&&!notThisWeek.find(function(x){return x.c.id===s.customer_id;}))
+          notThisWeek.push({c:c,s:s,last:lastAtt[c.id]||''});
+      }
+    }
+
+    // Category 5: Borclular (price_paid < price_due)
+    var debtors=[];
+    var debtCusts={};
+    for(var i=0;i<debtSubs.length;i++){
+      var s=debtSubs[i];
+      var due=s.price_due||0;
+      var paid=s.price_paid||0;
+      if(due>paid&&!debtCusts[s.customer_id]){
+        var c=custMap[s.customer_id];
+        if(c){
+          debtCusts[s.customer_id]=true;
+          debtors.push({c:c,s:s,last:lastAtt[c.id]||'',debt:due-paid});
+        }
+      }
+    }
+
+    S.izlemeData={completedSessions,expiredTime,almostDone,notThisWeek,debtors};
+  }catch(e){alert('Xeta: '+e.message);}
+  S.izlemeLoading=false;render();
+}
+
+function rIzleme(){
+  if(S.izlemeLoading)return '<div class="empty"><span class="spin"></span> Yüklənir...</div>';
+  if(!S.izlemeData)return '<div class="empty">Məlumat yüklənir...</div>';
+  var d=S.izlemeData;
+  var h='';
+
+  function izlemeTable(list,showDebt){
+    if(!list.length)return '<div class="empty" style="padding:12px">Məlumat yoxdur ✓</div>';
+    var t='<div style="background:#fff;border:1px solid #eaeaea;border-radius:10px;overflow:hidden;margin-bottom:4px">';
+    t+='<div style="display:grid;grid-template-columns:1fr 120px 110px 80px'+(showDebt?' 90px':'')+';padding:8px 14px;background:#f8faf8;font-size:11px;font-weight:600;color:#888">'
+      +'<div>MÜŞTƏRİ</div><div>TELEFON</div><div style="text-align:right">SON MƏŞQ</div><div style="text-align:right">QALAN</div>'
+      +(showDebt?'<div style="text-align:right;color:#C62828">BORC</div>':'')
+      +'</div>';
+    for(var i=0;i<list.length;i++){
+      var item=list[i];
+      var bg=i%2===0?'#fff':'#fafcfa';
+      t+='<div style="display:grid;grid-template-columns:1fr 120px 110px 80px'+(showDebt?' 90px':'')+';padding:9px 14px;background:'+bg+';border-top:1px solid #f0f0f0;font-size:13px;cursor:pointer" onclick="selCust(\''+item.c.id+'\')">'
+        +'<div><div style="font-weight:500">'+item.c.name+'</div><div style="font-size:11px;color:#aaa">'+item.c.id+'</div></div>'
+        +'<div style="color:#666;font-size:12px">'+( item.c.phone||'—')+'</div>'
+        +'<div style="text-align:right;color:#666">'+( item.last?fmt(item.last):'—')+'</div>'
+        +'<div style="text-align:right;color:#666">'+( item.s.is_partner?'∞':item.s.remaining)+'</div>'
+        +(showDebt?'<div style="text-align:right;font-weight:600;color:#C62828">'+item.debt+' ₼</div>':'')
+        +'</div>';
+    }
+    t+='</div>';
+    return t;
+  }
+
+  // Section 1
+  h+='<div class="slabel" style="color:#C62828">DƏRS SAYI TAMAMLANANLAR ('+d.completedSessions.length+')</div>';
+  h+=izlemeTable(d.completedSessions,false);
+
+  // Section 2
+  h+='<div class="slabel" style="color:#C62828;margin-top:14px">VAXT BİTƏNLƏR ('+d.expiredTime.length+')</div>';
+  h+=izlemeTable(d.expiredTime,false);
+
+  // Section 3
+  h+='<div class="slabel" style="color:#E65100;margin-top:14px">TƏZ BİTƏCƏK — 1 DƏRS QALIB ('+d.almostDone.length+')</div>';
+  h+=izlemeTable(d.almostDone,false);
+
+  // Section 4
+  h+='<div class="slabel" style="color:#1565C0;margin-top:14px">BU HƏFTƏ GƏLMƏYƏNLƏRİ ('+d.notThisWeek.length+')</div>';
+  h+=izlemeTable(d.notThisWeek,false);
+
+  // Section 5
+  h+='<div class="slabel" style="color:#6A1B9A;margin-top:14px">BORCLULAR ('+d.debtors.length+')</div>';
+  h+=izlemeTable(d.debtors,true);
+
+  return h;
+}
 async function fetchReport(month){
   S.reportLoading=true;S.reportData=null;render();
   try{
@@ -685,7 +842,12 @@ function rReport(){
   var curMonth=now.getFullYear()+'-'+(String(now.getMonth()+1).padStart(2,'0'));
   if(!S.reportMonth)S.reportMonth=curMonth;
   
-  var h='<div class="ph"><div class="pt">Hesabat — Trener Əmək Haqqı</div></div>';
+  var h='<div class="ph"><div class="pt">Hesabat</div></div>';
+  h+='<div class="tab-row">'
+    +'<button class="tab '+(S.reportTab===\'salary\'?\'active\':'')+\'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>'
+    +'<button class="tab '+(S.reportTab===\'izleme\'?\'active\':'')+\'" onclick="S.reportTab=\'izleme\';S.izlemeData=null;fetchIzleme();render()">Müştəri İzləmə</button>'
+    +'</div>';
+  if(S.reportTab===\'izleme\'){return h+rIzleme();}
   
   // Year/Month selector
   var curYear=now.getFullYear();
