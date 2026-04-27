@@ -843,12 +843,11 @@ function rReport(){
   if(!S.reportMonth)S.reportMonth=curMonth;
   
   var h='<div class="ph"><div class="pt">Hesabat</div></div>';
-  h+='<div class="tab-row">'
-    +'<button class="tab '+(S.reportTab===\'salary\'?\'active\':'')+\'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>'
-    +'<button class="tab '+(S.reportTab===\'izleme\'?\'active\':'')+\'" onclick="S.reportTab=\'izleme\';S.izlemeData=null;fetchIzleme();render()">Müştəri İzləmə</button>'
-    +'</div>';
-  if(S.reportTab===\'izleme\'){return h+rIzleme();}
-  
+  var t1=S.reportTab==='salary'?'active':'';
+  var t2=S.reportTab==='izleme'?'active':'';
+  h+='<div class="tab-row"><button class="tab '+t1+'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>'
+    +'<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';S.izlemeData=null;fetchIzleme();render()">Müştəri İzləmə</button></div>';
+  if(S.reportTab==='izleme'){return h+rIzleme();}
   // Year/Month selector
   var curYear=now.getFullYear();
   var years=[];
