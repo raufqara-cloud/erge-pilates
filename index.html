@@ -1208,10 +1208,6 @@ async function submitAddBron(){
       S.bronExceptions.push(ex);
     }
     S.showAddBron=false;
-    // Reload exceptions so grid updates
-    S.bronExceptions=null;
-    var reloadDate=S.selBronDate||td();
-    await fetchExceptions(reloadDate);
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
