@@ -1008,18 +1008,27 @@ function filterBronCusts(){
   if(!inp||!list)return;
   var q=normQ(inp.value.trim());
   var sorted=D.customers.slice().sort(function(a,b){return a.name.localeCompare(b.name,'az');});
-  var html='';
+  list.innerHTML='';
   var shown=0;
   for(var i=0;i<sorted.length;i++){
     var c=sorted[i];
     if(q&&normQ(c.name).indexOf(q)<0)continue;
     if(shown>=50)break;
-    html+='<div onclick="selectBronCust(\''+c.id+'\',\''+c.name.replace(/\'/g,\'\\\'\')+'\')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px" onmouseenter="this.style.background=\'#f0faf5\'" onmouseleave="this.style.background=\'\'">'
-      +c.name+'<span style="font-size:10px;color:#aaa;margin-left:6px">'+c.id+'</span></div>';
+    (function(cust){
+      var el=document.createElement('div');
+      el.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px';
+      el.innerHTML=cust.name+'<span style="font-size:10px;color:#aaa;margin-left:6px">'+cust.id+'</span>';
+      el.ontouchstart=function(){this.style.background='#f0faf5';};
+      el.onmouseenter=function(){this.style.background='#f0faf5';};
+      el.onmouseleave=function(){this.style.background='';};
+      el.onclick=function(){selectBronCust(cust.id,cust.name);};
+      list.appendChild(el);
+    })(c);
     shown++;
   }
-  if(!html)html='<div style="padding:10px;color:#aaa;font-size:13px;text-align:center">Tapılmadı</div>';
-  list.innerHTML=html;
+  if(shown===0){
+    list.innerHTML='<div style="padding:10px;color:#aaa;font-size:13px;text-align:center">Tapılmadı</div>';
+  }
 }
 
 function selectBronCust(id, name){
