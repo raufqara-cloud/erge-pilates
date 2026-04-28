@@ -346,7 +346,7 @@ function rHome(){
   var h='<div class="ph"><div class="pt">'+(isToday?'Bu gun — '+fmt(td()):fmt(viewDate))+'</div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
     +'<input type="date" value="'+viewDate+'" max="'+td()+'" onchange="S.selDate=this.value===td()?null:this.value;S.homeSlot=null;fetchAttByDate(this.value);" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
-    +(isToday?'':'<button class="btn btn-gray btn-sm" onclick="S.selDate=null;render()">Bu gun</button>')
+    +(isToday?'':'<button class="btn btn-gray btn-sm" onclick="S.selDate=null;S.selDateAtts=null;S.homeSlot=null;fetchAttByDate(td());render()">Bu gun</button>')
     +'</div></div>'
     +'<div class="sgrid">'
     +'<div class="scard"><div class="snum">'+ta.length+'</div><div class="slbl">Bugunki istirak</div></div>'
