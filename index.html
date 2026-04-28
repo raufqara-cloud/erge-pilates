@@ -131,7 +131,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -489,50 +489,72 @@ function rDetail(){
       +'<div style="flex:1"><div class="progress-bar"><div class="progress-fill '+(used>=10?'exp':used>=8?'warn':'')+'" style="width:'+Math.round(used/12*100)+'%"></div></div>'
       +'<div style="font-size:11px;color:#888;margin-top:3px">'+(12-used)+' ders qaldi</div></div></div></div>';
   }
-  h+='<div class="slabel">ABUNƏLİKLƏR <button class="btn btn-g btn-sm" onclick="S.showAddSub=true;render()">+ Əlavə et</button></div>';
-  if(!subs.length)h+='<div class="empty" style="padding:14px">Abunəlik yoxdur</div>';
-  for(var i=0;i<subs.length;i++){
-    var sub=subs[i];
-    var st2=subStatus(sub);var bc2=st2.t==='ok'?'b-green':st2.t==='warn'?'b-yellow':'b-red';
-    var frozen=sub.freeze_end&&sub.freeze_end>=td();
-    var pct=sub.is_partner?0:Math.min(100,Math.round((1-sub.remaining/sub.sessions_total)*100));
-    // Count actual attendances for this subscription
-    var subAttCount=0;
-    for(var ai=0;ai<atts.length;ai++){if(atts[ai].subscription_id===sub.id)subAttCount++;}
-    var usedCount=sub.sessions_total-sub.remaining;
+  // Accordion sections
+  var subsOpen=S.custSection==='subs';
+  var attsOpen=S.custSection==='atts';
 
-    h+='<div class="subcard"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">'
-      +'<div><div style="font-size:13px;font-weight:600">'+sub.program_name+'</div>'
-      +'<div style="font-size:11px;color:#999;margin-top:2px">'+fmt(sub.start_date)+' → '+fmt(sub.end_date)+'</div></div>'
-      +'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'
-      +'<span class="badge '+bc2+'">'+st2.txt+'</span>'
-      +(frozen?'<span class="badge b-blue" style="font-size:10px">'+fmt(sub.freeze_end)+'-dek</span>':'')
-      +(sub.is_active&&!frozen&&st2.t!=='exp'?'<button class="btn btn-gray btn-sm" onclick="openFreeze(\''+sub.id+'\')">Dondur</button>':'')
-      +'<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteSub(\''+sub.id+'\')">❌ Sil</button>'
-      +'</div></div>';
-    if(!sub.is_partner){
-      var due=sub.price_due||sub.price_paid||0;
-      var paid=sub.price_paid||0;
-      var debtHtml=due>paid?'<span style="color:#C62828;font-weight:600"> | Borc: '+(due-paid)+' ₼</span>':'';
-      h+='<div style="display:flex;justify-content:space-between;align-items:center">'
-        +'<div style="font-size:12px;color:#888">İstifadə: '+usedCount+'/'+sub.sessions_total+' | Qalan: '+sub.remaining+' dərs</div>'
-        +'<div style="font-size:12px;color:#888">'+paid+' ₼ ödənilib'+debtHtml+'</div>'
-        +'</div>'
-        +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'" style="width:'+pct+'%"></div></div>';
+  // SUBSCRIPTIONS ACCORDION
+  h+='<div style="margin-bottom:8px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(subsOpen?'#f0faf5':'#fff')+';cursor:pointer" onclick="S.custSection=subsOpen?null:\'subs\';render()">';
+  h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;font-weight:700;color:#1D9E75">ABUNƏLİKLƏR</span>'
+    +'<span style="background:#1D9E75;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+subs.length+'</span></div>';
+  h+='<div style="display:flex;gap:8px;align-items:center">';
+  if(subsOpen)h+='<button class="btn btn-g btn-sm" onclick="event.stopPropagation();S.showAddSub=true;render()">+ Əlavə et</button>';
+  h+='<span style="color:#1D9E75;font-size:14px">'+(subsOpen?'▲':'▼')+'</span></div></div>';
+  if(subsOpen){
+    if(!subs.length)h+='<div class="empty" style="padding:14px">Abunəlik yoxdur</div>';
+    for(var i=0;i<subs.length;i++){
+      var sub=subs[i];
+      var st2=subStatus(sub);var bc2=st2.t==='ok'?'b-green':st2.t==='warn'?'b-yellow':'b-red';
+      var frozen=sub.freeze_end&&sub.freeze_end>=td();
+      var pct=sub.is_partner?0:Math.min(100,Math.round((1-sub.remaining/sub.sessions_total)*100));
+      var subAttCount=0;
+      for(var ai=0;ai<atts.length;ai++){if(atts[ai].subscription_id===sub.id)subAttCount++;}
+      var usedCount=sub.sessions_total-sub.remaining;
+      h+='<div class="subcard"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">'
+        +'<div><div style="font-size:13px;font-weight:600">'+sub.program_name+'</div>'
+        +'<div style="font-size:11px;color:#999;margin-top:2px">'+fmt(sub.start_date)+' → '+fmt(sub.end_date)+'</div></div>'
+        +'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'
+        +'<span class="badge '+bc2+'">'+st2.txt+'</span>'
+        +(frozen?'<span class="badge b-blue" style="font-size:10px">'+fmt(sub.freeze_end)+'-dek</span>':'')
+        +(sub.is_active&&!frozen&&st2.t!=='exp'?'<button class="btn btn-gray btn-sm" onclick="openFreeze(\''+sub.id+'\')">'+'Dondur'+'</button>':'')
+        +'<button class="btn btn-gray btn-sm" style="font-size:11px" onclick="openEditSub(\''+sub.id+'\')">✏ Düzəliş</button>'
+        +'<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteSub(\''+sub.id+'\')">❌ Sil</button>'
+        +'</div></div>';
+      if(!sub.is_partner){
+        var due=sub.price_due||sub.price_paid||0;
+        var paid=sub.price_paid||0;
+        var debtHtml=due>paid?'<span style="color:#C62828;font-weight:600"> | Borc: '+(due-paid)+' ₼</span>':'';
+        h+='<div style="display:flex;justify-content:space-between;align-items:center">'
+          +'<div style="font-size:12px;color:#888">İstifadə: '+usedCount+'/'+sub.sessions_total+' | Qalan: '+sub.remaining+' dərs</div>'
+          +'<div style="font-size:12px;color:#888">'+paid+' ₼ ödənilib'+debtHtml+'</div>'
+          +'</div>'
+          +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'” style="width:'+pct+'%"></div></div>';
+      }
+      h+='</div>';
     }
-    h+='</div>';
   }
-  h+='<div class="slabel">SON ISTIRAKLAR ('+atts.length+')</div>';
-  if(!atts.length)h+='<div class="empty" style="padding:14px">Hələ istirak yoxdur</div>';
-  for(var i=0;i<Math.min(50,atts.length);i++){
-    var a=atts[i];
-    h+='<div class="attitem"><div><div style="font-size:13px;font-weight:500">'+fmt(a.class_date)+' - '+a.class_time+'</div>'
-      +'<div style="font-size:11px;color:#aaa">'+a.instructor_name+' - '+a.program_name+'</div></div>'
-      +'<div style="display:flex;align-items:center;gap:6px">'
-      +'<span class="badge b-green" style="font-size:11px">'+a.class_time+'</span>'
-      +'<button class="btn btn-gray btn-sm" style="color:#C62828;font-size:11px;padding:3px 8px" onclick="deleteAtt(\''+a.id+'\',\''+a.subscription_id+'\',\''+a.class_date+'\')">✕</button>'
-      +'</div></div>';
+  h+='</div>';
+
+  // ATTENDANCES ACCORDION
+  h+='<div style="margin-bottom:8px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(attsOpen?'#EFF6FF':'#fff')+';cursor:pointer" onclick="S.custSection=attsOpen?null:\'atts\';render()">';
+  h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;font-weight:700;color:#1565C0">DAVAMİYYƏT</span>'
+    +'<span style="background:#1565C0;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+atts.length+'</span></div>';
+  h+='<span style="color:#1565C0;font-size:14px">'+(attsOpen?'▲':'▼')+'</span></div>';
+  if(attsOpen){
+    if(!atts.length)h+='<div class="empty" style="padding:14px">Hələ iştirak yoxdur</div>';
+    for(var i=0;i<Math.min(50,atts.length);i++){
+      var a=atts[i];
+      h+='<div class="attitem"><div><div style="font-size:13px;font-weight:500">'+fmt(a.class_date)+' - '+a.class_time+'</div>'
+        +'<div style="font-size:11px;color:#aaa">'+a.instructor_name+' - '+a.program_name+'</div></div>'
+        +'<div style="display:flex;align-items:center;gap:6px">'
+        +'<span class="badge b-green" style="font-size:11px">'+a.class_time+'</span>'
+        +'<button class="btn btn-gray btn-sm" style="color:#C62828;font-size:11px;padding:3px 8px" onclick="deleteAtt(\''+a.id+'\',\''+a.subscription_id+'\',\''+a.class_date+'\')">✕</button>'
+        +'</div></div>';
+    }
   }
+  h+='</div>';
   return h;
 }
 
