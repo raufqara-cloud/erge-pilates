@@ -776,7 +776,7 @@ function getSlotExceptions(day, time, dateStr){
     var ex=S.bronExceptions[i];
     if(ex.exception_date!==dateStr)continue;
     if(ex.type==='absent'&&bids.indexOf(ex.booking_id)>=0)absents.push(ex);
-    if(ex.type==='temp_add'&&(ex.day_of_week===day||!ex.day_of_week)&&(ex.time_slot===time||!ex.time_slot))temps.push(ex);
+    if(ex.type==='temp_add'&&ex.day_of_week===day&&ex.time_slot===time)temps.push(ex);
   }
   return{absents:absents,temps:temps};
 }
@@ -1034,7 +1034,9 @@ function getBronSearchHTML(sq){
     for(var i=0;i<S.bronData.length;i++){
       var b=S.bronData[i];
       if(normQ(b.customer_name||'').indexOf(sq)>=0){
-        results.push({name:b.customer_name,id:b.customer_id,time:b.time_slot,day:DAYS_AZ[b.day_of_week-1],date:'Daimi',type:'permanent'});
+        results.push({bronId:b.id,exId:null,name:b.customer_name,custId:b.customer_id,
+          time:b.time_slot,day:DAYS_AZ[b.day_of_week-1],dow:b.day_of_week,
+          date:'Daimi',type:'permanent'});
       }
     }
   }
@@ -1042,8 +1044,12 @@ function getBronSearchHTML(sq){
     for(var i=0;i<S.bronExceptions.length;i++){
       var ex=S.bronExceptions[i];
       if(ex.type==='temp_add'&&normQ(ex.temp_customer_name||'').indexOf(sq)>=0){
-        var dow=ex.day_of_week?DAYS_AZ[ex.day_of_week-1]:'';
-        results.push({name:ex.temp_customer_name,id:ex.temp_customer_id||'',time:ex.time_slot||'',day:dow,date:ex.exception_date,type:'temp'});
+        var dow=ex.day_of_week;
+        results.push({bronId:null,exId:ex.id,name:ex.temp_customer_name,
+          custId:ex.temp_customer_id||'',
+          time:ex.time_slot||'?',
+          day:dow?DAYS_AZ[dow-1]:'?',dow:dow,
+          date:ex.exception_date,type:'temp'});
       }
     }
   }
@@ -1053,16 +1059,64 @@ function getBronSearchHTML(sq){
   for(var i=0;i<results.length;i++){
     var r=results[i];
     var bg=i%2===0?'#fff':'#fafcfa';
-    h+='<div style="display:grid;grid-template-columns:1fr 80px 120px 90px;padding:10px 14px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+';font-size:13px">'
-      +'<div><div style="font-weight:500">'+r.name+'</div>'
-      +'<div style="font-size:11px;color:#aaa">'+r.id+'</div></div>'
-      +'<div style="color:#1D9E75;font-weight:600;display:flex;align-items:center">'+r.time+'</div>'
-      +'<div style="color:#555;display:flex;align-items:center">'+r.day+'</div>'
-      +'<div style="display:flex;align-items:center">'+(r.type==='temp'?'<span class="badge b-blue" style="font-size:10px">'+fmt(r.date)+'</span>':'<span class="badge b-green" style="font-size:10px">Daimi</span>')+'</div>'
+    var dateLabel=r.type==='temp'?fmt(r.date):'Daimi';
+    var badgeClass=r.type==='temp'?'b-blue':'b-green';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+';font-size:13px">';
+    h+='<div style="flex:1">'
+      +'<div style="font-weight:500">'+r.name+'</div>'
+      +'<div style="font-size:11px;color:#aaa">'+r.custId+'</div>'
       +'</div>';
+    h+='<div style="font-size:12px;color:#1D9E75;font-weight:600;min-width:50px">'+r.time+'</div>';
+    h+='<div style="font-size:12px;color:#555;min-width:90px">'+r.day+'</div>';
+    h+='<span class="badge '+badgeClass+'" style="font-size:10px;min-width:60px;text-align:center">'+dateLabel+'</span>';
+    h+='<div style="display:flex;gap:4px;margin-left:8px">';
+    if(r.type==='temp'){
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px" onclick="editBronSearchItem(''+r.exId+'')">✏</button>';
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteBronSearchItem(''+r.exId+'','temp')">✕</button>';
+    } else {
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteBronSearchItem(''+r.bronId+'','permanent')">✕</button>';
+    }
+    h+='</div>';
+    h+='</div>';
   }
   h+='</div>';
   return h;
+}
+
+async function deleteBronSearchItem(id, type){
+  if(!confirm('Silinsin?'))return;
+  if(type==='temp'){
+    await cancelAbsent(id);
+  } else {
+    if(!confirm('Daimi bronu tamamilə silmək istədiyinizdən əminsinizmi?'))return;
+    await fetch(BASE+'/bookings?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    S.bronData=S.bronData.filter(function(b){return b.id!==id;});
+  }
+  var rd=document.getElementById('bron-search-results');
+  if(rd)rd.innerHTML=getBronSearchHTML(S.bronSearch);
+  render();
+}
+
+async function editBronSearchItem(exId){
+  // Find exception
+  var ex=null;
+  if(S.bronExceptions)for(var i=0;i<S.bronExceptions.length;i++){if(S.bronExceptions[i].id===exId){ex=S.bronExceptions[i];break;}}
+  if(!ex)return;
+  var newDate=prompt('Tarix (YYYY-MM-DD):', ex.exception_date);
+  if(!newDate)return;
+  var newTime=prompt('Saat (məs: 09:00):', ex.time_slot||'');
+  if(!newTime)return;
+  var dow=parseInt(prompt('Gün (1=Bazar ertəsi, 2=Ç.axşamı, 3=Çər, 4=C.axşamı, 5=Cümə, 6=Şənbə):', ex.day_of_week||''));
+  if(!dow||dow<1||dow>6)return;
+  try{
+    await dbPatch('booking_exceptions','id=eq.'+exId,{exception_date:newDate,time_slot:newTime,day_of_week:dow});
+    ex.exception_date=newDate;ex.time_slot=newTime;ex.day_of_week=dow;
+    var rd=document.getElementById('bron-search-results');
+    if(rd)rd.innerHTML=getBronSearchHTML(S.bronSearch);
+    S.bronExceptions=null;
+    await fetchExceptions(newDate);
+    render();
+  }catch(e){alert('Xeta: '+e.message);}
 }
 function filterBronCusts(){
   var inp=document.getElementById('ab-cust-search');
