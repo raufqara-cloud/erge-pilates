@@ -864,35 +864,27 @@ function rBron(){
       var border=isSel?'2px solid #1D9E75':'2px solid transparent';
 
       h+='<div style="background:'+bg+';border:'+border+';border-radius:8px;padding:5px 4px;cursor:pointer;min-height:54px" onclick="S.selBronDay='+d+';S.selBronTime=\''+time+'\';S.selBronDate=\''+dateForDay+'\';render()">';
-
-      if(brons.length>0){
+      if(activeCount>0){
         var shown=0;
-        // Show permanent (not absent)
         for(var si=0;si<brons.length&&shown<3;si++){
           var b=brons[si];
           var isAbsent=excs.absents.some(function(ex){return ex.booking_id===b.id;});
           if(!isAbsent){
-            h+='<div style="font-size:10px;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">'+
-              (b.customer_name||'?').split(' ')[0]+'</div>';
+            h+='<div style="font-size:10px;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">'+(b.customer_name||'?').split(' ')[0]+'</div>';
             shown++;
           }
         }
-        // Show temps
         for(var si=0;si<excs.temps.length&&shown<3;si++){
-          h+='<div style="font-size:10px;color:#1565C0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">'+
-            (excs.temps[si].temp_customer_name||'?').split(' ')[0]+'</div>';
+          h+='<div style="font-size:10px;color:#1565C0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">'+(excs.temps[si].temp_customer_name||'?').split(' ')[0]+'</div>';
           shown++;
         }
         if(activeCount>3)h+='<div style="font-size:10px;color:#999">+'+(activeCount-3)+'</div>';
-        if(empty>0&&activeCount>0)h+='<div style="font-size:10px;color:#1D9E75;font-weight:600">'+empty+' boş</div>';
+        if(empty>0)h+='<div style="font-size:10px;color:#1D9E75;font-weight:600">'+empty+' boş</div>';
         if(excs.absents.length>0)h+='<div style="font-size:10px;color:#C62828">-'+excs.absents.length+' yox</div>';
       } else {
         h+='<div style="font-size:11px;color:#ddd;text-align:center;padding-top:14px">—</div>';
       }
       h+='</div>';
-    }
-    h+='</div>';
-
     // === SLOT DETAIL PANEL ===
     if(S.selBronDay&&S.selBronTime===time){
       var sd=S.selBronDay;
