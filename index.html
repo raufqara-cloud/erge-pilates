@@ -749,14 +749,18 @@ async function reloadBron(){
 }
 
 async function fetchExceptions(dateStr){
-  // Fetch exceptions for wider range (4 weeks) to support search
   var mon=getWeekMonday(dateStr);
-  var end=dateAddDays(mon,27); // 4 weeks
+  var end=dateAddDays(mon,27);
   try{
     var excs=await dbGet('booking_exceptions',
       'exception_date=gte.'+mon+'&exception_date=lte.'+end);
-    S.bronExceptions=excs||[];
-  }catch(e){S.bronExceptions=[];}
+    // Merge: keep any locally-added exceptions not yet in DB response
+    var dbIds={};
+    (excs||[]).forEach(function(e){dbIds[e.id]=true;});
+    var localOnly=(S.bronExceptions||[]).filter(function(e){return !dbIds[e.id];});
+    S.bronExceptions=(excs||[]).concat(localOnly);
+  }catch(e){if(!S.bronExceptions)S.bronExceptions=[];}
+  render();
 }
 
 function getSlotBookings(day, time){
@@ -1242,7 +1246,12 @@ async function deleteBron(id){
   if(!confirm('Bu daimi bronu tamamilə silmək istədiyinizdən əminsinizmi?'))return;
   S.saving=true;render();
   try{
-    await fetch(BASE+'/bookings?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    // Delete related exceptions first (FK constraint)
+    await fetch(BASE+'/booking_exceptions?booking_id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(S.bronExceptions)S.bronExceptions=S.bronExceptions.filter(function(e){return e.booking_id!==id;});
+    // Then delete the booking
+    var r=await fetch(BASE+'/bookings?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(!r.ok)throw new Error('Silinmedi: '+await r.text());
     S.bronData=S.bronData.filter(function(b){return b.id!==id;});
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
