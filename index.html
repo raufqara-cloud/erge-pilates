@@ -776,7 +776,7 @@ function getSlotExceptions(day, time, dateStr){
     var ex=S.bronExceptions[i];
     if(ex.exception_date!==dateStr)continue;
     if(ex.type==='absent'&&bids.indexOf(ex.booking_id)>=0)absents.push(ex);
-    if(ex.type==='temp_add'&&ex.day_of_week===day&&ex.time_slot===time)temps.push(ex);
+    if(ex.type==='temp_add'&&(ex.day_of_week===day||!ex.day_of_week)&&(ex.time_slot===time||!ex.time_slot))temps.push(ex);
   }
   return{absents:absents,temps:temps};
 }
@@ -805,50 +805,10 @@ function rBron(){
 
   // Search bar
   h+='<div class="sbar" style="margin-bottom:12px"><span class="sicon">&#128269;</span>'
-    +'<input id="bron-search" placeholder="Müştəri adı axtar..." value="'+S.bronSearch+'" oninput="S.bronSearch=this.value;render()" style="background:none;border:none;outline:none;width:100%;font-size:14px"></div>';
+    +'<input id="bron-search" placeholder="Müştəri adı axtar..." value="'+S.bronSearch+'" oninput="bronSearchUpdate(this.value)" style="background:none;border:none;outline:none;width:100%;font-size:14px"></div>';
 
-  if(S.bronSearch.trim()){
-    // Search mode - show matching bookings
-    var sq=normQ(S.bronSearch.trim());
-    var results=[];
-    if(S.bronData){
-      for(var i=0;i<S.bronData.length;i++){
-        var b=S.bronData[i];
-        if(normQ(b.customer_name||'').indexOf(sq)>=0){
-          results.push({name:b.customer_name,id:b.customer_id,time:b.time_slot,day:DAYS_AZ[b.day_of_week-1],date:'Daimi',type:'permanent'});
-        }
-      }
-    }
-    // Also search temp bookings
-    if(S.bronExceptions){
-      for(var i=0;i<S.bronExceptions.length;i++){
-        var ex=S.bronExceptions[i];
-        if(ex.type==='temp_add'&&normQ(ex.temp_customer_name||'').indexOf(sq)>=0){
-          var dow=ex.day_of_week?DAYS_AZ[ex.day_of_week-1]:'';
-          results.push({name:ex.temp_customer_name,id:ex.temp_customer_id||'',time:ex.time_slot||'',day:dow,date:ex.exception_date,type:'temp'});
-        }
-      }
-    }
-    if(!results.length){
-      h+='<div class="empty">Tapılmadı</div>';
-    } else {
-      h+='<div class="slabel">AXTARIŞ NƏTİCƏLƏRİ ('+results.length+')</div>';
-      h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
-      for(var i=0;i<results.length;i++){
-        var r=results[i];
-        var bg=i%2===0?'#fff':'#fafcfa';
-        h+='<div style="display:grid;grid-template-columns:1fr 80px 120px 90px;padding:10px 14px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+';font-size:13px">'
-          +'<div><div style="font-weight:500">'+r.name+'</div>'
-          +'<div style="font-size:11px;color:#aaa">'+r.id+'</div></div>'
-          +'<div style="color:#1D9E75;font-weight:600;display:flex;align-items:center">'+r.time+'</div>'
-          +'<div style="color:#555;display:flex;align-items:center">'+r.day+'</div>'
-          +'<div style="display:flex;align-items:center">'+(r.type==='temp'?'<span class="badge b-blue" style="font-size:10px">'+fmt(r.date)+'</span>':'<span class="badge b-green" style="font-size:10px">Daimi</span>')+'</div>'
-          +'</div>';
-      }
-      h+='</div>';
-    }
-    return h;
-  }
+  h+='<div id="bron-search-results">'+getBronSearchHTML(S.bronSearch)+'</div>';
+  if(S.bronSearch.trim())return h;
 
   if(S.bronLoading)return h+'<div class="empty"><span class="spin"></span> Yüklənir...</div>';
   if(!S.bronData)return h+'<div class="empty">Yüklənir...</div>';
@@ -1049,6 +1009,61 @@ function normQ(s){
     .replace(/ç/g,'c').replace(/Ç/g,'c');
 }
 
+
+function bronSearchUpdate(val){
+  S.bronSearch=val;
+  // Only re-render if search is active - use partial update
+  var resultsDiv=document.getElementById('bron-search-results');
+  if(resultsDiv){
+    resultsDiv.innerHTML=getBronSearchHTML(val);
+  } else {
+    render();
+    // Restore focus
+    setTimeout(function(){
+      var inp=document.getElementById('bron-search');
+      if(inp){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);}
+    },10);
+  }
+}
+
+function getBronSearchHTML(sq){
+  sq=normQ((sq||'').trim());
+  if(!sq)return '';
+  var results=[];
+  if(S.bronData){
+    for(var i=0;i<S.bronData.length;i++){
+      var b=S.bronData[i];
+      if(normQ(b.customer_name||'').indexOf(sq)>=0){
+        results.push({name:b.customer_name,id:b.customer_id,time:b.time_slot,day:DAYS_AZ[b.day_of_week-1],date:'Daimi',type:'permanent'});
+      }
+    }
+  }
+  if(S.bronExceptions){
+    for(var i=0;i<S.bronExceptions.length;i++){
+      var ex=S.bronExceptions[i];
+      if(ex.type==='temp_add'&&normQ(ex.temp_customer_name||'').indexOf(sq)>=0){
+        var dow=ex.day_of_week?DAYS_AZ[ex.day_of_week-1]:'';
+        results.push({name:ex.temp_customer_name,id:ex.temp_customer_id||'',time:ex.time_slot||'',day:dow,date:ex.exception_date,type:'temp'});
+      }
+    }
+  }
+  if(!results.length) return '<div class="empty">Tapılmadı</div>';
+  var h='<div class="slabel">AXTARIŞ NƏTİCƏLƏRİ ('+results.length+')</div>';
+  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
+  for(var i=0;i<results.length;i++){
+    var r=results[i];
+    var bg=i%2===0?'#fff':'#fafcfa';
+    h+='<div style="display:grid;grid-template-columns:1fr 80px 120px 90px;padding:10px 14px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+';font-size:13px">'
+      +'<div><div style="font-weight:500">'+r.name+'</div>'
+      +'<div style="font-size:11px;color:#aaa">'+r.id+'</div></div>'
+      +'<div style="color:#1D9E75;font-weight:600;display:flex;align-items:center">'+r.time+'</div>'
+      +'<div style="color:#555;display:flex;align-items:center">'+r.day+'</div>'
+      +'<div style="display:flex;align-items:center">'+(r.type==='temp'?'<span class="badge b-blue" style="font-size:10px">'+fmt(r.date)+'</span>':'<span class="badge b-green" style="font-size:10px">Daimi</span>')+'</div>'
+      +'</div>';
+  }
+  h+='</div>';
+  return h;
+}
 function filterBronCusts(){
   var inp=document.getElementById('ab-cust-search');
   var list=document.getElementById('ab-cust-list');
