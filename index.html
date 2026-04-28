@@ -1071,10 +1071,10 @@ function getBronSearchHTML(sq){
     h+='<span class="badge '+badgeClass+'" style="font-size:10px;min-width:60px;text-align:center">'+dateLabel+'</span>';
     h+='<div style="display:flex;gap:4px;margin-left:8px">';
     if(r.type==='temp'){
-      h+='<button class="btn btn-gray btn-sm" style="font-size:10px" onclick="editBronSearchItem(''+r.exId+'')">✏</button>';
-      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteBronSearchItem(''+r.exId+'','temp')">✕</button>';
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px" data-id="'+r.exId+'" onclick="editBronSearchItem(this.dataset.id)">&#9998;</button>';
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" data-id="'+r.exId+'" onclick="deleteBronSearchItem(this.dataset.id,\'temp\')">&#10005;</button>';
     } else {
-      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteBronSearchItem(''+r.bronId+'','permanent')">✕</button>';
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" data-id="'+r.bronId+'" onclick="deleteBronSearchItem(this.dataset.id,\'permanent\')">&#10005;</button>';
     }
     h+='</div>';
     h+='</div>';
