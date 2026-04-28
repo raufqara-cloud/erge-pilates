@@ -495,7 +495,7 @@ function rDetail(){
 
   // SUBSCRIPTIONS ACCORDION
   h+='<div style="margin-bottom:8px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(subsOpen?'#f0faf5':'#fff')+';cursor:pointer" onclick="S.custSection=subsOpen?null:\'subs\';render()">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(subsOpen?'#f0faf5':'#fff')+';cursor:pointer" onclick="S.custSection=S.custSection===\'subs\'?null:\'subs\';render()">';
   h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;font-weight:700;color:#1D9E75">ABUNƏLİKLƏR</span>'
     +'<span style="background:#1D9E75;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+subs.length+'</span></div>';
   h+='<div style="display:flex;gap:8px;align-items:center">';
@@ -538,7 +538,7 @@ function rDetail(){
 
   // ATTENDANCES ACCORDION
   h+='<div style="margin-bottom:8px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(attsOpen?'#EFF6FF':'#fff')+';cursor:pointer" onclick="S.custSection=attsOpen?null:\'atts\';render()">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(attsOpen?'#EFF6FF':'#fff')+';cursor:pointer" onclick="S.custSection=S.custSection===\'atts\'?null:\'atts\';render()">';
   h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;font-weight:700;color:#1565C0">DAVAMİYYƏT</span>'
     +'<span style="background:#1565C0;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+atts.length+'</span></div>';
   h+='<span style="color:#1565C0;font-size:14px">'+(attsOpen?'▲':'▼')+'</span></div>';
