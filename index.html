@@ -131,7 +131,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -345,7 +345,7 @@ function rHome(){
   var isToday=viewDate===td();
   var h='<div class="ph"><div class="pt">'+(isToday?'Bu gun — '+fmt(td()):fmt(viewDate))+'</div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
-    +'<input type="date" value="'+viewDate+'" max="'+td()+'" onchange="S.selDate=this.value===td()?null:this.value;fetchAttByDate(this.value);" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
+    +'<input type="date" value="'+viewDate+'" max="'+td()+'" onchange="S.selDate=this.value===td()?null:this.value;S.homeSlot=null;fetchAttByDate(this.value);" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
     +(isToday?'':'<button class="btn btn-gray btn-sm" onclick="S.selDate=null;render()">Bu gun</button>')
     +'</div></div>'
     +'<div class="sgrid">'
@@ -355,15 +355,53 @@ function rHome(){
     +'</div>';
   if(ex.length)h+='<div class="al al-r">'+ex.length+' mustərinin aktiv abunəliyi yoxdur</div>';
   if(ew.length)h+='<div class="al al-y">Az ders qalan: '+ew.map(function(c){return c.name;}).join(', ')+'</div>';
-  h+='<div class="slabel">BU GUN ISTIRAK ETDILER</div>';
+  h+='<div class="slabel">'+(isToday?'BU GUN ISTIRAK ETDILER':fmt(viewDate).toUpperCase()+' ISTIRAK ETDILER')+'</div>';
   if(S.selDateLoading)h+='<div class="empty"><span class="spin"></span> Yuklenilir...</div>';
   else if(!ta.length)h+='<div class="empty">'+(isToday?'Hələ heç kim qeydiyyatdan keçməyib':fmt(viewDate)+' tarixində iştirak yoxdur')+'</div>';
-  for(var i=0;i<ta.length;i++){
-    var a=ta[i];
-    h+='<div class="attitem"><div><div style="font-size:11px;color:#aaa;font-weight:500">'+a.customer_id+'</div>'
-      +'<div style="font-size:13px;font-weight:600">'+a.customer_name+'</div>'
-      +'<div style="font-size:11px;color:#bbb">'+a.class_time+' - '+a.instructor_name+' - '+a.program_name+'</div>'
-      +'</div><span class="badge b-green">'+a.class_time+'</span></div>';
+  else{
+    // Group by time slot
+    var groups={};
+    var groupTimes=[];
+    for(var i=0;i<ta.length;i++){
+      var t=ta[i].class_time;
+      if(!groups[t]){groups[t]=[];groupTimes.push(t);}
+      groups[t].push(ta[i]);
+    }
+    groupTimes.sort();
+    for(var gi=0;gi<groupTimes.length;gi++){
+      var gtime=groupTimes[gi];
+      var gatts=groups[gtime];
+      var gkey='home-'+gtime;
+      var gopen=S.homeSlot===gkey;
+      // Get unique instructors for this slot
+      var instNames=[];
+      for(var k=0;k<gatts.length;k++){
+        var iname=gatts[k].instructor_name||'';
+        if(iname&&instNames.indexOf(iname)<0)instNames.push(iname);
+      }
+      h+='<div style="margin-bottom:6px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;background:'+(gopen?'#f0faf5':'#fff')+';cursor:pointer" onclick="S.homeSlot=S.homeSlot===\''+gkey+'\' ?null:\''+gkey+'\';render()">';
+      h+='<div style="display:flex;align-items:center;gap:10px">';
+      h+='<span style="font-size:15px;font-weight:700;color:#1D9E75">'+gtime+'</span>';
+      h+='<span style="font-size:12px;color:#555">'+(instNames.join(', ') || '—')+'</span>';
+      h+='</div>';
+      h+='<div style="display:flex;align-items:center;gap:8px">';
+      h+='<span style="background:#1D9E75;color:#fff;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700">'+gatts.length+' nəfər</span>';
+      h+='<span style="color:#1D9E75;font-size:13px">'+(gopen?'▲':'▼')+'</span>';
+      h+='</div></div>';
+      if(gopen){
+        for(var k=0;k<gatts.length;k++){
+          var a=gatts[k];
+          h+='<div class="attitem" style="border-top:1px solid #f0f0f0">';
+          h+='<div><div style="font-size:11px;color:#aaa;font-weight:500">'+a.customer_id+'</div>';
+          h+='<div style="font-size:13px;font-weight:600">'+a.customer_name+'</div>';
+          h+='<div style="font-size:11px;color:#bbb">'+a.instructor_name+' — '+a.program_name+'</div></div>';
+          h+='<span class="badge b-green" style="font-size:11px">'+a.class_time+'</span>';
+          h+='</div>';
+        }
+      }
+      h+='</div>';
+    }
   }
   return h;
 }
