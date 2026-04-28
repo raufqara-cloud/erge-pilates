@@ -1064,17 +1064,15 @@ function getBronSearchHTML(sq){
     var badgeClass=r.type==='temp'?'b-blue':'b-green';
     h+='<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+';font-size:13px">';
     h+='<div style="flex:1;min-width:0">'
-      +'<div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+r.name+'</div>'
+      +'<div style="font-weight:500">'+r.name+'</div>'
       +'<div style="font-size:11px;color:#aaa">'+r.day+' '+r.time+'</div>'
       +'</div>';
-    h+='<span class="badge '+badgeClass+'" style="font-size:10px;white-space:nowrap">'+dateLabel+'</span>';
-    h+='<div style="display:flex;gap:4px;margin-left:8px">';
-    h+='<div style="display:flex;gap:4px;margin-left:8px">';
+    h+='<span class="badge '+badgeClass+'" style="font-size:10px">'+dateLabel+'</span>';
     if(r.type==='temp'){
-      h+='<button class="btn btn-gray btn-sm" style="font-size:10px" id="edit-'+i+'" onclick="editBronSearchItem('+JSON.stringify(r.exId||'')+')">✏</button>';
-      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteBronSearchItem('+JSON.stringify(r.exId||'')+',\'temp\')">✕</button>';
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px" onclick="editBronSearchItem('+JSON.stringify(r.exId||'')+')">✏</button>';
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteBronSearchItem('+JSON.stringify(r.exId||'')+',\'temp\')">&#10005;</button>';
     } else {
-      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteBronSearchItem('+JSON.stringify(r.bronId||'')+',\'permanent\')">✕</button>';
+      h+='<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteBronSearchItem('+JSON.stringify(r.bronId||'')+',\'permanent\')">&#10005;</button>';
     }
     h+='</div>';
   }
