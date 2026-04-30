@@ -640,19 +640,22 @@ function rModalAddSub(){
     +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="m-price-paid" type="number" value="'+defP+'"></div>'
     +'</div>'
     +'<div style="font-size:12px;color:#1565C0;background:#E3F2FD;padding:7px 10px;border-radius:7px;margin-bottom:10px" id="m-phint">Siyahi qiymeti: '+defP+' AZN</div>'
-    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddSub=false;render()">Legv et</button>'
-    +\'<div class="fg" style="margin-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="m-pending"> <span style="color:#1565C0">Ödənilib, hələ başlamayıb — ilk məşqdə aktivləşəcək</span></label></div>\'
-    +'<button class="btn btn-g" onclick="submitSub()">Əlavə et</button></div>'
+    +'<div class="mact">'
+    +'<div class="fg" style="margin-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="m-pending"> <span style="color:#1565C0">Ödənilib, hələ başlamayıb — ilk məşqdə aktivləşəcək</span></label></div>'
+    +'<button class="btn btn-gray" onclick="S.showAddSub=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitSub()">Əlavə et</button>'
+    +'</div>'
     +'</div></div>';
 }
 
 function rModalAtt(){
+  var attDateVal=S.attDate||td();
   var c=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.attCust){c=D.customers[i];break;}}
   if(!c)return'';
   var sub=activeSub(c.id);
-  var tOpts='';for(var i=0;i<TIMES.length;i++)tOpts+='<option value="'+TIMES[i]+'">'+TIMES[i]+'</option>';
-  var iOpts='';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
+  var tOpts='<option value="">— Saat seçin —</option>';var now=new Date();var nowH=now.getHours();for(var i=0;i<TIMES.length;i++){var th=parseInt(TIMES[i]);tOpts+='<option value="'+TIMES[i]+'"'+(th>nowH+1&&attDateVal===td()?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
+  var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
   return '<div class="ov" onclick="S.showAtt=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Istirak Qeydiyyati</div>'
     +'<div style="background:#f8faf8;border-radius:9px;padding:10px 12px;margin-bottom:14px">'
@@ -1771,8 +1774,9 @@ function rModalSingleAtt(){
     if(p.sessions_total!==1)continue;
     progOpts+='<option value="'+p.id+'" data-price="'+p.list_price+'">'+p.name+' — '+p.list_price+' AZN</option>';
   }
-  var tOpts='';for(var i=0;i<TIMES.length;i++)tOpts+='<option value="'+TIMES[i]+'">'+TIMES[i]+'</option>';
-  var iOpts='';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
+  var saDateVal=td();
+  var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);tOpts2+='<option value="'+TIMES[i]+'"'+(th2>nowH2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
+  var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
   var firstPrice=D.programs.filter(function(p){return p.is_active&&p.sessions_total===1;})[0];
   var defPrice=firstPrice?firstPrice.list_price:0;
   return '<div class="ov" onclick="S.showSingleAtt=false;render()"><div class="modal" onclick="event.stopPropagation()">'
@@ -1783,7 +1787,7 @@ function rModalSingleAtt(){
     +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="updateSinglePrice()">'+progOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sa-date" type="date" value="'+td()+'"></div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="sa-time">'+tOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="sa-time">'+tOpts2+'</select></div>'
     +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="sa-inst">'+iOpts+'</select></div>'
     +'</div>'
     +'<div class="fi-row">'
@@ -2035,7 +2039,15 @@ function submitAtt(){
   var attDate=document.getElementById('m-attdate')?document.getElementById('m-attdate').value:td();
   var time=document.getElementById('m-time').value;
   var inst=document.getElementById('m-inst').value;
-  if(!time||!inst||!S.attCust)return;
+  if(!time){alert('Saat seçin');return;}
+  if(!inst){alert('İnstruktor seçin');return;}
+  if(!S.attCust)return;
+  // Validate: future time on today not allowed
+  if(attDate===td()){
+    var nowH=new Date().getHours();
+    var selH=parseInt(time);
+    if(selH>nowH+1){alert('Hələ başlamamış saata qeydiyyat mümkün deyil ('+time+')');return;}
+  }
   var sub=activeSub(S.attCust);
   if(!sub){
     var c=null;for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.attCust){c=D.customers[i];break;}}
