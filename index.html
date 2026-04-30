@@ -131,7 +131,7 @@ var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:0
 var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[],accounts:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',attDate:null,kassaTab:'txns',kassaData:null,kassaLoading:false,showAddTxn:false,editTxnId:null,selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null,bronSearch:'',showEditBronEx:false,editBronEx:null};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',attDate:null,singleAttDate:null,kassaTab:'txns',kassaData:null,kassaLoading:false,showAddTxn:false,editTxnId:null,selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null,bronSearch:'',showEditBronEx:false,editBronEx:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -1783,7 +1783,7 @@ async function toggleInst(id,val){
 }
 
 
-function openSingleAtt(custId){S.singleCust=custId;S.showSingleAtt=true;render();}
+function openSingleAtt(custId){S.singleCust=custId;S.showSingleAtt=true;S.singleAttDate=null;render();}
 
 function rModalSingleAtt(){
   var c=null;
@@ -1798,7 +1798,8 @@ function rModalSingleAtt(){
     progOpts+='<option value="'+p.id+'" data-price="'+p.list_price+'">'+p.name+' — '+p.list_price+' AZN</option>';
   }
   var saDateVal=td();
-  var saDateVal=document.getElementById('sa-date')?document.getElementById('sa-date').value:td();
+  var saDateVal=S.singleAttDate||td();
+  var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
   var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
   var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
   var firstPrice=D.programs.filter(function(p){return p.is_active&&p.sessions_total===1;})[0];
