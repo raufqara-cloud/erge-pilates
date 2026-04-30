@@ -1331,9 +1331,16 @@ async function fetchIzleme(){
 
     // Category 1: Dərs sayı tamamlananlar (remaining=0, end_date >= today, is_active=true)
     var completedSessions=[];
+    // Build map of customers with active sub that has remaining > 0
+    var hasActiveSub={};
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
+      if(s.remaining>0&&!s.is_partner)hasActiveSub[s.customer_id]=true;
+    }
     for(var i=0;i<activeSubs.length;i++){
       var s=activeSubs[i];
       if(s.remaining===0&&s.end_date>=today&&!s.is_partner){
+        if(hasActiveSub[s.customer_id])continue; // has newer active sub
         var c=custMap[s.customer_id];
         if(c)completedSessions.push({c:c,s:s,last:lastAtt[c.id]||''});
       }
