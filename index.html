@@ -254,6 +254,8 @@ async function doAddSub(custId,progId,priceDue,pricePaid,startDate,isPending,acc
     D.subscriptions.unshift(sub);
     // Create transaction if paid amount > 0 and account selected
     if(acctId&&parseFloat(pricePaid)>0){
+      var cust=null;
+      for(var ci=0;ci<D.customers.length;ci++){if(D.customers[ci].id===custId){cust=D.customers[ci];break;}}
       var txn={id:'TX'+Date.now(),date:sd,type:'income',category:'Abunə haqqı',
         description:(prog.name||progId)+' — '+( (cust&&cust.name)||custId),
         amount:parseFloat(pricePaid),account_id:acctId,
