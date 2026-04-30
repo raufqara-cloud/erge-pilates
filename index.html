@@ -177,6 +177,10 @@ function subStatus(sub){
   if(!sub.is_active)return{t:'exp',txt:'Deaktiv'};
   if(sub.end_date<td())return{t:'exp',txt:'Muddət bitib'};
   if(sub.is_partner){
+    var used=0;
+    var cm=curMonth();
+    for(var i=0;i<D.attendances.length;i++){
+      var a=D.attendances[i];
       if(a.subscription_id===sub.id&&a.class_date.indexOf(cm)===0)used++;
     }
     var left=12-used;
@@ -184,7 +188,6 @@ function subStatus(sub){
     if(left<=2)return{t:'warn',txt:'Bu ay '+left+' ders qaldi'};
     return{t:'ok',txt:'Bu ay '+left+' ders qaldi'};
   }
-  if(sub.remaining<=0)return{t:'exp',txt:'Ders sayi bitib'};
   if(sub.remaining<=2)return{t:'warn',txt:sub.remaining+' ders qaldi'};
   return{t:'ok',txt:sub.remaining+' ders qaldi'};
 }
