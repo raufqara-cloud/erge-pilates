@@ -161,22 +161,22 @@ function norm(s){
 
 function activeSub(custId){
   var today=td();
+  var pending=null;
   for(var i=0;i<D.subscriptions.length;i++){
     var s=D.subscriptions[i];
-    if(s.customer_id===custId&&s.is_active&&s.end_date>=today&&(s.is_partner||s.remaining>0))return s;
+    if(s.customer_id!==custId||!s.is_active)continue;
+    if(s.status==='pending'){if(!pending)pending=s;continue;}
+    if(s.end_date>=today&&(s.is_partner||s.remaining>0))return s;
   }
-  return null;
+  return pending;
 }
 
 function subStatus(sub){
   if(!sub)return{t:'none',txt:'Abunəlik yoxdur'};
+  if(sub.status==='pending')return{t:'pending',txt:'Ödənilib, gözləyir'};
   if(!sub.is_active)return{t:'exp',txt:'Deaktiv'};
   if(sub.end_date<td())return{t:'exp',txt:'Muddət bitib'};
   if(sub.is_partner){
-    var used=0;
-    var cm=curMonth();
-    for(var i=0;i<D.attendances.length;i++){
-      var a=D.attendances[i];
       if(a.subscription_id===sub.id&&a.class_date.indexOf(cm)===0)used++;
     }
     var left=12-used;
@@ -232,7 +232,7 @@ async function doAddCust(name,phone,birth){
   S.saving=false;render();
 }
 
-async function doAddSub(custId,progId,priceDue,pricePaid,startDate){
+async function doAddSub(custId,progId,priceDue,pricePaid,startDate,isPending){
   S.saving=true;render();
   try{
     var prog=null;
@@ -243,7 +243,9 @@ async function doAddSub(custId,progId,priceDue,pricePaid,startDate){
       sessions_total:prog.sessions_total,remaining:prog.sessions_total,
       price_due:parseFloat(priceDue)||prog.list_price,
       price_paid:parseFloat(pricePaid)||0,
-      start_date:sd,end_date:end,is_partner:prog.is_partner,is_active:true,freeze_end:null};
+      start_date:sd,end_date:end,is_partner:prog.is_partner,
+      is_active:true,freeze_end:null,
+      status:isPending?'pending':'active'};
     await dbPost('subscriptions',sub);
     D.subscriptions.unshift(sub);
     S.showAddSub=false;
@@ -258,6 +260,15 @@ async function doAtt(custId,subId,classTime,instId,attDate){
     for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
     for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
     for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
+    // Activate pending subscription on first attendance
+    if(sub&&sub.status==='pending'){
+      var prog=null;
+      for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
+      var newStart=attDate||td();
+      var newEnd=addDays(newStart,prog?prog.duration_days:30);
+      await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
+      sub.status='active';sub.start_date=newStart;sub.end_date=newEnd;
+    }
     var att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
       program_id:sub.program_id,program_name:sub.program_name,
       class_date:attDate||td(),class_time:classTime,
@@ -543,7 +554,7 @@ function rDetail(){
     if(!subs.length)h+='<div class="empty" style="padding:14px">Abunəlik yoxdur</div>';
     for(var i=0;i<subs.length;i++){
       var sub=subs[i];
-      var st2=subStatus(sub);var bc2=st2.t==='ok'?'b-green':st2.t==='warn'?'b-yellow':'b-red';
+      var st2=subStatus(sub);var bc2=st2.t==='ok'?'b-green':st2.t==='warn'?'b-yellow':st2.t==='pending'?'b-blue':'b-red';
       var frozen=sub.freeze_end&&sub.freeze_end>=td();
       var pct=sub.is_partner?0:Math.min(100,Math.round((1-sub.remaining/sub.sessions_total)*100));
       var subAttCount=0;
@@ -630,6 +641,7 @@ function rModalAddSub(){
     +'</div>'
     +'<div style="font-size:12px;color:#1565C0;background:#E3F2FD;padding:7px 10px;border-radius:7px;margin-bottom:10px" id="m-phint">Siyahi qiymeti: '+defP+' AZN</div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddSub=false;render()">Legv et</button>'
+    +\'<div class="fg" style="margin-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="m-pending"> <span style="color:#1565C0">Ödənilib, hələ başlamayıb — ilk məşqdə aktivləşəcək</span></label></div>\'
     +'<button class="btn btn-g" onclick="submitSub()">Əlavə et</button></div>'
     +'</div></div>';
 }
@@ -2014,8 +2026,9 @@ function submitSub(){
   var priceDue=document.getElementById('m-price-due').value;
   var pricePaid=document.getElementById('m-price-paid').value;
   var startDate=document.getElementById('m-startdate').value;
+  var isPending=document.getElementById('m-pending')&&document.getElementById('m-pending').checked;
   if(!progId||!S.selCust)return;
-  doAddSub(S.selCust,progId,priceDue,pricePaid,startDate);
+  doAddSub(S.selCust,progId,priceDue,pricePaid,startDate,isPending);
 }
 function openAtt(custId){S.attCust=custId;S.showAtt=true;render();}
 function submitAtt(){
