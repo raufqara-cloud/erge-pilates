@@ -907,8 +907,6 @@ function rBron(){
         h+='<div style="font-size:11px;color:#ddd;text-align:center;padding-top:14px">—</div>';
       }
       h+='</div>';
-    } // close day loop
-
     // === SLOT DETAIL PANEL ===
     if(S.selBronDay&&S.selBronTime===time){
       var sd=S.selBronDay;
@@ -1382,6 +1380,7 @@ async function fetchIzleme(){
 
     S.izlemeData={completedSessions,expiredTime,almostDone,notThisWeek,debtors};
   }catch(e){alert('Xeta: '+e.message);}
+  }
   S.izlemeLoading=false;render();
 }
 
