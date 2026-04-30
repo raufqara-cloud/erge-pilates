@@ -261,8 +261,7 @@ async function doAddSub(custId,progId,priceDue,pricePaid,startDate,isPending,acc
         amount:parseFloat(pricePaid),account_id:acctId,
         subscription_id:sub.id,customer_id:custId};
       await dbPost('transactions',txn);
-      // Update account balance
-      await dbPatch('accounts','id=eq.'+acctId,{balance:0});// will recalculate
+      S.kassaData=null; // refresh kassa cache
     }
     S.showAddSub=false;
   }catch(e){alert('Xeta: '+e.message);}
