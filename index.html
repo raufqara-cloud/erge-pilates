@@ -657,7 +657,7 @@ function rModalAtt(){
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.attCust){c=D.customers[i];break;}}
   if(!c)return'';
   var sub=activeSub(c.id);
-  var tOpts='<option value="">— Saat seçin —</option>';var now=new Date();var nowH=now.getHours();for(var i=0;i<TIMES.length;i++){var th=parseInt(TIMES[i]);tOpts+='<option value="'+TIMES[i]+'"'+(th>nowH+1&&attDateVal===td()?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
+  var tOpts='<option value="">— Saat seçin —</option>';var now=new Date();var nowH=now.getHours();for(var i=0;i<TIMES.length;i++){var th=parseInt(TIMES[i]);var isFuture=attDateVal===td()&&th>nowH+1;tOpts+='<option value="'+TIMES[i]+'"'+(isFuture?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
   var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
   return '<div class="ov" onclick="S.showAtt=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Istirak Qeydiyyati</div>'
