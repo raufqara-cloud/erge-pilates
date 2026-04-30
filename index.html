@@ -1798,7 +1798,8 @@ function rModalSingleAtt(){
     progOpts+='<option value="'+p.id+'" data-price="'+p.list_price+'">'+p.name+' — '+p.list_price+' AZN</option>';
   }
   var saDateVal=td();
-  var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);tOpts2+='<option value="'+TIMES[i]+'"'+(th2>nowH2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
+  var saDateVal=document.getElementById('sa-date')?document.getElementById('sa-date').value:td();
+  var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
   var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
   var firstPrice=D.programs.filter(function(p){return p.is_active&&p.sessions_total===1;})[0];
   var defPrice=firstPrice?firstPrice.list_price:0;
