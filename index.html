@@ -907,6 +907,8 @@ function rBron(){
         h+='<div style="font-size:11px;color:#ddd;text-align:center;padding-top:14px">—</div>';
       }
       h+='</div>';
+    } // close day loop
+
     // === SLOT DETAIL PANEL ===
     if(S.selBronDay&&S.selBronTime===time){
       var sd=S.selBronDay;
@@ -2099,7 +2101,6 @@ function filterCards(q){
 function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoading=true;render();fetchCustDetail(id);}
 
 loadAll();
-}
 </script>
 </body>
 </html>
