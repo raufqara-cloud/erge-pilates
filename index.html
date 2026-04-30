@@ -581,7 +581,7 @@ function rDetail(){
           +'<div style="font-size:12px;color:#888">İstifadə: '+usedCount+'/'+sub.sessions_total+' | Qalan: '+sub.remaining+' dərs</div>'
           +'<div style="font-size:12px;color:#888">'+paid+' ₼ ödənilib'+debtHtml+'</div>'
           +'</div>'
-          +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'” style="width:'+pct+'%"></div></div>';
+          +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'" style="width:'+pct+'%"></div></div>';
       }
       h+='</div>';
     }
@@ -1924,7 +1924,7 @@ function rModalEditCust(){
   return '<div class="ov" onclick="S.editCust=null;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">✏ Müştəri Məlumatları</div>'
     +'<div style="font-size:11px;color:#aaa;font-weight:600;margin-bottom:12px">'+c.id+'</div>'
-    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="ec-name" value="'+(c.name||'').replace(/"/g,"&quot;")+'"></div>'
+    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="ec-name" value="'+(c.name||'')+'"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="ec-phone" value="'+(c.phone||'')+'" placeholder="+994 50 XXX XX XX"></div>'
     +'<div class="fg"><label class="fl">Doğum tarixi</label><input class="fi" id="ec-birth" type="date" value="'+(c.birth_date||'')+'"></div>'
@@ -2099,6 +2099,7 @@ function filterCards(q){
 function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoading=true;render();fetchCustDetail(id);}
 
 loadAll();
+}
 </script>
 </body>
 </html>
