@@ -128,10 +128,10 @@ async function dbPatch(t,f,b){
 }
 
 var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
-var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[]};
+var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[],accounts:[]};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',attDate:null,selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null,bronSearch:'',showEditBronEx:false,editBronEx:null};
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',attDate:null,kassaTab:'txns',kassaData:null,kassaLoading:false,showAddTxn:false,editTxnId:null,selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null,bronSearch:'',showEditBronEx:false,editBronEx:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -208,13 +208,14 @@ async function loadAll(){
   try{
     var res=await Promise.all([
       dbGet('programs','order=sort_order'),
+      dbGet('accounts','order=sort_order&is_active=eq.true'),
       dbGet('instructors','order=full_name'),
       dbGet('customers','order=name'),
       dbGet('subscriptions','order=start_date.desc'),
       dbGet('attendances','order=class_date.desc'),
     ]);
-    D.programs=res[0];D._allInstructors=res[1];D.instructors=res[1].filter(function(x){return x.is_active!==false;});D.customers=res[2];
-    D.subscriptions=res[3];D.attendances=res[4];
+    D.programs=res[0];D.accounts=res[1]||[];D._allInstructors=res[2];D.instructors=res[2].filter(function(x){return x.is_active!==false;});D.customers=res[3];
+    D.subscriptions=res[4];D.attendances=res[5];
     // Fetch today's attendances from DB directly
     try{
       var todayAtts=await dbGet('attendances','class_date=eq.'+td()+'&order=class_time');
@@ -235,7 +236,7 @@ async function doAddCust(name,phone,birth){
   S.saving=false;render();
 }
 
-async function doAddSub(custId,progId,priceDue,pricePaid,startDate,isPending){
+async function doAddSub(custId,progId,priceDue,pricePaid,startDate,isPending,acctId){
   S.saving=true;render();
   try{
     var prog=null;
@@ -251,6 +252,16 @@ async function doAddSub(custId,progId,priceDue,pricePaid,startDate,isPending){
       status:isPending?'pending':'active'};
     await dbPost('subscriptions',sub);
     D.subscriptions.unshift(sub);
+    // Create transaction if paid amount > 0 and account selected
+    if(acctId&&parseFloat(pricePaid)>0){
+      var txn={id:'TX'+Date.now(),date:sd,type:'income',category:'Abunə haqqı',
+        description:(prog.name||progId)+' — '+( (cust&&cust.name)||custId),
+        amount:parseFloat(pricePaid),account_id:acctId,
+        subscription_id:sub.id,customer_id:custId};
+      await dbPost('transactions',txn);
+      // Update account balance
+      await dbPatch('accounts','id=eq.'+acctId,{balance:0});// will recalculate
+    }
     S.showAddSub=false;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -314,6 +325,7 @@ function render(){
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
     +'<button class="'+(S.view==='admin'?'active':'')+'" onclick="sv(\'admin\')">Admin</button>'
     +'<button class="'+(S.view==='report'?'active':'')+'" onclick="sv(\'report\')">Hesabat</button>'
+    +'<button class="'+(S.view==='kassa'?'active':'')+'" onclick="sv(\'kassa\')">Kassa</button>'
     +'<button class="'+(S.view==='bron'?'active':'')+'" onclick="sv(\'bron\')">Bron</button>'
     +'</div></div><div class="content">';
   if(S.err)h+='<div class="errbox">'+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yeniden cehd et</button></div>';
@@ -323,6 +335,7 @@ function render(){
   else if(S.view==='cust')h+=(S.selCust?rDetail():rCusts());
   else if(S.view==='admin')h+=rAdmin();
   else if(S.view==='report')h+=rReport();
+  else if(S.view==='kassa')h+=rKassa();
   else if(S.view==='bron')h+=rBron();
   h+='</div>';
   if(S.showAddCust)h+=rModalAddCust();
@@ -624,6 +637,8 @@ function rModalAddCust(){
 }
 
 function rModalAddSub(){
+  var acctOpts='<option value="">— Seçin —</option>';
+  if(D.accounts){for(var i=0;i<D.accounts.length;i++){var a=D.accounts[i];if(a.is_active!==false)acctOpts+='<option value="'+a.id+'">'+a.name+'</option>';}}
   var opts='';
   var firstActive=null;
   for(var i=0;i<D.programs.length;i++){
@@ -644,6 +659,9 @@ function rModalAddSub(){
     +'</div>'
     +'<div style="font-size:12px;color:#1565C0;background:#E3F2FD;padding:7px 10px;border-radius:7px;margin-bottom:10px" id="m-phint">Siyahi qiymeti: '+defP+' AZN</div>'
     +'<div class="mact">'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Ödəniş hesabı</label><select class="fs" id="m-account">'+acctOpts+'</select></div>'
+    +'</div>'
     +'<div class="fg" style="margin-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="m-pending"> <span style="color:#1565C0">Ödənilib, hələ başlamayıb — ilk məşqdə aktivləşəcək</span></label></div>'
     +'<button class="btn btn-gray" onclick="S.showAddSub=false;render()">Ləğv et</button>'
     +'<button class="btn btn-g" onclick="submitSub()">Əlavə et</button>'
@@ -2035,9 +2053,10 @@ function submitSub(){
   var priceDue=document.getElementById('m-price-due').value;
   var pricePaid=document.getElementById('m-price-paid').value;
   var startDate=document.getElementById('m-startdate').value;
+  var acctId=document.getElementById('m-account')?document.getElementById('m-account').value:'';
   var isPending=document.getElementById('m-pending')&&document.getElementById('m-pending').checked;
   if(!progId||!S.selCust)return;
-  doAddSub(S.selCust,progId,priceDue,pricePaid,startDate,isPending);
+  doAddSub(S.selCust,progId,priceDue,pricePaid,startDate,isPending,acctId);
 }
 function openAtt(custId){S.attCust=custId;S.showAtt=true;S.attDate=null;render();}
 function submitAtt(){
@@ -2099,6 +2118,245 @@ function filterCards(q){
   }
 }
 function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoading=true;render();fetchCustDetail(id);}
+
+
+// ===== KASSA =====
+async function fetchKassa(){
+  S.kassaLoading=true;render();
+  try{
+    var txns=await dbGet('transactions','order=date.desc,created_at.desc');
+    var accts=await dbGet('accounts','order=sort_order');
+    D.accounts=accts||[];
+    S.kassaData={txns:txns||[]};
+  }catch(e){alert('Xeta: '+e.message);}
+  S.kassaLoading=false;render();
+}
+
+function rKassa(){
+  if(!S.kassaData&&!S.kassaLoading){fetchKassa();}
+  var h='<div class="ph"><div class="pt">Kassa</div>'
+    +'<button class="btn btn-g btn-sm" onclick="S.showAddTxn=true;render()">+ Əməliyyat</button></div>';
+
+  if(S.kassaLoading)return h+'<div class="empty"><span class="spin"></span> Yüklənir...</div>';
+  if(!S.kassaData)return h+'<div class="empty">Yüklənir...</div>';
+
+  // Account balances
+  var accounts=D.accounts||[];
+  var txns=S.kassaData.txns||[];
+
+  // Calculate balances from transactions
+  var balances={};
+  for(var i=0;i<accounts.length;i++)balances[accounts[i].id]=0;
+  for(var i=0;i<txns.length;i++){
+    var t=txns[i];
+    if(t.type==='income'&&balances[t.account_id]!==undefined)balances[t.account_id]+=parseFloat(t.amount||0);
+    if(t.type==='expense'&&balances[t.account_id]!==undefined)balances[t.account_id]-=parseFloat(t.amount||0);
+    if(t.type==='transfer'){
+      if(balances[t.account_id]!==undefined)balances[t.account_id]-=parseFloat(t.amount||0);
+      if(t.to_account_id&&balances[t.to_account_id]!==undefined)balances[t.to_account_id]+=parseFloat(t.amount||0);
+    }
+  }
+
+  // Balance cards
+  var totalCash=0,totalAll=0;
+  h+='<div class="sgrid" style="grid-template-columns:repeat('+accounts.length+',1fr);margin-bottom:16px">';
+  for(var i=0;i<accounts.length;i++){
+    var a=accounts[i];
+    var bal=balances[a.id]||0;
+    if(a.type==='cash')totalCash+=bal;
+    totalAll+=bal;
+    var icon=a.type==='cash'?'💵':a.type==='bank'?'🏦':'💳';
+    h+='<div class="scard"><div class="snum" style="font-size:18px">'+(bal>=0?'':'-')+Math.abs(Math.round(bal))+' ₼</div>'
+      +'<div class="slbl">'+icon+' '+a.name+'</div></div>';
+  }
+  h+='</div>';
+
+  // Tabs
+  h+='<div class="tab-row">'
+    +'<button class="tab '+(S.kassaTab==='txns'?'active':'')+'" onclick="S.kassaTab=\'txns\';render()">Əməliyyatlar</button>'
+    +'<button class="tab '+(S.kassaTab==='accounts'?'active':'')+'" onclick="S.kassaTab=\'accounts\';render()">Hesablar</button>'
+    +'</div>';
+
+  if(S.kassaTab==='accounts'){
+    h+=rKassaAccounts(accounts,balances);
+  } else {
+    h+=rKassaTxns(txns,accounts);
+  }
+
+  if(S.showAddTxn)h+=rModalAddTxn();
+  if(S.editTxnId)h+=rModalEditTxn();
+  return h;
+}
+
+function rKassaTxns(txns, accounts){
+  var acctMap={};
+  for(var i=0;i<accounts.length;i++)acctMap[accounts[i].id]=accounts[i].name;
+
+  if(!txns.length)return '<div class="empty">Əməliyyat yoxdur</div>';
+
+  var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;overflow:hidden">';
+  h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 60px;padding:8px 14px;background:#f8faf8;font-size:11px;font-weight:600;color:#888">'
+    +'<div>TARİX</div><div>AÇIQLAMA</div><div>HESAB</div><div style="text-align:right">MƏBLƏĞ</div><div></div></div>';
+
+  for(var i=0;i<Math.min(txns.length,100);i++){
+    var t=txns[i];
+    var bg=i%2===0?'#fff':'#fafcfa';
+    var amtColor=t.type==='income'?'#1D9E75':t.type==='expense'?'#C62828':'#1565C0';
+    var amtSign=t.type==='income'?'+':t.type==='expense'?'-':'⇄';
+    var acctName=t.type==='transfer'?(acctMap[t.account_id]||'?')+' → '+(acctMap[t.to_account_id]||'?'):(acctMap[t.account_id]||'?');
+    h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 60px;padding:9px 14px;background:'+bg+';border-top:1px solid #f0f0f0;font-size:13px;align-items:center">'
+      +'<div style="color:#888;font-size:12px">'+fmt(t.date)+'</div>'
+      +'<div><div style="font-weight:500">'+( t.description||t.category)+'</div>'
+      +'<div style="font-size:11px;color:#aaa">'+t.category+'</div></div>'
+      +'<div style="font-size:12px;color:#555">'+acctName+'</div>'
+      +'<div style="text-align:right;font-weight:600;color:'+amtColor+'">'+amtSign+Math.abs(parseFloat(t.amount||0)).toFixed(2)+' ₼</div>'
+      +'<div style="display:flex;gap:4px;justify-content:flex-end">'
+      +'<button class="btn btn-gray btn-sm" style="font-size:10px" onclick="S.editTxnId=\''+t.id+'\';render()">✏</button>'
+      +'<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteTxn(\''+t.id+'\')">✕</button>'
+      +'</div></div>';
+  }
+  h+='</div>';
+  return h;
+}
+
+function rKassaAccounts(accounts,balances){
+  var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;overflow:hidden;margin-top:8px">';
+  for(var i=0;i<accounts.length;i++){
+    var a=accounts[i];
+    var bal=balances[a.id]||0;
+    var bg=i%2===0?'#fff':'#fafcfa';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+'">'
+      +'<div><div style="font-weight:600">'+a.name+'</div><div style="font-size:11px;color:#aaa">'+a.type+'</div></div>'
+      +'<div style="font-weight:700;font-size:16px;color:'+(bal>=0?'#1D9E75':'#C62828')+'">'+bal.toFixed(2)+' ₼</div>'
+      +'</div>';
+  }
+  h+='</div>';
+  return h;
+}
+
+var INCOME_CATS=['Abunə haqqı','Tək giriş','Corab satışı','Masaj','Push30','1FIT','Digər gəlir'];
+var EXPENSE_CATS=['Əmək haqqı (işçi)','İcarə','Komunal','Nəqliyyat xərci','Təsərrüfat','Marketinq','Sadələşmiş vergi','İcarə vergisi','Dividend','Əsas vəsait','Təmir','Geri qaytarma','Bank komissiya','Digər xərc'];
+
+function rModalAddTxn(){
+  var accounts=D.accounts||[];
+  var acctOpts='<option value="">— Hesab seçin —</option>';
+  for(var i=0;i<accounts.length;i++){if(accounts[i].is_active!==false)acctOpts+='<option value="'+accounts[i].id+'">'+accounts[i].name+'</option>';}
+  var acctOpts2=acctOpts.replace('— Hesab seçin —','— Hədəf hesab —');
+  var incCats='';for(var i=0;i<INCOME_CATS.length;i++)incCats+='<option>'+INCOME_CATS[i]+'</option>';
+  var expCats='';for(var i=0;i<EXPENSE_CATS.length;i++)expCats+='<option>'+EXPENSE_CATS[i]+'</option>';
+
+  return '<div class="ov" onclick="S.showAddTxn=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">+ Əməliyyat</div>'
+    +'<div class="fg"><label class="fl">Növ</label>'
+    +'<select class="fs" id="txn-type" onchange="updateTxnForm()">'
+    +'<option value="income">Mədaxil</option>'
+    +'<option value="expense">Məxaric</option>'
+    +'<option value="transfer">Transfer</option>'
+    +'</select></div>'
+    +'<div class="fg"><label class="fl">Kateqoriya</label>'
+    +'<select class="fs" id="txn-cat"><option value="">— Seçin —</option>'+incCats+'</select></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Tarix</label><input class="fi" id="txn-date" type="date" value="'+td()+'"></div>'
+    +'<div class="fg"><label class="fl">Məbləğ (₼)</label><input class="fi" id="txn-amount" type="number" min="0" step="0.01"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Hesab</label><select class="fs" id="txn-acct">'+acctOpts+'</select></div>'
+    +'<div class="fg" id="txn-to-row" style="display:none"><label class="fl">Hədəf hesab</label><select class="fs" id="txn-to">'+acctOpts2+'</select></div>'
+    +'<div class="fg"><label class="fl">Açıqlama</label><input class="fi" id="txn-desc" placeholder="İstəyə görə"></div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddTxn=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitAddTxn()">Əlavə et</button></div>'
+    +'</div></div>';
+}
+
+function updateTxnForm(){
+  var type=document.getElementById('txn-type').value;
+  var catSel=document.getElementById('txn-cat');
+  var toRow=document.getElementById('txn-to-row');
+  if(catSel){
+    catSel.innerHTML='<option value="">— Seçin —</option>';
+    var cats=type==='income'?INCOME_CATS:EXPENSE_CATS;
+    if(type!=='transfer')for(var i=0;i<cats.length;i++)catSel.innerHTML+='<option>'+cats[i]+'</option>';
+    else catSel.innerHTML='<option value="transfer">Transfer</option>';
+  }
+  if(toRow)toRow.style.display=type==='transfer'?'block':'none';
+}
+
+async function submitAddTxn(){
+  var type=document.getElementById('txn-type').value;
+  var cat=document.getElementById('txn-cat').value;
+  var date=document.getElementById('txn-date').value;
+  var amount=parseFloat(document.getElementById('txn-amount').value)||0;
+  var acctId=document.getElementById('txn-acct').value;
+  var desc=document.getElementById('txn-desc').value;
+  var toAcct=document.getElementById('txn-to')?document.getElementById('txn-to').value:'';
+  if(!cat||!date||!amount||!acctId){alert('Bütün məcburi sahələri doldurun');return;}
+  if(type==='transfer'&&!toAcct){alert('Hədəf hesab seçin');return;}
+  S.saving=true;render();
+  try{
+    var txn={id:'TX'+Date.now(),date:date,type:type,category:cat,
+      description:desc||cat,amount:amount,account_id:acctId,
+      to_account_id:toAcct||null,subscription_id:null,customer_id:null};
+    await dbPost('transactions',txn);
+    S.kassaData.txns.unshift(txn);
+    S.showAddTxn=false;
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+function rModalEditTxn(){
+  var txn=null;
+  if(S.kassaData)for(var i=0;i<S.kassaData.txns.length;i++){if(S.kassaData.txns[i].id===S.editTxnId){txn=S.kassaData.txns[i];break;}}
+  if(!txn)return'';
+  var accounts=D.accounts||[];
+  var acctOpts='';for(var i=0;i<accounts.length;i++)acctOpts+='<option value="'+accounts[i].id+'"'+(accounts[i].id===txn.account_id?' selected':'')+'>'+accounts[i].name+'</option>';
+  var typeOpts='';
+  for(var t of['income','expense','transfer'])typeOpts+='<option value="'+t+'"'+(t===txn.type?' selected':'')+'>'+{income:'Mədaxil',expense:'Məxaric',transfer:'Transfer'}[t]+'</option>';
+  return '<div class="ov" onclick="S.editTxnId=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">✏ Əməliyyat Düzəliş</div>'
+    +'<div class="fg"><label class="fl">Növ</label><select class="fs" id="et-type">'+typeOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Kateqoriya</label><input class="fi" id="et-cat" value="'+( txn.category||'')+'"></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Tarix</label><input class="fi" id="et-date" type="date" value="'+(txn.date||td())+'"></div>'
+    +'<div class="fg"><label class="fl">Məbləğ (₼)</label><input class="fi" id="et-amount" type="number" value="'+(txn.amount||0)+'"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Hesab</label><select class="fs" id="et-acct">'+acctOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Açıqlama</label><input class="fi" id="et-desc" value="'+(txn.description||'')+'"></div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.editTxnId=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitEditTxn()">Saxla</button></div>'
+    +'</div></div>';
+}
+
+async function submitEditTxn(){
+  var txnId=S.editTxnId;
+  var type=document.getElementById('et-type').value;
+  var cat=document.getElementById('et-cat').value;
+  var date=document.getElementById('et-date').value;
+  var amount=parseFloat(document.getElementById('et-amount').value)||0;
+  var acctId=document.getElementById('et-acct').value;
+  var desc=document.getElementById('et-desc').value;
+  if(!cat||!date||!amount||!acctId)return;
+  S.saving=true;render();
+  try{
+    await dbPatch('transactions','id=eq.'+txnId,{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc});
+    if(S.kassaData)for(var i=0;i<S.kassaData.txns.length;i++){
+      if(S.kassaData.txns[i].id===txnId){
+        Object.assign(S.kassaData.txns[i],{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc});
+        break;
+      }
+    }
+    S.editTxnId=null;
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function deleteTxn(id){
+  if(!confirm('Bu əməliyyatı silmək istədiyinizdən əminsinizmi?'))return;
+  S.saving=true;render();
+  try{
+    await fetch(BASE+'/transactions?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(S.kassaData)S.kassaData.txns=S.kassaData.txns.filter(function(t){return t.id!==id;});
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
 
 loadAll();
 </script>
