@@ -1810,7 +1810,7 @@ function rModalSingleAtt(){
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:14px;font-weight:700">'+c.name+'</div></div>'
     +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="updateSinglePrice()">'+progOpts+'</select></div>'
-    +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sa-date" type="date" value="'+td()+'"></div>'
+    +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sa-date" type="date" value="'+(S.singleAttDate||td())+'" onchange="S.singleAttDate=this.value;render()"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="sa-time">'+tOpts2+'</select></div>'
     +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="sa-inst">'+iOpts+'</select></div>'
