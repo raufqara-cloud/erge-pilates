@@ -652,7 +652,7 @@ function rModalAddSub(){
 }
 
 function rModalAtt(){
-  var attDateVal=(document.getElementById('m-attdate')?document.getElementById('m-attdate').value:null)||td();
+  var attDateVal=S.attDate||td();
   var c=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.attCust){c=D.customers[i];break;}}
   if(!c)return'';
@@ -666,7 +666,7 @@ function rModalAtt(){
     +'<div style="font-size:14px;font-weight:700">'+c.name+'</div>'
     +'<div style="font-size:12px;color:#1D9E75;margin-top:2px">'+(sub?sub.program_name:'')+'</div></div>'
     +'<div class="fi-row">'
-     +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="m-attdate" type="date" value="'+td()+'"></div>'
+     +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="m-attdate" type="date" value="'+(S.attDate||td())+'\" onchange="S.attDate=this.value;render()"></div>'
     +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="m-time">'+tOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Instruktor *</label><select class="fs" id="m-inst">'+iOpts+'</select></div>'
     +'</div>'
@@ -2038,7 +2038,7 @@ function submitSub(){
   if(!progId||!S.selCust)return;
   doAddSub(S.selCust,progId,priceDue,pricePaid,startDate,isPending);
 }
-function openAtt(custId){S.attCust=custId;S.showAtt=true;render();}
+function openAtt(custId){S.attCust=custId;S.showAtt=true;S.attDate=null;render();}
 function submitAtt(){
   var attDate=document.getElementById('m-attdate')?document.getElementById('m-attdate').value:td();
   var time=document.getElementById('m-time').value;
