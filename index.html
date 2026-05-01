@@ -313,6 +313,7 @@ async function doFreeze(subId,days,note){
     await dbPatch('subscriptions','id=eq.'+subId,{end_date:newEnd,freeze_end:fEnd});
     sub.end_date=newEnd;sub.freeze_end=fEnd;
     S.showFreeze=false;
+    if(S.custDetail){S.custDetail=null;S.custDetailLoading=true;fetchCustDetail(S.selCust);}
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -1854,6 +1855,8 @@ async function submitSingleAtt(){
   var saDate=document.getElementById('sa-date')?document.getElementById('sa-date').value:td();
   var time=document.getElementById('sa-time').value;
   var instId=document.getElementById('sa-inst').value;
+  var saAcctIdPre=document.getElementById('sa-account')?document.getElementById('sa-account').value:'';
+  var saPaidPre=parseFloat(document.getElementById('sa-paid')?document.getElementById('sa-paid').value:0)||0;
   var due=parseFloat(document.getElementById('sa-due').value)||0;
   var paid=parseFloat(document.getElementById('sa-paid').value)||0;
   if(!progId||!time||!instId||!S.singleCust)return;
@@ -1875,8 +1878,8 @@ async function submitSingleAtt(){
       S.selDateAtts.unshift(att);
     }
     // Create transaction if account selected and paid > 0
-    var saAcctId=document.getElementById('sa-account')?document.getElementById('sa-account').value:'';
-    var saPaid=parseFloat(document.getElementById('sa-paid')?document.getElementById('sa-paid').value:0)||0;
+    var saAcctId=saAcctIdPre;
+    var saPaid=saPaidPre;
     if(saAcctId&&saPaid>0){
       var stxn={id:'TX'+Date.now(),date:saDate,type:'income',category:'Tək giriş',
         description:(prog?prog.name:'Tək giriş')+' — '+c.name,
@@ -2122,6 +2125,8 @@ async function editFreeze(subId){
       // Remove freeze_end from subscription
       await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:null});
       sub.freeze_end=null;
+      // Refresh custDetail
+      if(S.custDetail){S.custDetail=null;S.custDetailLoading=true;fetchCustDetail(S.selCust);}
     }catch(e){alert('Xeta: '+e.message);}
     S.saving=false;render();
   } else if(action==='2'){
@@ -2133,6 +2138,7 @@ async function editFreeze(subId){
       // Update freeze record
       await dbPatch('freezes','subscription_id=eq.'+subId,{freeze_end:newDate});
       sub.freeze_end=newDate;
+      if(S.custDetail){S.custDetail=null;S.custDetailLoading=true;fetchCustDetail(S.selCust);}
     }catch(e){alert('Xeta: '+e.message);}
     S.saving=false;render();
   }
