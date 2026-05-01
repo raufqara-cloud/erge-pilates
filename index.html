@@ -2120,13 +2120,13 @@ async function editFreeze(subId){
     if(!confirm('Donma tamamilə ləğv edilsin? Abunəlik aktiv olacaq.'))return;
     S.saving=true;render();
     try{
-      // Delete freeze records
+      // Get freeze days_count first, then delete
+      var freezeRec=await dbGet('freezes','subscription_id=eq.'+subId+'&order=freeze_start.desc&limit=1');
+      var freezeDays=(freezeRec&&freezeRec.length)?parseInt(freezeRec[0].days_count)||0:0;
+      var origEnd=freezeDays>0?addDays(sub.end_date,-freezeDays):sub.end_date;
       await fetch(BASE+'/freezes?subscription_id=eq.'+subId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
-      // Remove freeze_end from subscription
-      await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:null});
-      sub.freeze_end=null;
-      // Refresh custDetail
-      if(S.custDetail){S.custDetail=null;S.custDetailLoading=true;fetchCustDetail(S.selCust);}
+      await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:null,end_date:origEnd});
+      sub.freeze_end=null;sub.end_date=origEnd;
     }catch(e){alert('Xeta: '+e.message);}
     S.saving=false;render();
   } else if(action==='2'){
@@ -2134,11 +2134,11 @@ async function editFreeze(subId){
     if(!newDate)return;
     S.saving=true;render();
     try{
-      await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:newDate});
+      await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:newDate,end_date:newDate});
       // Update freeze record
       await dbPatch('freezes','subscription_id=eq.'+subId,{freeze_end:newDate});
       sub.freeze_end=newDate;
-      if(S.custDetail){S.custDetail=null;S.custDetailLoading=true;fetchCustDetail(S.selCust);}
+      sub.freeze_end=newDate;sub.end_date=newDate;
     }catch(e){alert('Xeta: '+e.message);}
     S.saving=false;render();
   }
