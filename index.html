@@ -2120,13 +2120,14 @@ async function editFreeze(subId){
     if(!confirm('Donma tamamilə ləğv edilsin? Abunəlik aktiv olacaq.'))return;
     S.saving=true;render();
     try{
-      // Get freeze days_count first, then delete
       var freezeRec=await dbGet('freezes','subscription_id=eq.'+subId+'&order=freeze_start.desc&limit=1');
       var freezeDays=(freezeRec&&freezeRec.length)?parseInt(freezeRec[0].days_count)||0:0;
       var origEnd=freezeDays>0?addDays(sub.end_date,-freezeDays):sub.end_date;
       await fetch(BASE+'/freezes?subscription_id=eq.'+subId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
       await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:null,end_date:origEnd});
       sub.freeze_end=null;sub.end_date=origEnd;
+      for(var di=0;di<D.subscriptions.length;di++){if(D.subscriptions[di].id===subId){D.subscriptions[di].freeze_end=null;D.subscriptions[di].end_date=origEnd;break;}}
+      if(S.custDetail&&S.custDetail.subs){for(var di=0;di<S.custDetail.subs.length;di++){if(S.custDetail.subs[di].id===subId){S.custDetail.subs[di].freeze_end=null;S.custDetail.subs[di].end_date=origEnd;break;}}}
     }catch(e){alert('Xeta: '+e.message);}
     S.saving=false;render();
   } else if(action==='2'){
@@ -2135,10 +2136,10 @@ async function editFreeze(subId){
     S.saving=true;render();
     try{
       await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:newDate,end_date:newDate});
-      // Update freeze record
       await dbPatch('freezes','subscription_id=eq.'+subId,{freeze_end:newDate});
-      sub.freeze_end=newDate;
       sub.freeze_end=newDate;sub.end_date=newDate;
+      for(var di=0;di<D.subscriptions.length;di++){if(D.subscriptions[di].id===subId){D.subscriptions[di].freeze_end=newDate;D.subscriptions[di].end_date=newDate;break;}}
+      if(S.custDetail&&S.custDetail.subs){for(var di=0;di<S.custDetail.subs.length;di++){if(S.custDetail.subs[di].id===subId){S.custDetail.subs[di].freeze_end=newDate;S.custDetail.subs[di].end_date=newDate;break;}}}
     }catch(e){alert('Xeta: '+e.message);}
     S.saving=false;render();
   }
