@@ -584,6 +584,7 @@ function rDetail(){
         +'<span class="badge '+bc2+'">'+st2.txt+'</span>'
         +(frozen?'<span class="badge b-blue" style="font-size:10px">'+fmt(sub.freeze_end)+'-dek</span>':'')
         +(sub.is_active&&!frozen&&st2.t!=='exp'?'<button class="btn btn-gray btn-sm" onclick="openFreeze(\''+sub.id+'\')">'+'Dondur'+'</button>':'')
+      +(frozen?'<button class="btn btn-gray btn-sm" style="background:#FFF3E0;color:#E65100" onclick="editFreeze(\''+sub.id+'\')">✏ Donma</button>':'')
         +'<button class="btn btn-gray btn-sm" style="font-size:11px" onclick="openEditSub(\''+sub.id+'\')">✏ Düzəliş</button>'
         +'<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteSub(\''+sub.id+'\')">❌ Sil</button>'
         +'</div></div>';
@@ -645,6 +646,7 @@ function rModalAddSub(){
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
     if(!p.is_active)continue;
+    if(['ROF','RPS','RPP','ROTG','ROTI','RTEST'].indexOf(p.id)>=0)continue;
     if(!firstActive)firstActive=p;
     opts+='<option value="'+p.id+'">'+p.name+' — '+p.list_price+' AZN ('+p.sessions_total+' ders, '+p.duration_days+' gun)</option>';
   }
@@ -1797,6 +1799,7 @@ function rModalSingleAtt(){
   var c=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.singleCust){c=D.customers[i];break;}}
   if(!c)return'';
+  var saAcctOpts='<option value="">— Seçin (istəyə görə) —</option>';if(D.accounts){for(var ai=0;ai<D.accounts.length;ai++){var acc=D.accounts[ai];if(acc.is_active!==false)saAcctOpts+='<option value="'+acc.id+'">'+acc.name+'</option>';}}
   var singleProgs=['ROF','RPP','RPS','ROTG','ROTI'];
   var progOpts='';
   for(var i=0;i<D.programs.length;i++){
@@ -1828,6 +1831,7 @@ function rModalSingleAtt(){
     +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="sa-paid" type="number" value="'+defPrice+'"></div>'
     +'</div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showSingleAtt=false;render()">Legv et</button>'
+    +'<div class="fg"><label class="fl">Ödəniş hesabı</label><select class="fs" id="sa-account">'+saAcctOpts+'</select></div>'
     +'<button class="btn btn-g" onclick="submitSingleAtt()">Qeydə al</button></div>'
     +'</div></div>';
 }
@@ -1869,6 +1873,16 @@ async function submitSingleAtt(){
     D.attendances.unshift(att);
     if(att.class_date===td()&&S.selDateAtts!==null){
       S.selDateAtts.unshift(att);
+    }
+    // Create transaction if account selected and paid > 0
+    var saAcctId=document.getElementById('sa-account')?document.getElementById('sa-account').value:'';
+    var saPaid=parseFloat(document.getElementById('sa-paid')?document.getElementById('sa-paid').value:0)||0;
+    if(saAcctId&&saPaid>0){
+      var stxn={id:'TX'+Date.now(),date:saDate,type:'income',category:'Tək giriş',
+        description:(prog?prog.name:'Tək giriş')+' — '+c.name,
+        amount:saPaid,account_id:saAcctId,subscription_id:null,customer_id:c.id};
+      await dbPost('transactions',stxn);
+      S.kassaData=null;
     }
     S.showSingleAtt=false;
     S.showAlert={t:'ok',cust:c,st:{t:'ok',txt:'Tək giriş qeydə alindi'}};
@@ -2088,6 +2102,40 @@ function submitAtt(){
     S.showAtt=false;S.showAlert={t:'block',cust:c,st:{}};render();return;
   }
   doAtt(S.attCust,sub.id,time,inst,attDate);
+}
+
+async function editFreeze(subId){
+  // Find the freeze record for this subscription
+  var sub=null;
+  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
+  if(!sub||!sub.freeze_end)return;
+
+  var action=prompt('Nə etmək istəyirsiniz?\n1 - Donmanı ləğv et\n2 - Bitmə tarixini dəyiş\n\nRəqəm daxil edin (1 və ya 2):');
+  if(!action)return;
+
+  if(action==='1'){
+    if(!confirm('Donma tamamilə ləğv edilsin? Abunəlik aktiv olacaq.'))return;
+    S.saving=true;render();
+    try{
+      // Delete freeze records
+      await fetch(BASE+'/freezes?subscription_id=eq.'+subId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+      // Remove freeze_end from subscription
+      await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:null});
+      sub.freeze_end=null;
+    }catch(e){alert('Xeta: '+e.message);}
+    S.saving=false;render();
+  } else if(action==='2'){
+    var newDate=prompt('Yeni bitmə tarixi (YYYY-MM-DD):', sub.freeze_end);
+    if(!newDate)return;
+    S.saving=true;render();
+    try{
+      await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:newDate});
+      // Update freeze record
+      await dbPatch('freezes','subscription_id=eq.'+subId,{freeze_end:newDate});
+      sub.freeze_end=newDate;
+    }catch(e){alert('Xeta: '+e.message);}
+    S.saving=false;render();
+  }
 }
 function openFreeze(subId){S.freezeSub=subId;S.showFreeze=true;render();}
 function updFP(){
