@@ -308,7 +308,7 @@ async function doFreeze(subId,days,note){
     var sub=null;
     for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
     var newEnd=addDays(sub.end_date,parseInt(days));
-    var fEnd=addDays(td(),parseInt(days));
+    var fEnd=newEnd; // freeze_end = new end_date
     await dbPost('freezes',{id:uid(),subscription_id:subId,freeze_start:td(),freeze_end:fEnd,days_count:parseInt(days),note:note||''});
     await dbPatch('subscriptions','id=eq.'+subId,{end_date:newEnd,freeze_end:fEnd});
     sub.end_date=newEnd;sub.freeze_end=fEnd;
