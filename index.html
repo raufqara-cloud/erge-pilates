@@ -309,7 +309,7 @@ async function doFreeze(subId,days,note){
     for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
     var newEnd=addDays(sub.end_date,parseInt(days));
     var fEnd=newEnd; // freeze_end = new end_date
-    await dbPost('freezes',{id:uid(),subscription_id:subId,freeze_start:td(),freeze_end:fEnd,days_count:parseInt(days),note:note||''});
+    await dbPost('freezes',{id:uid(),subscription_id:subId,freeze_start:td(),freeze_end:fEnd,days_count:parseInt(days),original_end_date:sub.end_date,note:note||''});
     await dbPatch('subscriptions','id=eq.'+subId,{end_date:newEnd,freeze_end:fEnd});
     sub.end_date=newEnd;sub.freeze_end=fEnd;
     S.showFreeze=false;
@@ -2121,9 +2121,7 @@ async function editFreeze(subId){
     S.saving=true;render();
     try{
       var freezeRec=await dbGet('freezes','subscription_id=eq.'+subId+'&order=freeze_start.desc&limit=1');
-      var freezeDays=(freezeRec&&freezeRec.length)?parseInt(freezeRec[0].days_count)||0:0;
-      var origEnd=freezeDays>0?addDays(sub.end_date,-freezeDays):sub.end_date;
-      await fetch(BASE+'/freezes?subscription_id=eq.'+subId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+      var origEnd=(freezeRec&&freezeRec.length&&freezeRec[0].original_end_date)?freezeRec[0].original_end_date:sub.end_date;
       await dbPatch('subscriptions','id=eq.'+subId,{freeze_end:null,end_date:origEnd});
       sub.freeze_end=null;sub.end_date=origEnd;
       for(var di=0;di<D.subscriptions.length;di++){if(D.subscriptions[di].id===subId){D.subscriptions[di].freeze_end=null;D.subscriptions[di].end_date=origEnd;break;}}
