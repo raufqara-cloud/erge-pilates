@@ -1306,6 +1306,159 @@ async function deleteBron(id){
   S.saving=false;render();
 }
 
+// ==================== PARTNER RECONCİLİASİYA ====================
+function rPartnerRecon(){
+  var now=new Date();
+  var curMonth=now.getFullYear()+'-'+(String(now.getMonth()+1).padStart(2,'0'));
+  var selMonth=S.reportMonth||curMonth;
+
+  // Month selector (reuse same as salary tab)
+  var curYear=now.getFullYear();
+  var years=[];for(var y=2023;y<=curYear;y++)years.push(y);
+  var selYear=parseInt(selMonth.split('-')[0]);
+  var selMon=selMonth.split('-')[1];
+  var monthNames=['Yanvar','Fevral','Mart','Aprel','May','İyun','İyul','Avqust','Sentyabr','Oktyabr','Noyabr','Dekabr'];
+  var yearOpts='';for(var i=0;i<years.length;i++)yearOpts+='<option value="'+years[i]+'"'+(years[i]===selYear?' selected':'')+'>'+years[i]+'</option>';
+  var monOpts='';for(var i=0;i<12;i++){var mv=String(i+1).padStart(2,'0');monOpts+='<option value="'+mv+'"'+(mv===selMon?' selected':'')+'>'+monthNames[i]+'</option>';}
+
+  var h='<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">'
+    +'<select class="fs" style="width:100px" id="pr-year" onchange="S.reportMonth=document.getElementById(\'pr-year\').value+\'-\'+document.getElementById(\'pr-mon\').value;render()">'+yearOpts+'</select>'
+    +'<select class="fs" style="width:130px" id="pr-mon" onchange="S.reportMonth=document.getElementById(\'pr-year\').value+\'-\'+document.getElementById(\'pr-mon\').value;render()">'+monOpts+'</select>'
+    +'</div>';
+
+  // Filter attendances for selected month + partner programs
+  var atts=D.attendances.filter(function(a){
+    return a.class_date&&a.class_date.indexOf(selMonth)===0;
+  });
+
+  // Group by partner: identify Push30 vs 1FIT by program name
+  var partners={
+    push30:{name:'Push30',acct:'ACC005',progs:{},days:{},total:0,count:0},
+    fit1:{name:'1FIT',acct:'ACC006',progs:{},days:{},total:0,count:0}
+  };
+
+  for(var i=0;i<atts.length;i++){
+    var a=atts[i];
+    // Find program
+    var prog=null;
+    for(var j=0;j<D.programs.length;j++){if(D.programs[j].id===a.program_id){prog=D.programs[j];break;}}
+    if(!prog||!prog.is_partner)continue;
+
+    var pname=(a.program_name||'').toLowerCase();
+    var key=pname.indexOf('1fit')>=0?'fit1':(pname.indexOf('push')>=0?'push30':null);
+    if(!key)continue;
+
+    var p=partners[key];
+    var unitPrice=prog.list_price/prog.sessions_total;
+    p.total+=unitPrice;
+    p.count++;
+
+    // By program
+    var pid=a.program_id;
+    if(!p.progs[pid])p.progs[pid]={name:a.program_name,price:unitPrice,count:0,total:0};
+    p.progs[pid].count++;p.progs[pid].total+=unitPrice;
+
+    // By day
+    var day=a.class_date;
+    if(!p.days[day])p.days[day]={count:0,total:0,names:[]};
+    p.days[day].count++;p.days[day].total+=unitPrice;
+    p.days[day].names.push(a.customer_name||'?');
+  }
+
+  // Get alacaq account balances from kassaData (live txns)
+  var alacaqBals={ACC005:0,ACC006:0};
+  if(S.kassaData){
+    var liveTxns=(S.kassaData.txns||[]).filter(function(t){return t.id.indexOf('IMP')!==0;});
+    for(var i=0;i<liveTxns.length;i++){
+      var t=liveTxns[i];
+      if(t.account_id!=='ACC005'&&t.account_id!=='ACC006')continue;
+      var amt=parseFloat(t.amount||0);
+      if(t.type==='income')alacaqBals[t.account_id]+=amt;
+      if(t.type==='expense')alacaqBals[t.account_id]-=amt;
+      if(t.type==='transfer'){
+        alacaqBals[t.account_id]-=amt;
+        if(t.to_account_id&&alacaqBals[t.to_account_id]!==undefined)alacaqBals[t.to_account_id]+=amt;
+      }
+    }
+  }
+
+  var partnerKeys=['push30','fit1'];
+  for(var pi=0;pi<partnerKeys.length;pi++){
+    var pk=partnerKeys[pi];
+    var p=partners[pk];
+    var bal=alacaqBals[p.acct];
+
+    h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;padding:16px;margin-bottom:16px">';
+
+    // Header
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'
+      +'<div style="font-weight:700;font-size:15px">'+(pk==='push30'?'🟣 Push30':'🔵 1FIT')+'</div>'
+      +'<div style="text-align:right">'
+      +'<div style="font-size:12px;color:#888">Bu ay ('+selMonth+')</div>'
+      +'<div style="font-size:18px;font-weight:700;color:#1D9E75">'+p.total.toFixed(2)+' ₼ <span style="font-size:12px;color:#888">('+p.count+' dərs)</span></div>'
+      +'</div></div>';
+
+    // Summary cards
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px">';
+    h+='<div class="scard"><div class="snum" style="font-size:15px">'+p.count+'</div><div class="slbl">Bu ay dərs</div></div>';
+    h+='<div class="scard"><div class="snum" style="font-size:15px;color:#1D9E75">'+p.total.toFixed(0)+' ₼</div><div class="slbl">Bu ay cəmi</div></div>';
+    h+='<div class="scard"><div class="snum" style="font-size:15px;color:'+(bal>=0?'#1D9E75':'#C62828')+'">'+bal.toFixed(0)+' ₼</div><div class="slbl">Alacaq balans</div></div>';
+    h+='</div>';
+
+    if(!p.count){
+      h+='<div class="empty">Bu ay davamiyyət yoxdur</div>';
+      h+='</div>';continue;
+    }
+
+    // By program breakdown
+    var progKeys=Object.keys(p.progs);
+    if(progKeys.length>1){
+      h+='<div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px">PROQRAMLAR ÜZRƏ</div>';
+      h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">';
+      for(var gi=0;gi<progKeys.length;gi++){
+        var pg=p.progs[progKeys[gi]];
+        h+='<div style="background:#f5f5f5;border-radius:7px;padding:6px 10px;font-size:12px">'
+          +'<b>'+pg.name+'</b>: '+pg.count+' dərs × '+pg.price.toFixed(0)+' ₼ = <b>'+pg.total.toFixed(0)+' ₼</b></div>';
+      }
+      h+='</div>';
+    }
+
+    // Day-by-day table
+    h+='<div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px">GÜN ÜZRƏ</div>';
+    h+='<div style="background:#f8faf8;border-radius:9px;overflow:hidden">';
+    h+='<div style="display:grid;grid-template-columns:90px 50px 70px 1fr;padding:7px 12px;font-size:11px;font-weight:600;color:#888">'
+      +'<div>TARİX</div><div style="text-align:center">DƏRS</div><div style="text-align:right">MƏBLƏĞ</div><div style="padding-left:8px">MÜŞTƏRİLƏR</div></div>';
+    var dayKeys=Object.keys(p.days).sort();
+    var runTotal=0;
+    for(var di=0;di<dayKeys.length;di++){
+      var dk=dayKeys[di];
+      var day=p.days[dk];
+      runTotal+=day.total;
+      var bg=di%2===0?'#fff':'#f8faf8';
+      // Unique customers only
+      var uniq={};for(var ni=0;ni<day.names.length;ni++)uniq[day.names[ni]]=true;
+      var nameList=Object.keys(uniq).join(', ');
+      h+='<div style="display:grid;grid-template-columns:90px 50px 70px 1fr;padding:7px 12px;background:'+bg+';border-top:1px solid #f0f0f0;font-size:12px;align-items:center">'
+        +'<div style="font-weight:500">'+fmt(dk)+'</div>'
+        +'<div style="text-align:center;color:#555">'+day.count+'</div>'
+        +'<div style="text-align:right;font-weight:600;color:#1D9E75">'+day.total.toFixed(2)+' ₼</div>'
+        +'<div style="font-size:11px;color:#888;padding-left:8px">'+nameList+'</div>'
+        +'</div>';
+    }
+    // Total row
+    h+='<div style="display:grid;grid-template-columns:90px 50px 70px 1fr;padding:8px 12px;background:#e8f5e9;font-size:13px;font-weight:700;border-top:2px solid #c8e6c9">'
+      +'<div>CƏMİ</div>'
+      +'<div style="text-align:center">'+p.count+'</div>'
+      +'<div style="text-align:right;color:#1D9E75">'+p.total.toFixed(2)+' ₼</div>'
+      +'<div></div></div>';
+    h+='</div>';
+
+    h+='</div>'; // partner card end
+  }
+
+  return h;
+}
+
 
 async function fetchIzleme(){
   if(S.izlemeData)return;
@@ -1571,9 +1724,12 @@ function rReport(){
   var h='<div class="ph"><div class="pt">Hesabat</div></div>';
   var t1=S.reportTab==='salary'?'active':'';
   var t2=S.reportTab==='izleme'?'active':'';
+  var t3=S.reportTab==='partner'?'active':'';
   h+='<div class="tab-row"><button class="tab '+t1+'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>'
-    +'<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';S.izlemeData=null;fetchIzleme();render()">Müştəri İzləmə</button></div>';
+    +'<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';S.izlemeData=null;fetchIzleme();render()">Müştəri İzləmə</button>'
+    +'<button class="tab '+t3+'" onclick="S.reportTab=\'partner\';render()">Partner Reconciliasiya</button></div>';
   if(S.reportTab==='izleme'){return h+rIzleme();}
+  if(S.reportTab==='partner'){return h+rPartnerRecon();}
   // Year/Month selector
   var curYear=now.getFullYear();
   var years=[];
@@ -2448,8 +2604,8 @@ function rKassa(){
   var accounts=D.accounts||[];
   var txns=S.kassaData.txns||[];
 
-  // Balans: IMP* qeydlərini çıxar (tarixi arxiv)
-  var liveTxns=txns.filter(function(t){return t.id.indexOf('IMP')!==0;});
+  // Balans: IMP* (tarixi arxiv) və pending qeydlərini çıxar
+  var liveTxns=txns.filter(function(t){return t.id.indexOf('IMP')!==0&&t.status!=='pending';});
 
   // Calculate balances from live transactions only
   var balances={};
@@ -2502,28 +2658,94 @@ function rKassaTxns(txns, accounts){
 
   if(!txns.length)return '<div class="empty">Əməliyyat yoxdur</div>';
 
-  var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;overflow:hidden">';
-  h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 60px;padding:8px 14px;background:#f8faf8;font-size:11px;font-weight:600;color:#888">'
-    +'<div>TARİX</div><div>AÇIQLAMA</div><div>HESAB</div><div style="text-align:right">MƏBLƏĞ</div><div></div></div>';
+  // Split: pending vs posted (non-IMP)
+  var pendingTxns=txns.filter(function(t){return t.status==='pending';});
+  var postedTxns=txns.filter(function(t){return t.status!=='pending'&&t.id.indexOf('IMP')!==0;});
+  var impTxns=txns.filter(function(t){return t.id.indexOf('IMP')===0;});
 
-  for(var i=0;i<Math.min(txns.length,100);i++){
-    var t=txns[i];
-    var bg=i%2===0?'#fff':'#fafcfa';
-    var amtColor=t.type==='income'?'#1D9E75':t.type==='expense'?'#C62828':'#1565C0';
-    var amtSign=t.type==='income'?'+':t.type==='expense'?'-':'⇄';
-    var acctName=t.type==='transfer'?(acctMap[t.account_id]||'?')+' → '+(acctMap[t.to_account_id]||'?'):(acctMap[t.account_id]||'?');
-    h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 60px;padding:9px 14px;background:'+bg+';border-top:1px solid #f0f0f0;font-size:13px;align-items:center">'
-      +'<div style="color:#888;font-size:12px">'+fmt(t.date)+'</div>'
-      +'<div><div style="font-weight:500">'+( t.description||t.category)+'</div>'
-      +'<div style="font-size:11px;color:#aaa">'+t.category+'</div></div>'
-      +'<div style="font-size:12px;color:#555">'+acctName+'</div>'
-      +'<div style="text-align:right;font-weight:600;color:'+amtColor+'">'+amtSign+Math.abs(parseFloat(t.amount||0)).toFixed(2)+' ₼</div>'
-      +'<div style="display:flex;gap:4px;justify-content:flex-end">'
-      +'<button class="btn btn-gray btn-sm" style="font-size:10px" onclick="S.editTxnId=\''+t.id+'\';render()">✏</button>'
-      +'<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteTxn(\''+t.id+'\')">✕</button>'
-      +'</div></div>';
+  var h='';
+
+  // ---- PENDING SECTION ----
+  if(pendingTxns.length){
+    var pendingTotal=0;
+    for(var i=0;i<pendingTxns.length;i++){
+      var t=pendingTxns[i];
+      if(t.type==='expense')pendingTotal+=parseFloat(t.amount||0);
+      if(t.type==='income')pendingTotal-=parseFloat(t.amount||0);
+    }
+    h+='<div style="background:#FFF8E1;border:1px solid #FFD54F;border-radius:12px;overflow:hidden;margin-bottom:12px">';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#FFF3CD;border-bottom:1px solid #FFD54F">'
+      +'<div style="font-size:13px;font-weight:700;color:#856404">⏳ Gözləyən əməliyyatlar ('+pendingTxns.length+')</div>'
+      +'<div style="font-size:12px;color:#856404">Cəmi: <b>'+pendingTotal.toFixed(2)+' ₼</b> — balansa getmir</div>'
+      +'</div>';
+    h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 90px;padding:7px 14px;background:#FFF8E1;font-size:11px;font-weight:600;color:#888">'
+      +'<div>TARİX</div><div>AÇIQLAMA</div><div>HESAB</div><div style="text-align:right">MƏBLƏĞ</div><div></div></div>';
+    for(var i=0;i<pendingTxns.length;i++){
+      var t=pendingTxns[i];
+      var amtColor=t.type==='income'?'#1D9E75':'#C62828';
+      var amtSign=t.type==='income'?'+':'-';
+      var acctName=acctMap[t.account_id]||'?';
+      h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 90px;padding:9px 14px;border-top:1px solid #FFE082;font-size:13px;align-items:center">'
+        +'<div style="color:#888;font-size:12px">'+fmt(t.date)+'</div>'
+        +'<div><div style="font-weight:500">'+( t.description||t.category)+'</div>'
+        +'<div style="font-size:11px;color:#aaa">'+t.category+'</div></div>'
+        +'<div style="font-size:12px;color:#555">'+acctName+'</div>'
+        +'<div style="text-align:right;font-weight:600;color:'+amtColor+'">'+amtSign+Math.abs(parseFloat(t.amount||0)).toFixed(2)+' ₼</div>'
+        +'<div style="display:flex;gap:4px;justify-content:flex-end">'
+        +'<button class="btn btn-g btn-sm" style="font-size:10px;background:#28a745" onclick="executePending(\''+t.id+'\')">İcra et</button>'
+        +'<button class="btn btn-gray btn-sm" style="font-size:10px" onclick="S.editTxnId=\''+t.id+'\';render()">✏</button>'
+        +'<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteTxn(\''+t.id+'\')">✕</button>'
+        +'</div></div>';
+    }
+    h+='</div>';
   }
-  h+='</div>';
+
+  // ---- POSTED SECTION ----
+  if(postedTxns.length){
+    h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;overflow:hidden;margin-bottom:12px">';
+    h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 60px;padding:8px 14px;background:#f8faf8;font-size:11px;font-weight:600;color:#888">'
+      +'<div>TARİX</div><div>AÇIQLAMA</div><div>HESAB</div><div style="text-align:right">MƏBLƏĞ</div><div></div></div>';
+    for(var i=0;i<Math.min(postedTxns.length,100);i++){
+      var t=postedTxns[i];
+      var bg=i%2===0?'#fff':'#fafcfa';
+      var amtColor=t.type==='income'?'#1D9E75':t.type==='expense'?'#C62828':'#1565C0';
+      var amtSign=t.type==='income'?'+':t.type==='expense'?'-':'⇄';
+      var acctName=t.type==='transfer'?(acctMap[t.account_id]||'?')+' → '+(acctMap[t.to_account_id]||'?'):(acctMap[t.account_id]||'?');
+      h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 60px;padding:9px 14px;background:'+bg+';border-top:1px solid #f0f0f0;font-size:13px;align-items:center">'
+        +'<div style="color:#888;font-size:12px">'+fmt(t.date)+'</div>'
+        +'<div><div style="font-weight:500">'+( t.description||t.category)+'</div>'
+        +'<div style="font-size:11px;color:#aaa">'+t.category+'</div></div>'
+        +'<div style="font-size:12px;color:#555">'+acctName+'</div>'
+        +'<div style="text-align:right;font-weight:600;color:'+amtColor+'">'+amtSign+Math.abs(parseFloat(t.amount||0)).toFixed(2)+' ₼</div>'
+        +'<div style="display:flex;gap:4px;justify-content:flex-end">'
+        +'<button class="btn btn-gray btn-sm" style="font-size:10px" onclick="S.editTxnId=\''+t.id+'\';render()">✏</button>'
+        +'<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteTxn(\''+t.id+'\')">✕</button>'
+        +'</div></div>';
+    }
+    h+='</div>';
+  }
+
+  // ---- IMP ARCHIVE (collapsed) ----
+  if(impTxns.length){
+    h+='<details style="margin-bottom:8px"><summary style="cursor:pointer;font-size:12px;color:#aaa;padding:8px 4px">Tarixi arxiv ('+impTxns.length+' qeyd) ▼</summary>';
+    h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;overflow:hidden;margin-top:6px">';
+    for(var i=0;i<Math.min(impTxns.length,50);i++){
+      var t=impTxns[i];
+      var bg=i%2===0?'#fff':'#fafcfa';
+      var amtColor=t.type==='income'?'#1D9E75':'#C62828';
+      var amtSign=t.type==='income'?'+':'-';
+      h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 40px;padding:7px 14px;background:'+bg+';border-top:'+(i?'1px solid #f5f5f5':'none')+';font-size:12px;align-items:center;color:#888">'
+        +'<div>'+fmt(t.date)+'</div>'
+        +'<div>'+(t.description||t.category)+'</div>'
+        +'<div>'+(acctMap[t.account_id]||'?')+'</div>'
+        +'<div style="text-align:right;color:'+amtColor+'">'+amtSign+Math.abs(parseFloat(t.amount||0)).toFixed(2)+' ₼</div>'
+        +'<div style="text-align:right"><button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828" onclick="deleteTxn(\''+t.id+'\')">✕</button></div>'
+        +'</div>';
+    }
+    if(impTxns.length>50)h+='<div style="padding:8px 14px;font-size:11px;color:#aaa;text-align:center">+'+( impTxns.length-50)+' daha...</div>';
+    h+='</div></details>';
+  }
+
   return h;
 }
 
@@ -2892,6 +3114,7 @@ function rModalAddTxn(){
     +'<div class="fg"><label class="fl">Hesab</label><select class="fs" id="txn-acct">'+acctOpts+'</select></div>'
     +'<div class="fg" id="txn-to-row" style="display:none"><label class="fl">Hədəf hesab</label><select class="fs" id="txn-to">'+acctOpts2+'</select></div>'
     +'<div class="fg"><label class="fl">Açıqlama</label><input class="fi" id="txn-desc" placeholder="İstəyə görə"></div>'
+    +'<div class="fg"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="txn-pending"> <span style="color:#856404">Gözləyir (pending) — balansa getmir</span></label></div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddTxn=false;render()">Ləğv et</button>'
     +'<button class="btn btn-g" onclick="submitAddTxn()">Əlavə et</button></div>'
     +'</div></div>';
@@ -2913,17 +3136,19 @@ async function submitAddTxn(){
   var acctId=document.getElementById('txn-acct').value;
   var desc=document.getElementById('txn-desc').value;
   var toAcct=document.getElementById('txn-to')?document.getElementById('txn-to').value:'';
+  var isPending=document.getElementById('txn-pending')&&document.getElementById('txn-pending').checked;
   if(!cat||!date||!amount||!acctId){alert('Bütün məcburi sahələri doldurun');return;}
   if(type==='transfer'&&!toAcct){alert('Hədəf hesab seçin');return;}
   S.saving=true;render();
   try{
     var txn={id:'TX'+Date.now(),date:date,type:type,category:cat,
       description:desc||cat,amount:amount,account_id:acctId,
-      to_account_id:toAcct||null,subscription_id:null,customer_id:null};
+      to_account_id:toAcct||null,subscription_id:null,customer_id:null,
+      status:isPending?'pending':'posted'};
     await dbPost('transactions',txn);
     S.kassaData.txns.unshift(txn);
-    // 2% POS commission if income to Bank
-    if(type==='income'&&acctId===BANK_ACCT_ID){
+    // 2% POS commission only if posted + income to Bank
+    if(!isPending&&type==='income'&&acctId===BANK_ACCT_ID){
       await createPosCommission(amount,date,desc||cat);
     }
     S.showAddTxn=false;
@@ -2939,6 +3164,8 @@ function rModalEditTxn(){
   var acctOpts='';for(var i=0;i<accounts.length;i++)acctOpts+='<option value="'+accounts[i].id+'"'+(accounts[i].id===txn.account_id?' selected':'')+'>'+accounts[i].name+'</option>';
   var typeOpts='';
   for(var t of['income','expense','transfer'])typeOpts+='<option value="'+t+'"'+(t===txn.type?' selected':'')+'>'+{income:'Mədaxil',expense:'Məxaric',transfer:'Transfer'}[t]+'</option>';
+  var statusOpts='<option value="posted"'+(txn.status!=='pending'?' selected':'')+'>İcra olunub (posted)</option>'
+    +'<option value="pending"'+(txn.status==='pending'?' selected':'')+'>Gözləyir (pending)</option>';
   return '<div class="ov" onclick="S.editTxnId=null;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">✏ Əməliyyat Düzəliş</div>'
     +'<div class="fg"><label class="fl">Növ</label><select class="fs" id="et-type">'+typeOpts+'</select></div>'
@@ -2948,6 +3175,7 @@ function rModalEditTxn(){
     +'<div class="fg"><label class="fl">Məbləğ (₼)</label><input class="fi" id="et-amount" type="number" value="'+(txn.amount||0)+'"></div>'
     +'</div>'
     +'<div class="fg"><label class="fl">Hesab</label><select class="fs" id="et-acct">'+acctOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Status</label><select class="fs" id="et-status">'+statusOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Açıqlama</label><input class="fi" id="et-desc" value="'+(txn.description||'')+'"></div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.editTxnId=null;render()">Ləğv et</button>'
     +'<button class="btn btn-g" onclick="submitEditTxn()">Saxla</button></div>'
@@ -2962,17 +3190,35 @@ async function submitEditTxn(){
   var amount=parseFloat(document.getElementById('et-amount').value)||0;
   var acctId=document.getElementById('et-acct').value;
   var desc=document.getElementById('et-desc').value;
+  var status=document.getElementById('et-status')?document.getElementById('et-status').value:'posted';
   if(!cat||!date||!amount||!acctId)return;
   S.saving=true;render();
   try{
-    await dbPatch('transactions','id=eq.'+txnId,{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc});
+    await dbPatch('transactions','id=eq.'+txnId,{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc,status:status});
     if(S.kassaData)for(var i=0;i<S.kassaData.txns.length;i++){
       if(S.kassaData.txns[i].id===txnId){
-        Object.assign(S.kassaData.txns[i],{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc});
+        Object.assign(S.kassaData.txns[i],{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc,status:status});
         break;
       }
     }
     S.editTxnId=null;
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function executePending(id){
+  if(!confirm('Bu əməliyyatı icra edilmiş kimi işarələmək istədiyinizdən əminsinizmi?\nBalansa daxil olacaq.'))return;
+  S.saving=true;render();
+  try{
+    await dbPatch('transactions','id=eq.'+id,{status:'posted'});
+    if(S.kassaData){
+      for(var i=0;i<S.kassaData.txns.length;i++){
+        if(S.kassaData.txns[i].id===id){
+          S.kassaData.txns[i].status='posted';
+          break;
+        }
+      }
+    }
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
