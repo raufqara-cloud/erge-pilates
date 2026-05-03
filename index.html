@@ -1708,7 +1708,227 @@ function rAdmin(){
       +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleInst(\''+ins.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
       +'</div></div>';
   }
+  h+='<div class="slabel" style="margin-top:24px">EXCEL KASSA İMPORT (bir dəfəlik tarixi məlumat)</div>';
+  h+=rKassaImport();
   return h;
+}
+
+// ==================== EXCEL KASSA IMPORT ====================
+function rKassaImport(){
+  var imp=S.kassaImport||{};
+  var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;padding:16px;margin-bottom:16px">';
+
+  // File picker (always shown)
+  h+='<div style="margin-bottom:12px">'
+    +'<label class="fl">JSON faylı seçin (kassa-import.json)</label>'
+    +'<input type="file" id="ki-file" accept=".json,application/json" onchange="loadKassaImportFile()" style="margin-top:6px">'
+    +'</div>';
+
+  if(imp.loading){
+    h+='<div class="empty"><span class="spin"></span> Yüklənir...</div>';
+    h+='</div>';return h;
+  }
+
+  if(imp.error){
+    h+='<div style="color:#C62828;padding:8px;background:#ffebee;border-radius:6px;font-size:13px">⚠ '+imp.error+'</div>';
+  }
+
+  if(!imp.rows){h+='</div>';return h;}
+
+  // Stats summary
+  var rows=imp.rows;
+  var totalInc=0,totalExp=0,incCount=0,expCount=0;
+  var byCat={},byAcct={},byYear={};
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i];
+    if(r.type==='income'){totalInc+=r.amount;incCount++;}
+    if(r.type==='expense'){totalExp+=r.amount;expCount++;}
+    var key=r.type+'|'+r.category;
+    byCat[key]=(byCat[key]||0)+1;
+    byAcct[r.account_id]=(byAcct[r.account_id]||0)+1;
+    var y=(r.date||'').slice(0,4);
+    byYear[y]=(byYear[y]||0)+1;
+  }
+  var net=totalInc-totalExp;
+  var minDate=rows[0]?rows[0].date:'';
+  var maxDate=rows[0]?rows[0].date:'';
+  for(var i=0;i<rows.length;i++){if(rows[i].date<minDate)minDate=rows[i].date;if(rows[i].date>maxDate)maxDate=rows[i].date;}
+
+  h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">';
+  h+='<div class="scard"><div class="snum" style="font-size:16px">'+rows.length+'</div><div class="slbl">Cəmi sətir</div></div>';
+  h+='<div class="scard"><div class="snum" style="font-size:16px;color:#1D9E75">+'+Math.round(totalInc)+' ₼</div><div class="slbl">Mədaxil ('+incCount+')</div></div>';
+  h+='<div class="scard"><div class="snum" style="font-size:16px;color:#C62828">-'+Math.round(totalExp)+' ₼</div><div class="slbl">Məxaric ('+expCount+')</div></div>';
+  h+='<div class="scard"><div class="snum" style="font-size:16px;color:'+(net>=0?'#1D9E75':'#C62828')+'">'+(net>=0?'+':'')+net.toFixed(2)+' ₼</div><div class="slbl">Net</div></div>';
+  h+='</div>';
+
+  h+='<div style="font-size:12px;color:#666;margin-bottom:10px">📅 Tarix: <b>'+fmt(minDate)+'</b> → <b>'+fmt(maxDate)+'</b></div>';
+
+  // By account
+  h+='<div style="font-size:12px;color:#666;margin-bottom:6px"><b>Hesab bölgüsü:</b></div>';
+  var acctMap={};for(var i=0;i<(D.accounts||[]).length;i++)acctMap[D.accounts[i].id]=D.accounts[i].name;
+  h+='<div style="font-size:12px;margin-bottom:14px">';
+  for(var aid in byAcct)h+='<span style="margin-right:14px">'+(acctMap[aid]||aid)+': <b>'+byAcct[aid]+'</b></span>';
+  h+='</div>';
+
+  // By year
+  h+='<div style="font-size:12px;color:#666;margin-bottom:6px"><b>İl bölgüsü:</b></div>';
+  h+='<div style="font-size:12px;margin-bottom:14px">';
+  var yrs=Object.keys(byYear).sort();
+  for(var i=0;i<yrs.length;i++)h+='<span style="margin-right:14px">'+yrs[i]+': <b>'+byYear[yrs[i]]+'</b></span>';
+  h+='</div>';
+
+  // By category — collapsible
+  h+='<details style="margin-bottom:14px"><summary style="cursor:pointer;font-size:12px;color:#1D9E75;font-weight:600">Kateqoriya üzrə bölgü ▼</summary>';
+  h+='<div style="margin-top:8px;font-size:12px">';
+  var catKeys=Object.keys(byCat).sort();
+  for(var i=0;i<catKeys.length;i++){
+    var parts=catKeys[i].split('|');
+    var t=parts[0],c=parts[1];
+    var color=t==='income'?'#1D9E75':'#C62828';
+    h+='<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dotted #eee"><span><span style="color:'+color+'">●</span> '+c+'</span><span><b>'+byCat[catKeys[i]]+'</b></span></div>';
+  }
+  h+='</div></details>';
+
+  // Existing IMP records check
+  if(imp.existingCount===undefined){
+    h+='<div style="margin-bottom:10px"><button class="btn btn-gray btn-sm" onclick="checkExistingImports()">Mövcud import qeydlərini yoxla</button></div>';
+  } else if(imp.existingCount>0){
+    h+='<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px">'
+      +'⚠ Bazada artıq <b>'+imp.existingCount+'</b> import qeydi var (IMP* prefiks). '
+      +'<button class="btn btn-gray btn-sm" style="margin-left:8px;color:#C62828" onclick="deleteExistingImports()">Hamısını sil</button>'
+      +'</div>';
+  } else {
+    h+='<div style="background:#e8f5e9;border:1px solid #4caf50;border-radius:8px;padding:8px;margin-bottom:10px;font-size:12px">✓ Bazada IMP qeydləri yoxdur — təmiz import.</div>';
+  }
+
+  // Progress
+  if(imp.importing){
+    var pct=imp.total?Math.round(imp.done/imp.total*100):0;
+    h+='<div style="margin-bottom:10px">'
+      +'<div style="font-size:13px;margin-bottom:4px">İmport edilir: <b>'+imp.done+' / '+imp.total+'</b> ('+pct+'%)</div>'
+      +'<div style="background:#eee;height:8px;border-radius:4px;overflow:hidden"><div style="width:'+pct+'%;height:100%;background:#1D9E75;transition:width 0.3s"></div></div>'
+      +'</div>';
+  }
+
+  if(imp.completed){
+    h+='<div style="background:#e8f5e9;border:1px solid #4caf50;border-radius:8px;padding:10px;margin-bottom:10px;font-size:13px">✓ İmport tamamlandı: <b>'+imp.completedCount+'</b> sətir uğurla əlavə olundu.</div>';
+  }
+
+  if(imp.importErrors&&imp.importErrors.length){
+    h+='<details style="margin-bottom:10px"><summary style="cursor:pointer;color:#C62828;font-size:13px;font-weight:600">⚠ '+imp.importErrors.length+' xəta ▼</summary><div style="font-size:11px;max-height:200px;overflow:auto;background:#ffebee;padding:8px;border-radius:6px;margin-top:6px">';
+    for(var i=0;i<Math.min(imp.importErrors.length,30);i++)h+='<div>'+imp.importErrors[i]+'</div>';
+    h+='</div></details>';
+  }
+
+  // Action buttons
+  var canImport=imp.existingCount===0&&!imp.importing&&!imp.completed;
+  h+='<div style="display:flex;gap:8px;margin-top:12px">';
+  h+='<button class="btn btn-g" onclick="runKassaImport()" '+(canImport?'':'disabled style="opacity:0.5;cursor:not-allowed"')+'>İmport et ('+rows.length+' sətir)</button>';
+  h+='<button class="btn btn-gray" onclick="S.kassaImport=null;render()">Ləğv et</button>';
+  h+='</div>';
+
+  h+='</div>';
+  return h;
+}
+
+async function loadKassaImportFile(){
+  var inp=document.getElementById('ki-file');
+  if(!inp||!inp.files||!inp.files[0])return;
+  var f=inp.files[0];
+  S.kassaImport={loading:true};render();
+  try{
+    var text=await f.text();
+    var data=JSON.parse(text);
+    if(!Array.isArray(data))throw new Error('JSON array gözlənilirdi');
+    if(!data.length)throw new Error('JSON boşdur');
+    // Validate first row has required fields
+    var first=data[0];
+    if(!first.id||!first.date||!first.type||first.amount===undefined||!first.account_id){
+      throw new Error('JSON formatı yanlışdır (id/date/type/amount/account_id məcburidir)');
+    }
+    S.kassaImport={rows:data};
+  }catch(e){
+    S.kassaImport={error:'Faylı oxumaq mümkün olmadı: '+e.message};
+  }
+  render();
+}
+
+async function checkExistingImports(){
+  if(!S.kassaImport)return;
+  S.kassaImport.checking=true;render();
+  try{
+    var existing=await dbGet('transactions','id=like.IMP*&select=id&limit=10000');
+    S.kassaImport.existingCount=(existing||[]).length;
+  }catch(e){
+    S.kassaImport.error='Yoxlamaq mümkün olmadı: '+e.message;
+    S.kassaImport.existingCount=undefined;
+  }
+  S.kassaImport.checking=false;
+  render();
+}
+
+async function deleteExistingImports(){
+  if(!confirm('Bütün IMP* qeydlərini silmək istədiyinizdən əminsinizmi?\\n\\nBu əməliyyat geri qaytarıla bilməz.'))return;
+  S.kassaImport.deleting=true;render();
+  try{
+    var r=await fetch(BASE+'/transactions?id=like.IMP*',{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(!r.ok)throw new Error(await r.text());
+    S.kassaImport.existingCount=0;
+    S.kassaImport.completed=false;
+    S.kassaImport.completedCount=0;
+  }catch(e){
+    S.kassaImport.error='Silmə xətası: '+e.message;
+  }
+  S.kassaImport.deleting=false;
+  render();
+}
+
+async function runKassaImport(){
+  if(!S.kassaImport||!S.kassaImport.rows)return;
+  if(S.kassaImport.existingCount!==0){alert('Əvvəlcə mövcud IMP qeydlərini silin');return;}
+  if(!confirm('Bu '+S.kassaImport.rows.length+' sətir bazaya əlavə olunacaq. Davam edək?'))return;
+
+  var rows=S.kassaImport.rows;
+  S.kassaImport.importing=true;
+  S.kassaImport.done=0;
+  S.kassaImport.total=rows.length;
+  S.kassaImport.importErrors=[];
+  S.kassaImport.completed=false;
+  render();
+
+  var BATCH=100;
+  var successCount=0;
+  for(var i=0;i<rows.length;i+=BATCH){
+    var batch=rows.slice(i,i+BATCH);
+    try{
+      await dbPost('transactions',batch);
+      successCount+=batch.length;
+    }catch(e){
+      // Try one-by-one to identify bad rows
+      for(var j=0;j<batch.length;j++){
+        try{
+          await dbPost('transactions',batch[j]);
+          successCount++;
+        }catch(ee){
+          S.kassaImport.importErrors.push(batch[j].id+': '+ee.message.slice(0,150));
+        }
+      }
+    }
+    S.kassaImport.done=Math.min(i+BATCH,rows.length);
+    render();
+    // Small delay to allow UI update
+    await new Promise(function(res){setTimeout(res,30);});
+  }
+
+  S.kassaImport.importing=false;
+  S.kassaImport.completed=true;
+  S.kassaImport.completedCount=successCount;
+  S.kassaImport.existingCount=successCount; // so the button stays disabled
+
+  // Refresh kassa data if user goes there
+  S.kassaData=null;
+
+  render();
 }
 
 async function saveInstPct(id){
@@ -2297,8 +2517,8 @@ function rKassaAccounts(accounts,balances){
   return h;
 }
 
-var INCOME_CATS=['Abunə haqqı','Tək giriş','Corab satışı','Masaj','Push30','1FIT','Digər gəlir'];
-var EXPENSE_CATS=['Əmək haqqı (işçi)','İcarə','Komunal','Nəqliyyat xərci','Təsərrüfat','Marketinq','Sadələşmiş vergi','İcarə vergisi','Dividend','Əsas vəsait','Təmir','Geri qaytarma','Bank komissiya','Digər xərc'];
+var INCOME_CATS=['Abunə haqqı','Tək giriş','Corab satışı','Masaj','Push30','1FIT','Bank komissiya','Təsisçidən borc','Digər gəlir'];
+var EXPENSE_CATS=['Əmək haqqı (işçi)','İcarə','Komunal','Nəqliyyat xərci','Təsərrüfat','Marketinq','Sadələşmiş vergi','İcarə vergisi','Dividend','Əsas vəsait','Təmir','Geri qaytarma','Bank komissiya','Dövriyyə vəsaiti','Təlim / konfrans','Təsisçi borcunu qaytarmaq','Digər xərc'];
 
 function rModalAddTxn(){
   var accounts=D.accounts||[];
