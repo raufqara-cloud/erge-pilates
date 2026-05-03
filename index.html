@@ -2621,7 +2621,7 @@ function rKassa(){
   }
 
   // Balance cards
-  h+='<div class="sgrid" style="grid-template-columns:repeat('+Math.min(accounts.length,4)+',1fr);margin-bottom:16px">';
+  h+='<div class="sgrid" style="grid-template-columns:repeat('+Math.min(accounts.length,4)+',1fr);margin-bottom:8px">';
   for(var i=0;i<accounts.length;i++){
     var a=accounts[i];
     var bal=balances[a.id]||0;
@@ -2629,6 +2629,22 @@ function rKassa(){
     h+='<div class="scard"><div class="snum" style="font-size:18px;color:'+(bal>=0?'#222':'#C62828')+'">'+(bal>=0?'':'-')+Math.abs(bal).toFixed(0)+' ₼</div>'
       +'<div class="slbl">'+icon+' '+a.name+'</div></div>';
   }
+  h+='</div>';
+
+  // Summary totals
+  var faktiki=(balances['ACC001']||0)+(balances['ACC002']||0)+(balances['ACC003']||0)+(balances['ACC004']||0);
+  var gozlenen=faktiki+(balances['ACC005']||0)+(balances['ACC006']||0)-(Math.abs(balances['ACC007']||0));
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
+  h+='<div style="background:#E8F5EE;border:1.5px solid #1D9E75;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">'
+    +'<div><div style="font-size:11px;font-weight:600;color:#1D9E75">💰 FACTİKİ NƏĞd</div>'
+    +'<div style="font-size:10px;color:#888">Kassa+Yığım+Bank+B.kart</div></div>'
+    +'<div style="font-size:20px;font-weight:700;color:'+(faktiki>=0?'#1D9E75':'#C62828')+'">'+(faktiki>=0?'':'-')+Math.abs(faktiki).toFixed(0)+' ₼</div>'
+    +'</div>';
+  h+='<div style="background:#EFF6FF;border:1.5px solid #1565C0;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">'
+    +'<div><div style="font-size:11px;font-weight:600;color:#1565C0">📊 GÖZLƏNİLƏN</div>'
+    +'<div style="font-size:10px;color:#888">Faktiki+Alacaqlar−Vergi</div></div>'
+    +'<div style="font-size:20px;font-weight:700;color:'+(gozlenen>=0?'#1565C0':'#C62828')+'">'+(gozlenen>=0?'':'-')+Math.abs(gozlenen).toFixed(0)+' ₼</div>'
+    +'</div>';
   h+='</div>';
 
   // Tabs
@@ -2833,63 +2849,62 @@ function rKassaZClose(liveTxns,accounts,balances){
   }
 
   var today=td();
-  var todayStats=getTodayTxnStats(liveTxns,today);
+  var selDate=S.zCloseDate||today;
+  var selStats=getTodayTxnStats(liveTxns,selDate);
   var kassaId='ACC001',bankId='ACC003';
-  var kStat=todayStats[kassaId]||{inc:0,exp:0,net:0};
-  var bStat=todayStats[bankId]||{inc:0,exp:0,net:0};
+  var kStat=selStats[kassaId]||{inc:0,exp:0,net:0};
+  var bStat=selStats[bankId]||{inc:0,exp:0,net:0};
 
-  // Check if today already closed
-  var todayClose=null;
+  // Check if selected date already closed
+  var selClose=null;
   if(Array.isArray(S.zCloseHistory)){
     for(var i=0;i<S.zCloseHistory.length;i++){
-      if(S.zCloseHistory[i].date===today){todayClose=S.zCloseHistory[i];break;}
+      if(S.zCloseHistory[i].date===selDate){selClose=S.zCloseHistory[i];break;}
     }
   }
 
   var h='<div style="margin-top:8px">';
 
-  // Today panel
+  // Date selector + stats panel
   h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;padding:16px;margin-bottom:16px">';
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'
-    +'<div style="font-weight:700;font-size:15px">📋 Bu günün yekunları — '+fmt(today)+'</div>';
-  if(!todayClose){
-    h+='<button class="btn btn-g btn-sm" onclick="S.showZClose=true;render()">Günü Bağla</button>';
-  } else {
-    h+='<span class="badge b-green">✓ Bağlanıb</span>';
-  }
-  h+='</div>';
+  h+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">'
+    +'<div style="font-weight:700;font-size:15px">📋 Gün Bağlama</div>'
+    +'<input class="fi" type="date" value="'+selDate+'" max="'+today+'" style="width:160px" onchange="S.zCloseDate=this.value;render()">'
+    +(selDate===today?'<span style="font-size:11px;color:#1D9E75;font-weight:600">● Bu gün</span>':'<span style="font-size:11px;color:#E65100;font-weight:600">● Keçmiş tarix</span>')
+    +'</div>';
 
-  // Two columns: Kassa + Bank
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
-
-  // Kassa column
   h+='<div style="background:#f8faf8;border-radius:9px;padding:12px">'
     +'<div style="font-weight:600;font-size:13px;margin-bottom:8px">💵 Kassa (ACC001)</div>'
     +'<div style="font-size:12px;color:#1D9E75">Mədaxil: +'+kStat.inc.toFixed(2)+' ₼</div>'
     +'<div style="font-size:12px;color:#C62828">Məxaric: -'+kStat.exp.toFixed(2)+' ₼</div>'
     +'<div style="font-size:14px;font-weight:700;margin-top:6px;border-top:1px solid #e0e0e0;padding-top:6px;color:'+(kStat.net>=0?'#1D9E75':'#C62828')+'">Net: '+(kStat.net>=0?'+':'')+kStat.net.toFixed(2)+' ₼</div>'
-    +'<div style="font-size:12px;color:#888;margin-top:4px">Balans: '+( balances[kassaId]||0).toFixed(2)+' ₼</div>'
+    +'<div style="font-size:12px;color:#888;margin-top:4px">Cari balans: '+(balances[kassaId]||0).toFixed(2)+' ₼</div>'
     +'</div>';
-
-  // Bank column
   h+='<div style="background:#EFF6FF;border-radius:9px;padding:12px">'
     +'<div style="font-weight:600;font-size:13px;margin-bottom:8px">🏦 Bank / POS (ACC003)</div>'
     +'<div style="font-size:12px;color:#1D9E75">Mədaxil: +'+bStat.inc.toFixed(2)+' ₼</div>'
     +'<div style="font-size:12px;color:#C62828">Məxaric: -'+bStat.exp.toFixed(2)+' ₼</div>'
     +'<div style="font-size:14px;font-weight:700;margin-top:6px;border-top:1px solid #d0e4ff;padding-top:6px;color:'+(bStat.net>=0?'#1D9E75':'#C62828')+'">Net: '+(bStat.net>=0?'+':'')+bStat.net.toFixed(2)+' ₼</div>'
-    +'<div style="font-size:12px;color:#888;margin-top:4px">Balans: '+(balances[bankId]||0).toFixed(2)+' ₼</div>'
+    +'<div style="font-size:12px;color:#888;margin-top:4px">Cari balans: '+(balances[bankId]||0).toFixed(2)+' ₼</div>'
     +'</div>';
   h+='</div>';
 
-  if(todayClose){
-    var dk=parseFloat(todayClose.diff_kassa||0);
-    var db=parseFloat(todayClose.diff_bank||0);
-    h+='<div style="margin-top:12px;padding:10px;background:'+(dk===0&&db===0?'#e8f5e9':'#fff3cd')+';border-radius:8px;font-size:12px">'
-      +'<b>Bağlama nəticəsi:</b> Kassa fərqi: <b style="color:'+(dk===0?'#1D9E75':dk>0?'#1565C0':'#C62828')+'">'+(dk>=0?'+':'')+dk.toFixed(2)+' ₼</b>'
+  h+='<div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">';
+  if(selClose){
+    var dk=parseFloat(selClose.diff_kassa||0);
+    var db=parseFloat(selClose.diff_bank||0);
+    h+='<div style="font-size:13px;background:'+(dk===0&&db===0?'#e8f5e9':'#fff3cd')+';padding:8px 12px;border-radius:8px">'
+      +'✓ Bağlanıb — Kassa fərqi: <b style="color:'+(dk===0?'#1D9E75':dk>0?'#1565C0':'#C62828')+'">'+(dk>=0?'+':'')+dk.toFixed(2)+' ₼</b>'
       +'&nbsp;|&nbsp;Bank fərqi: <b style="color:'+(db===0?'#1D9E75':db>0?'#1565C0':'#C62828')+'">'+(db>=0?'+':'')+db.toFixed(2)+' ₼</b>'
-      +(todayClose.note?'<br><span style="color:#888">Qeyd: '+todayClose.note+'</span>':'')
+      +(selClose.note?'<br><span style="font-size:11px;color:#888">'+selClose.note+'</span>':'')
       +'</div>';
+    h+='<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteZClose(\''+selClose.id+'\')">Bağlamanı Ləğv et</button>';
+  } else {
+    h+='<span style="font-size:12px;color:#888">'+fmt(selDate)+' bağlanmayıb</span>';
+    h+='<button class="btn btn-g btn-sm" onclick="S.showZClose=true;render()">Günü Bağla</button>';
   }
+  h+='</div>';
   h+='</div>';
 
   // History
@@ -2926,39 +2941,34 @@ function rKassaZClose(liveTxns,accounts,balances){
 }
 
 function rModalZClose(liveTxns,accounts,balances){
-  var today=td();
+  var selDate=S.zCloseDate||td();
   var kassaId='ACC001',bankId='ACC003';
-  var todayStats=getTodayTxnStats(liveTxns,today);
-  var kStat=todayStats[kassaId]||{inc:0,exp:0,net:0};
-  var bStat=todayStats[bankId]||{inc:0,exp:0,net:0};
+  var selStats=getTodayTxnStats(liveTxns,selDate);
+  var kStat=selStats[kassaId]||{inc:0,exp:0,net:0};
+  var bStat=selStats[bankId]||{inc:0,exp:0,net:0};
   var kBal=(balances[kassaId]||0).toFixed(2);
   var bBal=(balances[bankId]||0).toFixed(2);
 
   return '<div class="ov" onclick="S.showZClose=false;render()"><div class="modal" onclick="event.stopPropagation()">'
-    +'<div class="mtitle">🔒 Gün Bağlama — '+fmt(today)+'</div>'
-    // Kassa section
+    +'<div class="mtitle">🔒 Gün Bağlama — '+fmt(selDate)+'</div>'
     +'<div style="background:#f8faf8;border-radius:9px;padding:12px;margin-bottom:12px">'
     +'<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px">💵 KASSA</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:8px">'
     +'<div>Bu günün neti: <b>'+(kStat.net>=0?'+':'')+kStat.net.toFixed(2)+' ₼</b></div>'
-    +'<div>Ümumi balans: <b>'+kBal+' ₼</b></div>'
+    +'<div>Cari balans: <b>'+kBal+' ₼</b></div>'
     +'</div>'
     +'<label class="fl">Faktiki sayılan məbləğ (₼)</label>'
     +'<input class="fi" id="zc-kassa-actual" type="number" step="0.01" placeholder="0.00" style="margin-top:4px">'
-    +'<div id="zc-kassa-diff" style="font-size:12px;color:#888;margin-top:4px"></div>'
     +'</div>'
-    // Bank section
     +'<div style="background:#EFF6FF;border-radius:9px;padding:12px;margin-bottom:12px">'
     +'<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px">🏦 BANK / POS</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:8px">'
     +'<div>Bu günün neti: <b>'+(bStat.net>=0?'+':'')+bStat.net.toFixed(2)+' ₼</b></div>'
-    +'<div>Ümumi balans: <b>'+bBal+' ₼</b></div>'
+    +'<div>Cari balans: <b>'+bBal+' ₼</b></div>'
     +'</div>'
     +'<label class="fl">Bank çıxarışı üzrə məbləğ (₼) — opsional</label>'
     +'<input class="fi" id="zc-bank-actual" type="number" step="0.01" placeholder="0.00" style="margin-top:4px">'
-    +'<div id="zc-bank-diff" style="font-size:12px;color:#888;margin-top:4px"></div>'
     +'</div>'
-    // Note + actions
     +'<div class="fg"><label class="fl">Qeyd (opsional)</label>'
     +'<input class="fi" id="zc-note" placeholder="Xüsusi qeyd..."></div>'
     +'<div class="mact">'
@@ -2975,11 +2985,12 @@ async function submitZClose(expKassa,expBank){
   if(isNaN(actualKassa)){alert('Kassa məbləğini daxil edin');return;}
   var diffK=actualKassa-expKassa;
   var diffB=actualBank-expBank;
+  var selDate=S.zCloseDate||td();
   S.saving=true;render();
   try{
     var rec={
       id:'ZC'+Date.now(),
-      date:td(),
+      date:selDate,
       expected_kassa:expKassa,
       expected_bank:expBank,
       actual_kassa:actualKassa,
@@ -2991,7 +3002,18 @@ async function submitZClose(expKassa,expBank){
     await dbPost('daily_closes',rec);
     if(!S.zCloseHistory||S.zCloseHistory==='no_table')S.zCloseHistory=[];
     S.zCloseHistory.unshift(rec);
+    S.zCloseHistory.sort(function(a,b){return b.date>a.date?1:-1;});
     S.showZClose=false;
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function deleteZClose(id){
+  if(!confirm('Bu bağlamanı ləğv etmək istədiyinizdən əminsinizmi?'))return;
+  S.saving=true;render();
+  try{
+    await fetch(BASE+'/daily_closes?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(S.zCloseHistory)S.zCloseHistory=S.zCloseHistory.filter(function(r){return r.id!==id;});
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
