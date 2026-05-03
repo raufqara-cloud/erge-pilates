@@ -98,6 +98,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   .bron-grid { font-size: 10px; }
   .bron-cell { min-height: 44px; padding: 3px; }
   .bron-day-header { font-size: 10px; padding: 4px 1px; }
+.cpick-opt { padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #f5f5f5; }
+.cpick-opt:hover { background: #f0faf5; }
 }
 @media (max-width: 400px) {
   .nav button { font-size: 10px; padding: 5px 6px; }
@@ -261,7 +263,11 @@ async function doAddSub(custId,progId,priceDue,pricePaid,startDate,isPending,acc
         amount:parseFloat(pricePaid),account_id:acctId,
         subscription_id:sub.id,customer_id:custId};
       await dbPost('transactions',txn);
-      S.kassaData=null; // refresh kassa cache
+      // 2% POS commission if Bank selected
+      if(acctId===BANK_ACCT_ID){
+        await createPosCommission(parseFloat(pricePaid),sd,(prog.name||progId)+' — '+((cust&&cust.name)||custId));
+      }
+      S.kassaData=null;
     }
     S.showAddSub=false;
   }catch(e){alert('Xeta: '+e.message);}
@@ -2020,53 +2026,62 @@ function rModalSingleAtt(){
   var c=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.singleCust){c=D.customers[i];break;}}
   if(!c)return'';
-  var saAcctOpts='<option value="">— Seçin (istəyə görə) —</option>';if(D.accounts){for(var ai=0;ai<D.accounts.length;ai++){var acc=D.accounts[ai];if(acc.is_active!==false)saAcctOpts+='<option value="'+acc.id+'">'+acc.name+'</option>';}}
-  var singleProgs=['ROF','RPP','RPS','ROTG','ROTI'];
-  var progOpts='';
+  var saAcctOpts='<option value="">— Hesab seçin —</option>';
+  if(D.accounts){for(var ai=0;ai<D.accounts.length;ai++){var acc=D.accounts[ai];if(acc.is_active!==false)saAcctOpts+='<option value="'+acc.id+'">'+acc.name+'</option>';}}
+  // Build prog options — no default selected
+  var progOpts='<option value="">— Proqram seçin —</option>';
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
     if(!p.is_active)continue;
     if(p.sessions_total!==1)continue;
-    progOpts+='<option value="'+p.id+'" data-price="'+p.list_price+'">'+p.name+' — '+p.list_price+' AZN</option>';
+    progOpts+='<option value="'+p.id+'" data-price="'+p.list_price+'" data-partner="'+(p.is_partner?'1':'0')+'" data-name="'+p.name+'">'+p.name+' — '+p.list_price+' AZN</option>';
   }
-  var saDateVal=td();
   var saDateVal=S.singleAttDate||td();
   var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
-  var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
   var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
-  var firstPrice=D.programs.filter(function(p){return p.is_active&&p.sessions_total===1;})[0];
-  var defPrice=firstPrice?firstPrice.list_price:0;
   return '<div class="ov" onclick="S.showSingleAtt=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Tək Giriş Qeydiyyatı</div>'
     +'<div style="background:#f8faf8;border-radius:9px;padding:10px 12px;margin-bottom:14px">'
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:14px;font-weight:700">'+c.name+'</div></div>'
-    +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="updateSinglePrice()">'+progOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="updateSingleProgram()">'+progOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sa-date" type="date" value="'+(S.singleAttDate||td())+'" onchange="S.singleAttDate=this.value;render()"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="sa-time">'+tOpts2+'</select></div>'
     +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="sa-inst">'+iOpts+'</select></div>'
     +'</div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Ödənilməli (AZN)</label><input class="fi" id="sa-due" type="number" value="'+defPrice+'" readonly style="background:#f5f5f5"></div>'
-    +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="sa-paid" type="number" value="'+defPrice+'"></div>'
+    +'<div class="fg"><label class="fl">Ödənilməli (AZN)</label><input class="fi" id="sa-due" type="number" value="0" readonly style="background:#f5f5f5"></div>'
+    +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="sa-paid" type="number" value="0"></div>'
     +'</div>'
+    +'<div class="fg" id="sa-acct-row"><label class="fl">Ödəniş hesabı</label><select class="fs" id="sa-account">'+saAcctOpts+'</select></div>'
+    +'<div id="sa-partner-hint" style="display:none;font-size:12px;color:#1D9E75;background:#E8F5EE;padding:7px 10px;border-radius:7px;margin-bottom:8px"></div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showSingleAtt=false;render()">Legv et</button>'
-    +'<div class="fg"><label class="fl">Ödəniş hesabı</label><select class="fs" id="sa-account">'+saAcctOpts+'</select></div>'
     +'<button class="btn btn-g" onclick="submitSingleAtt()">Qeydə al</button></div>'
     +'</div></div>';
 }
 
-function updateSinglePrice(){
+function updateSingleProgram(){
   var sel=document.getElementById('sa-prog');
-  if(!sel)return;
+  if(!sel||!sel.value)return;
   var prog=null;
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sel.value){prog=D.programs[i];break;}}
-  if(prog){
-    var due=document.getElementById('sa-due');
-    var paid=document.getElementById('sa-paid');
-    if(due)due.value=prog.list_price;
-    if(paid)paid.value=prog.list_price;
+  if(!prog)return;
+  var due=document.getElementById('sa-due');
+  var paid=document.getElementById('sa-paid');
+  if(due)due.value=prog.list_price;
+  if(paid)paid.value=prog.list_price;
+  var acctSel=document.getElementById('sa-account');
+  var hint=document.getElementById('sa-partner-hint');
+  if(prog.is_partner){
+    var acctId=partnerAcctId(prog.name);
+    var acctName=acctId;
+    for(var i=0;i<(D.accounts||[]).length;i++){if(D.accounts[i].id===acctId){acctName=D.accounts[i].name;break;}}
+    if(acctSel){acctSel.disabled=true;acctSel.value='';}
+    if(hint){hint.innerHTML='Partner proqramı — <b>'+acctName+'</b> hesabına avtomatik yazılır';hint.style.display='block';}
+  } else {
+    if(acctSel)acctSel.disabled=false;
+    if(hint)hint.style.display='none';
   }
 }
 
@@ -2079,7 +2094,7 @@ async function submitSingleAtt(){
   var saPaidPre=parseFloat(document.getElementById('sa-paid')?document.getElementById('sa-paid').value:0)||0;
   var due=parseFloat(document.getElementById('sa-due').value)||0;
   var paid=parseFloat(document.getElementById('sa-paid').value)||0;
-  if(!progId||!time||!instId||!S.singleCust)return;
+  if(!progId||!time||!instId||!S.singleCust){alert('Proqram, saat və instruktor seçilməlidir');return;}
   S.saving=true;render();
   try{
     var c=null,inst=null,prog=null;
@@ -2097,14 +2112,20 @@ async function submitSingleAtt(){
     if(att.class_date===td()&&S.selDateAtts!==null){
       S.selDateAtts.unshift(att);
     }
-    // Create transaction if account selected and paid > 0
-    var saAcctId=saAcctIdPre;
+    // Determine account: partner → alacaq account, else selected account
+    var saAcctId=prog.is_partner?partnerAcctId(prog.name):saAcctIdPre;
     var saPaid=saPaidPre;
     if(saAcctId&&saPaid>0){
+      var desc=(prog?prog.name:'Tək giriş')+' — '+c.name;
       var stxn={id:'TX'+Date.now(),date:saDate,type:'income',category:'Tək giriş',
-        description:(prog?prog.name:'Tək giriş')+' — '+c.name,
-        amount:saPaid,account_id:saAcctId,subscription_id:null,customer_id:c.id};
+        description:desc,amount:saPaid,account_id:saAcctId,
+        subscription_id:null,customer_id:c.id};
       await dbPost('transactions',stxn);
+      if(S.kassaData)S.kassaData.txns.unshift(stxn);
+      // 2% POS commission if Bank selected (non-partner)
+      if(!prog.is_partner&&saAcctId===BANK_ACCT_ID){
+        await createPosCommission(saPaid,saDate,desc);
+      }
       S.kassaData=null;
     }
     S.showSingleAtt=false;
@@ -2519,14 +2540,103 @@ function rKassaAccounts(accounts,balances){
 
 var INCOME_CATS=['Abunə haqqı','Tək giriş','Corab satışı','Masaj','Push30','1FIT','Bank komissiya','Təsisçidən borc','Digər gəlir'];
 var EXPENSE_CATS=['Əmək haqqı (işçi)','İcarə','Komunal','Nəqliyyat xərci','Təsərrüfat','Marketinq','Sadələşmiş vergi','İcarə vergisi','Dividend','Əsas vəsait','Təmir','Geri qaytarma','Bank komissiya','Dövriyyə vəsaiti','Təlim / konfrans','Təsisçi borcunu qaytarmaq','Digər xərc'];
+var BANK_ACCT_ID='ACC003';
+var POS_COMMISSION_PCT=2;
+
+// Returns alacaq account id based on program name
+function partnerAcctId(progName){
+  var n=(progName||'').toLowerCase();
+  if(n.indexOf('push30')>=0||n.indexOf('push 30')>=0)return'ACC005';
+  if(n.indexOf('1fit')>=0)return'ACC006';
+  return'ACC005'; // fallback
+}
+
+// Build category picker HTML (custom searchable dropdown)
+function rCatPicker(pickerId,cats,currentVal){
+  var opts='';
+  for(var i=0;i<cats.length;i++)opts+='<div class="cpick-opt" onmousedown="event.preventDefault()" onclick="selectCat(\''+pickerId+'\',\''+cats[i]+'\')">'+cats[i]+'</div>';
+  return '<div style="position:relative" id="'+pickerId+'-wrap">'
+    +'<input class="fi" id="'+pickerId+'-input" autocomplete="off" placeholder="— Seçin —" value="'+(currentVal||'')+'"'
+    +' onfocus="openCatPicker(\''+pickerId+'\')"'
+    +' oninput="filterCatPicker(\''+pickerId+'\')"'
+    +' onblur="closeCatPicker(\''+pickerId+'\')">'
+    +'<input type="hidden" id="'+pickerId+'" value="'+(currentVal||'')+'">'
+    +'<div id="'+pickerId+'-list" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ddd;border-radius:8px;max-height:200px;overflow-y:auto;z-index:1000;box-shadow:0 4px 16px rgba(0,0,0,0.12)">'+opts+'</div>'
+    +'</div>';
+}
+
+function openCatPicker(id){
+  var list=document.getElementById(id+'-list');
+  if(list)list.style.display='block';
+  filterCatPicker(id); // show all initially
+}
+function closeCatPicker(id){
+  setTimeout(function(){
+    var list=document.getElementById(id+'-list');
+    if(list)list.style.display='none';
+    // If input doesn't match any option, clear hidden value
+    var inp=document.getElementById(id+'-input');
+    var hid=document.getElementById(id);
+    if(inp&&hid&&inp.value!==hid.value){
+      // check if typed value is a valid cat
+      var allCats=INCOME_CATS.concat(EXPENSE_CATS);
+      var match=false;
+      for(var i=0;i<allCats.length;i++){if(allCats[i]===inp.value){match=true;break;}}
+      if(!match){inp.value=hid.value;} // revert to last valid
+    }
+  },180);
+}
+function filterCatPicker(id){
+  var inp=document.getElementById(id+'-input');
+  var list=document.getElementById(id+'-list');
+  if(!inp||!list)return;
+  var q=inp.value.toLowerCase().trim();
+  var items=list.querySelectorAll('.cpick-opt');
+  var visible=0;
+  for(var i=0;i<items.length;i++){
+    var text=items[i].textContent.toLowerCase();
+    var show=q.length<2||text.indexOf(q)>=0;
+    items[i].style.display=show?'block':'none';
+    if(show)visible++;
+  }
+  list.style.display=visible?'block':'none';
+}
+function selectCat(id,val){
+  var inp=document.getElementById(id+'-input');
+  var hid=document.getElementById(id);
+  var list=document.getElementById(id+'-list');
+  if(inp)inp.value=val;
+  if(hid)hid.value=val;
+  if(list)list.style.display='none';
+}
+function updateCatPickerOpts(id,cats){
+  var list=document.getElementById(id+'-list');
+  var inp=document.getElementById(id+'-input');
+  var hid=document.getElementById(id);
+  if(!list)return;
+  var opts='';
+  for(var i=0;i<cats.length;i++)opts+='<div class="cpick-opt" onmousedown="event.preventDefault()" onclick="selectCat(\''+id+'\',\''+cats[i]+'\')">'+cats[i]+'</div>';
+  list.innerHTML=opts;
+  if(inp)inp.value='';
+  if(hid)hid.value='';
+}
+
+// Create a 2% POS commission expense transaction
+async function createPosCommission(amount,date,desc){
+  var commAmt=Math.round(amount*POS_COMMISSION_PCT)/100;
+  if(commAmt<=0)return;
+  var txn={id:'TX'+Date.now()+'C',date:date,type:'expense',category:'Bank komissiya',
+    description:'POS komissiya ('+POS_COMMISSION_PCT+'%) — '+desc,
+    amount:commAmt,account_id:BANK_ACCT_ID,to_account_id:null,subscription_id:null,customer_id:null};
+  await dbPost('transactions',txn);
+  if(S.kassaData)S.kassaData.txns.unshift(txn);
+}
 
 function rModalAddTxn(){
   var accounts=D.accounts||[];
   var acctOpts='<option value="">— Hesab seçin —</option>';
   for(var i=0;i<accounts.length;i++){if(accounts[i].is_active!==false)acctOpts+='<option value="'+accounts[i].id+'">'+accounts[i].name+'</option>';}
   var acctOpts2=acctOpts.replace('— Hesab seçin —','— Hədəf hesab —');
-  var incCats='';for(var i=0;i<INCOME_CATS.length;i++)incCats+='<option>'+INCOME_CATS[i]+'</option>';
-  var expCats='';for(var i=0;i<EXPENSE_CATS.length;i++)expCats+='<option>'+EXPENSE_CATS[i]+'</option>';
 
   return '<div class="ov" onclick="S.showAddTxn=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">+ Əməliyyat</div>'
@@ -2537,7 +2647,8 @@ function rModalAddTxn(){
     +'<option value="transfer">Transfer</option>'
     +'</select></div>'
     +'<div class="fg"><label class="fl">Kateqoriya</label>'
-    +'<select class="fs" id="txn-cat"><option value="">— Seçin —</option>'+incCats+'</select></div>'
+    +rCatPicker('txn-cat',INCOME_CATS,'')
+    +'</div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Tarix</label><input class="fi" id="txn-date" type="date" value="'+td()+'"></div>'
     +'<div class="fg"><label class="fl">Məbləğ (₼)</label><input class="fi" id="txn-amount" type="number" min="0" step="0.01"></div>'
@@ -2552,14 +2663,9 @@ function rModalAddTxn(){
 
 function updateTxnForm(){
   var type=document.getElementById('txn-type').value;
-  var catSel=document.getElementById('txn-cat');
   var toRow=document.getElementById('txn-to-row');
-  if(catSel){
-    catSel.innerHTML='<option value="">— Seçin —</option>';
-    var cats=type==='income'?INCOME_CATS:EXPENSE_CATS;
-    if(type!=='transfer')for(var i=0;i<cats.length;i++)catSel.innerHTML+='<option>'+cats[i]+'</option>';
-    else catSel.innerHTML='<option value="transfer">Transfer</option>';
-  }
+  var cats=type==='income'?INCOME_CATS:(type==='expense'?EXPENSE_CATS:['Transfer']);
+  updateCatPickerOpts('txn-cat',cats);
   if(toRow)toRow.style.display=type==='transfer'?'block':'none';
 }
 
@@ -2580,6 +2686,10 @@ async function submitAddTxn(){
       to_account_id:toAcct||null,subscription_id:null,customer_id:null};
     await dbPost('transactions',txn);
     S.kassaData.txns.unshift(txn);
+    // 2% POS commission if income to Bank
+    if(type==='income'&&acctId===BANK_ACCT_ID){
+      await createPosCommission(amount,date,desc||cat);
+    }
     S.showAddTxn=false;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
