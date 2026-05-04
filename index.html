@@ -162,7 +162,9 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   _bronNewCustId:null,_bronNewCustName:null,
   zCloseHistory:null,zCloseLoading:false,showZClose:false,zCloseDate:null,
   showPlanAbsent:false,planAbsentBooking:null,
-  showSlotAttModal:false,slotAttData:null};
+  showSlotAttModal:false,slotAttData:null,
+  showSubPayment:false,paySubId:null,
+  singleAttProgId:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -394,6 +396,7 @@ function render(){
   if(S.showAlert)h+=rAlertModal();
   if(S.showPlanAbsent)h+=rModalPlanAbsent();
   if(S.showSlotAttModal)h+=rModalSlotAttendance();
+  if(S.showSubPayment)h+=rModalSubPayment();
   root.innerHTML=h;
 }
 
@@ -637,12 +640,14 @@ function rDetail(){
       if(!sub.is_partner){
         var due=sub.price_due||sub.price_paid||0;
         var paid=sub.price_paid||0;
-        var debtHtml=due>paid?'<span style="color:#C62828;font-weight:600"> | Borc: '+(due-paid)+' ₼</span>':'';
+        var debt=due-paid;
+        var debtHtml=debt>0?'<span style="color:#C62828;font-weight:600"> | Borc: '+debt+' ₼</span>':'';
         h+='<div style="display:flex;justify-content:space-between;align-items:center">'
           +'<div style="font-size:12px;color:#888">İstifadə: '+usedCount+'/'+sub.sessions_total+' | Qalan: '+sub.remaining+' dərs</div>'
           +'<div style="font-size:12px;color:#888">'+paid+' ₼ ödənilib'+debtHtml+'</div>'
           +'</div>'
-          +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'" style="width:'+pct+'%"></div></div>';
+          +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'" style="width:'+pct+'%"></div></div>'
+          +(debt>0?'<div style="margin-top:8px"><button class="btn btn-sm" style="background:#FFF3E0;color:#C62828;border:1px solid #ffcdd2;font-size:11px" onclick="openSubPayment(\''+sub.id+'\')">💳 Ödəniş əlavə et ('+debt+' ₼)</button></div>':'');
       }
       h+='</div>';
     }
@@ -1670,6 +1675,8 @@ function rBronBos(){
     +'<div class="day-nav-title">'+fmt(selDate)+'</div>'
     +'<div class="day-nav-sub">'+(dow?DAYS_AZ[dow-1]:'Bazar')+'</div>'
     +'</div>'
+    +'<input type="date" value="'+selDate+'" style="padding:5px 8px;border:1px solid #ddd;border-radius:8px;font-size:12px;font-family:inherit;outline:none;max-width:130px" '
+    +'onchange="var d=this.value;S.bronSelDate=d;S.bronExceptions=null;S.bronSelTime=null;render();fetchExceptions(d);">'
     +'<button class="btn btn-gray btn-sm" style="'+(selDate===todayStr?'color:#1D9E75;font-weight:700;':'')+'" '
     +'onclick="S.bronSelDate=\''+todayStr+'\';S.bronExceptions=null;render();fetchExceptions(\''+todayStr+'\')">Bugün</button>'
     +'<button class="btn btn-gray btn-sm" onclick="bronNavDay(1)">Növbəti →</button>'
@@ -2110,9 +2117,12 @@ function rModalSlotAttendance(){
     var a=D.attendances[i];
     if(a.class_date===sd.dateStr&&a.class_time===sd.time)alreadyRec[a.customer_id]=a.id;
   }
-  // Instructor options
+  // Instructor options — selected from state if already chosen
   var iOpts='<option value="">— İnstruktor seçin —</option>';
-  for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
+  for(var i=0;i<D.instructors.length;i++){
+    var sel=(sd.instId===D.instructors[i].id)?' selected':'';
+    iOpts+='<option value="'+D.instructors[i].id+'"'+sel+'>'+D.instructors[i].full_name+'</option>';
+  }
 
   var h='<div class="ov" onclick="S.showSlotAttModal=false;S.slotAttData=null;render()"><div class="modal" onclick="event.stopPropagation()" style="width:480px;max-width:100%">'
     +'<div class="mtitle">📋 Davamiyyət Qeydiyyatı</div>'
@@ -2120,7 +2130,7 @@ function rModalSlotAttendance(){
     +'<span style="font-weight:700;color:#1D9E75">'+sd.time+'</span>'
     +'<span style="color:#555">'+(dow?DAYS_AZ[dow-1]:'?')+' — '+fmt(sd.dateStr)+'</span>'
     +'</div>'
-    +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="satt-inst">'+iOpts+'</select></div>';
+    +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="slot-att-inst" onchange="if(S.slotAttData)S.slotAttData.instId=this.value">'+iOpts+'</select></div>';
 
   if(!customers.length){
     h+='<div class="empty" style="padding:20px">Bu slot üzrə qeyd ediləcək müştəri yoxdur</div>';
@@ -2184,11 +2194,12 @@ function sattWarnAbsent(cb, wasAbsent, cbId){
 }
 
 async function submitSlotAttendance(){
-  var instEl=document.getElementById('satt-inst');
-  var instId=instEl?instEl.value:'';
-  if(!instId){alert('İnstruktor seçin');return;}
   var sd=S.slotAttData;
   if(!sd)return;
+  // Read instId: state first (set by onchange), DOM as fallback
+  var instId=(sd.instId)||'';
+  if(!instId){var el=document.getElementById('slot-att-inst');instId=el?el.value:'';}
+  if(!instId){alert('İnstruktor seçin');return;}
   if(sd.dateStr>td()){
     alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.\nBu tarix üçün yalnız bron/istisna planlana bilər.');
     return;
@@ -3228,7 +3239,7 @@ async function toggleInst(id,val){
 }
 
 
-function openSingleAtt(custId){S.singleCust=custId;S.showSingleAtt=true;S.singleAttDate=null;render();}
+function openSingleAtt(custId){S.singleCust=custId;S.showSingleAtt=true;S.singleAttDate=null;S.singleAttProgId=null;render();}
 
 function rModalSingleAtt(){
   var c=null;
@@ -3236,23 +3247,24 @@ function rModalSingleAtt(){
   if(!c)return'';
   var saAcctOpts='<option value="">— Hesab seçin —</option>';
   if(D.accounts){for(var ai=0;ai<D.accounts.length;ai++){var acc=D.accounts[ai];if(acc.is_active!==false)saAcctOpts+='<option value="'+acc.id+'">'+acc.name+'</option>';}}
-  // Build prog options — no default selected
+  // Build prog options — restore selected from state
   var progOpts='<option value="">— Proqram seçin —</option>';
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
     if(!p.is_active)continue;
     if(p.sessions_total!==1)continue;
-    progOpts+='<option value="'+p.id+'" data-price="'+p.list_price+'" data-partner="'+(p.is_partner?'1':'0')+'" data-name="'+p.name+'">'+p.name+' — '+p.list_price+' AZN</option>';
+    var sel=(S.singleAttProgId===p.id)?' selected':'';
+    progOpts+='<option value="'+p.id+'"'+sel+' data-price="'+p.list_price+'" data-partner="'+(p.is_partner?'1':'0')+'" data-name="'+p.name+'">'+p.name+' — '+p.list_price+' AZN</option>';
   }
   var saDateVal=S.singleAttDate||td();
   var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
   var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
-  return '<div class="ov" onclick="S.showSingleAtt=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+  return '<div class="ov" onclick="S.showSingleAtt=false;S.singleAttProgId=null;S.singleAttDate=null;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Tək Giriş Qeydiyyatı</div>'
     +'<div style="background:#f8faf8;border-radius:9px;padding:10px 12px;margin-bottom:14px">'
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:14px;font-weight:700">'+c.name+'</div></div>'
-    +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="updateSingleProgram()">'+progOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="S.singleAttProgId=this.value;updateSingleProgram()">'+progOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sa-date" type="date" value="'+(S.singleAttDate||td())+'" onchange="S.singleAttDate=this.value;render()"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="sa-time">'+tOpts2+'</select></div>'
@@ -3264,7 +3276,7 @@ function rModalSingleAtt(){
     +'</div>'
     +'<div class="fg" id="sa-acct-row"><label class="fl">Ödəniş hesabı</label><select class="fs" id="sa-account">'+saAcctOpts+'</select></div>'
     +'<div id="sa-partner-hint" style="display:none;font-size:12px;color:#1D9E75;background:#E8F5EE;padding:7px 10px;border-radius:7px;margin-bottom:8px"></div>'
-    +'<div class="mact"><button class="btn btn-gray" onclick="S.showSingleAtt=false;render()">Legv et</button>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showSingleAtt=false;S.singleAttProgId=null;S.singleAttDate=null;render()">Legv et</button>'
     +'<button class="btn btn-g" onclick="submitSingleAtt()">Qeydə al</button></div>'
     +'</div></div>';
 }
@@ -3272,6 +3284,7 @@ function rModalSingleAtt(){
 function updateSingleProgram(){
   var sel=document.getElementById('sa-prog');
   if(!sel||!sel.value)return;
+  S.singleAttProgId=sel.value; // persist across re-renders
   var prog=null;
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sel.value){prog=D.programs[i];break;}}
   if(!prog)return;
@@ -3294,7 +3307,7 @@ function updateSingleProgram(){
 }
 
 async function submitSingleAtt(){
-  var progId=document.getElementById('sa-prog').value;
+  var progId=S.singleAttProgId||( document.getElementById('sa-prog')?document.getElementById('sa-prog').value:'');
   var saDate=document.getElementById('sa-date')?document.getElementById('sa-date').value:td();
   var time=document.getElementById('sa-time').value;
   var instId=document.getElementById('sa-inst').value;
@@ -3317,7 +3330,7 @@ async function submitSingleAtt(){
       price_due:due,price_paid:paid};
     await dbPost('attendances',att);
     D.attendances.unshift(att);
-    if(att.class_date===td()&&S.selDateAtts!==null){
+    if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date){
       S.selDateAtts.unshift(att);
     }
     // Determine account: partner → alacaq account, else selected account
@@ -3337,6 +3350,8 @@ async function submitSingleAtt(){
       S.kassaData=null;
     }
     S.showSingleAtt=false;
+    S.singleAttProgId=null;
+    S.singleAttDate=null;
     S.showAlert={t:'ok',cust:c,st:{t:'ok',txt:'Tək giriş qeydə alindi'}};
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -4309,6 +4324,103 @@ async function deleteTxn(id){
     await fetch(BASE+'/transactions?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(S.kassaData)S.kassaData.txns=S.kassaData.txns.filter(function(t){return t.id!==id;});
   }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+// ==================== TASK 3 — Abunə borcu ödənişi ====================
+
+function openSubPayment(subId){
+  S.paySubId=subId;
+  S.showSubPayment=true;
+  render();
+}
+
+function rModalSubPayment(){
+  var sub=null;
+  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===S.paySubId){sub=D.subscriptions[i];break;}}
+  if(S.custDetail&&S.custDetail.subs){for(var i=0;i<S.custDetail.subs.length;i++){if(S.custDetail.subs[i].id===S.paySubId){sub=S.custDetail.subs[i];break;}}}
+  if(!sub)return'';
+  var cust=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===sub.customer_id){cust=D.customers[i];break;}}
+  var due=sub.price_due||0;
+  var paid=sub.price_paid||0;
+  var debt=due-paid;
+  var acctOpts='<option value="">— Hesab seçin —</option>';
+  if(D.accounts){for(var i=0;i<D.accounts.length;i++){var a=D.accounts[i];if(a.is_active!==false)acctOpts+='<option value="'+a.id+'">'+a.name+'</option>';}}
+  return'<div class="ov" onclick="S.showSubPayment=false;S.paySubId=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">💳 Abunə Borcu Ödənişi</div>'
+    +'<div style="background:#FFF3E0;border-radius:9px;padding:12px 14px;margin-bottom:16px">'
+    +'<div style="font-weight:700;font-size:14px;margin-bottom:4px">'+(cust?cust.name:'')+'</div>'
+    +'<div style="font-size:13px;color:#555;margin-bottom:6px">'+sub.program_name+'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px">'
+    +'<div><div style="color:#aaa">Ödənilməli</div><div style="font-weight:700">'+due+' ₼</div></div>'
+    +'<div><div style="color:#aaa">Ödənilmiş</div><div style="font-weight:700;color:#1D9E75">'+paid+' ₼</div></div>'
+    +'<div><div style="color:#aaa">Qalan borc</div><div style="font-weight:700;color:#C62828">'+debt+' ₼</div></div>'
+    +'</div></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sp-date" type="date" value="'+td()+'"></div>'
+    +'<div class="fg"><label class="fl">Məbləğ (AZN) *</label><input class="fi" id="sp-amount" type="number" min="0.01" step="0.01" value="'+debt+'"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Hesab *</label><select class="fs" id="sp-account">'+acctOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Qeyd (opsional)</label><input class="fi" id="sp-note" placeholder="İstəyə görə"></div>'
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showSubPayment=false;S.paySubId=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" style="background:#C62828" onclick="submitSubPayment()">Ödənişi qeyd et</button>'
+    +'</div></div></div>';
+}
+
+async function submitSubPayment(){
+  var dateEl=document.getElementById('sp-date');
+  var amountEl=document.getElementById('sp-amount');
+  var acctEl=document.getElementById('sp-account');
+  var noteEl=document.getElementById('sp-note');
+  var payDate=dateEl?dateEl.value:td();
+  var amount=parseFloat(amountEl?amountEl.value:0)||0;
+  var acctId=acctEl?acctEl.value:'';
+  var note=noteEl?noteEl.value:'';
+  // Find sub
+  var sub=null;
+  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===S.paySubId){sub=D.subscriptions[i];break;}}
+  if(S.custDetail&&S.custDetail.subs&&!sub){for(var i=0;i<S.custDetail.subs.length;i++){if(S.custDetail.subs[i].id===S.paySubId){sub=S.custDetail.subs[i];break;}}}
+  if(!sub){alert('Abunəlik tapılmadı');return;}
+  var due=sub.price_due||0;
+  var paid=sub.price_paid||0;
+  var debt=due-paid;
+  // Validations
+  if(amount<=0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
+  if(amount>debt+0.001){alert('Məbləğ qalan borcu ('+debt+' ₼) keçə bilməz');return;}
+  if(!acctId){alert('Hesab seçin');return;}
+  var cust=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===sub.customer_id){cust=D.customers[i];break;}}
+  S.saving=true;render();
+  try{
+    var desc=sub.program_name+' — '+(cust?cust.name:sub.customer_id)+' — borc ödənişi'+(note?' ('+note+')':'');
+    var txn={id:'TX'+Date.now(),date:payDate,type:'income',category:'Abunə borcu',
+      description:desc,amount:amount,account_id:acctId,
+      to_account_id:null,subscription_id:sub.id,customer_id:sub.customer_id};
+    await dbPost('transactions',txn);
+    // Update subscription price_paid
+    var newPaid=Math.round((paid+amount)*100)/100;
+    await dbPatch('subscriptions','id=eq.'+sub.id,{price_paid:newPaid});
+    // Update local state
+    sub.price_paid=newPaid;
+    for(var i=0;i<D.subscriptions.length;i++){
+      if(D.subscriptions[i].id===sub.id){D.subscriptions[i].price_paid=newPaid;break;}
+    }
+    if(S.custDetail&&S.custDetail.subs){
+      for(var i=0;i<S.custDetail.subs.length;i++){
+        if(S.custDetail.subs[i].id===sub.id){S.custDetail.subs[i].price_paid=newPaid;break;}
+      }
+    }
+    // POS commission if bank account
+    if(acctId===BANK_ACCT_ID){
+      await createPosCommission(amount,payDate,desc);
+    }
+    S.kassaData=null;
+    S.showSubPayment=false;
+    S.paySubId=null;
+    S.showAlert={t:'ok',cust:cust||{name:''},st:{t:'ok',txt:'Ödəniş qeydə alındı: '+amount+' ₼'}};
+  }catch(e){alert('Xəta: '+e.message);}
   S.saving=false;render();
 }
 
