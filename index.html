@@ -77,6 +77,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tab{background:#f0f0f0;border:none;padding:6px 13px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;color:#666}
 .tab.active{background:#1D9E75;color:#fff}
 
+/* === BRON YENİ UI === */
+.slot-card{border:1px solid #e0e0e0;border-radius:12px;margin-bottom:8px;overflow:hidden;background:#fff;transition:border-color .2s}
+.slot-card-hdr{display:flex;align-items:center;padding:12px 16px;cursor:pointer;gap:12px;user-select:none}
+.slot-card-hdr:hover{background:#f8fdf9}
+.slot-card-body{padding:12px 16px;border-top:1px solid #f0f0f0}
+.slot-fill-bar{height:4px;background:#f0f0f0;border-radius:2px;margin-top:5px;overflow:hidden}
+.slot-fill-fill{height:4px;border-radius:2px;transition:width .3s}
+.bron-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin-bottom:4px}
+.bron-row-left{flex:1;min-width:0}
+.bron-row-name{font-size:13px;font-weight:600;line-height:1.3}
+.bron-row-badges{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
+.bron-row-actions{display:flex;gap:4px;flex-shrink:0}
+.day-nav{display:flex;align-items:center;gap:8px;margin-bottom:14px;background:#fff;border:1px solid #eaeaea;border-radius:12px;padding:10px 14px}
+.day-nav-center{flex:1;text-align:center}
+.day-nav-title{font-size:15px;font-weight:700}
+.day-nav-sub{font-size:12px;color:#999}
+.empty-slot{text-align:center;padding:12px;color:#bbb;font-size:13px}
+.slot-actions-bar{display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid #f0f0f0;flex-wrap:wrap;align-items:center}
+.b-purple{background:#EDE7F6;color:#5E35B1}
+.b-orange{background:#FFF3E0;color:#E65100}
+
 /* === RESPONSIVE MOBILE === */
 @media (max-width: 600px) {
   .topbar { padding: 0 10px; }
@@ -134,6 +155,11 @@ var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[],a
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
   attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',attDate:null,singleAttDate:null,kassaTab:'txns',kassaData:null,kassaLoading:false,showAddTxn:false,editTxnId:null,selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null,bronSearch:'',showEditBronEx:false,editBronEx:null,
+  bronSubTab:'today',bronSelTime:null,
+  showTempAdd:false,tempAddSlot:null,
+  showMarkAbsent:false,markAbsentBron:null,
+  bronSabitSearch:'',bronSabitDay:0,
+  _bronNewCustId:null,_bronNewCustName:null,
   zCloseHistory:null,zCloseLoading:false,showZClose:false,zCloseDate:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
@@ -335,7 +361,7 @@ function render(){
     +'<button class="'+(S.view==='admin'?'active':'')+'" onclick="sv(\'admin\')">Admin</button>'
     +'<button class="'+(S.view==='report'?'active':'')+'" onclick="sv(\'report\')">Hesabat</button>'
     +'<button class="'+(S.view==='kassa'?'active':'')+'" onclick="sv(\'kassa\')">Kassa</button>'
-    +'<button class="'+(S.view==='bron'?'active':'')+'" onclick="sv(\'bron\')">Bron</button>'
+    +'<button class="'+(S.view==='bron'?'active':'')+'" onclick="sv(\'bron\')">Qrup Yerləri</button>'
     +'</div></div><div class="content">';
   if(S.err)h+='<div class="errbox">'+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yeniden cehd et</button></div>';
   if(S.saving)h+='<div class="al al-b"><span class="spin"></span>Saxlanilir...</div>';
@@ -630,6 +656,53 @@ function rDetail(){
     }
   }
   h+='</div>';
+
+  // BRON ACCORDION
+  var bronOpen=S.custSection==='bron';
+  var custBrons=S.bronData?S.bronData.filter(function(b){return b.customer_id===c.id;}):[]; 
+  h+='<div style="margin-bottom:8px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(bronOpen?'#F3E5F5':'#fff')+';cursor:pointer" '
+    +'onclick="S.custSection=S.custSection===\'bron\'?null:\'bron\';if(S.custSection===\'bron\'&&!S.bronData){fetchBron();}render()">';
+  h+='<div style="display:flex;align-items:center;gap:10px">'
+    +'<span style="font-size:12px;font-weight:700;color:#6A1B9A">SABİT BRONLAR</span>';
+  if(S.bronData)h+='<span style="background:#6A1B9A;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+custBrons.length+'</span>';
+  h+='</div><div style="display:flex;gap:8px;align-items:center">';
+  if(bronOpen)h+='<button class="btn btn-sm" style="background:#6A1B9A;color:#fff;padding:5px 10px;border-radius:8px;font-size:12px" onclick="event.stopPropagation();openAddSabitBronForCust(\''+escQ(c.id)+'\',\''+escQ(c.name)+'\')">+ Bron əlavə et</button>';
+  h+='<span style="color:#6A1B9A;font-size:14px">'+(bronOpen?'▲':'▼')+'</span>'
+    +'</div></div>';
+  if(bronOpen){
+    if(!S.bronData){
+      h+='<div class="empty" style="padding:14px"><span class="spin"></span> Yüklənir...</div>';
+    } else if(!custBrons.length){
+      h+='<div class="empty" style="padding:14px">Sabit bron yoxdur</div>';
+    } else {
+      h+='<div style="padding:12px 14px">';
+      var bstForCust=getCustBronStatus(c.id);
+      for(var bi=0;bi<custBrons.length;bi++){
+        var cbron=custBrons[bi];
+        h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:#f8f0ff;border-radius:9px;margin-bottom:6px;border-left:3px solid #7B1FA2">'
+          +'<div>'
+          +'<div style="font-weight:700;font-size:14px">'+DAYS_AZ[cbron.day_of_week-1]+' — '+cbron.time_slot+'</div>'
+          +'<div style="display:flex;gap:4px;margin-top:5px">'
+          +getBronSubBadge(bstForCust)
+          +'<span class="badge '+(bstForCust.isPartner?'b-purple':'b-green')+'" style="font-size:10px">'+(bstForCust.isPartner?'Partner':'Studio')+'</span>'
+          +(cbron.valid_from&&cbron.valid_from>td()?'<span class="badge b-blue" style="font-size:10px">'+fmt(cbron.valid_from)+'-dən</span>':'')
+          +'</div>'
+          +'</div>'
+          +'<div style="display:flex;gap:5px">'
+          +'<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FFF3E0;color:#E65100" '
+          +'onclick="openMarkAbsent(\''+escQ(cbron.id)+'\',\''+escQ(c.name)+'\',\''+td()+'\')">Bugün gəlməyəcək</button>'
+          +'<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="deleteBron(\''+escQ(cbron.id)+'\')">Sil</button>'
+          +'</div>'
+          +'</div>';
+      }
+      h+='</div>';
+    }
+  }
+  h+='</div>';
+
+  if(S.showMarkAbsent)h+=rModalMarkAbsent();
+  if(S.showAddBron)h+=rModalNewSabitBron();
   return h;
 }
 
@@ -771,6 +844,18 @@ function dateAddDays(dateStr, n){
   return d.toISOString().slice(0,10);
 }
 
+// Returns the nearest date (>= baseDate) that falls on the given dow (1=Mon..6=Sat)
+function getNextDateForDow(baseDate, dow){
+  var d=new Date(baseDate);
+  // getDay(): 0=Sun,1=Mon..6=Sat → convert to 1=Mon..6=Sat
+  var cur=d.getDay()===0?7:d.getDay(); // treat Sun as 7
+  var diff=dow-cur;
+  if(diff<0)diff+=7;   // already passed this week → next week
+  // diff===0 means baseDate itself is that dow → return as-is
+  d.setDate(d.getDate()+diff);
+  return d.toISOString().slice(0,10);
+}
+
 // Format date as DD.MM
 function fmtShort(dateStr){
   if(!dateStr)return '';
@@ -810,18 +895,22 @@ async function fetchExceptions(dateStr){
   render();
 }
 
-function getSlotBookings(day, time){
+function getSlotBookings(day, time, dateStr){
   if(!S.bronData)return[];
   return S.bronData.filter(function(b){
-    return b.day_of_week===day && b.time_slot===time;
+    if(b.day_of_week!==day||b.time_slot!==time)return false;
+    if(dateStr){
+      if(b.valid_from&&b.valid_from>dateStr)return false;
+      if(b.valid_until&&b.valid_until<dateStr)return false;
+    }
+    return true;
   });
 }
 
 function getSlotExceptions(day, time, dateStr){
   if(!S.bronExceptions)return{absents:[],temps:[]};
   var absents=[], temps=[];
-  // Find bookings for this slot
-  var slotBrons=getSlotBookings(day,time);
+  var slotBrons=getSlotBookings(day,time,dateStr);
   var bids=slotBrons.map(function(b){return b.id;});
   for(var i=0;i<S.bronExceptions.length;i++){
     var ex=S.bronExceptions[i];
@@ -833,175 +922,35 @@ function getSlotExceptions(day, time, dateStr){
 }
 
 function getSlotCount(day, time, dateStr){
-  var brons=getSlotBookings(day,time);
+  var brons=getSlotBookings(day,time,dateStr);
   var excs=getSlotExceptions(day,time,dateStr);
-  // Active = total permanent - absents + temps
   return brons.length - excs.absents.length + excs.temps.length;
 }
 
 function rBron(){
   if(!S.bronData&&!S.bronLoading){fetchBron();}
-
   var selDate=S.bronSelDate||td();
-  var weekMon=getWeekMonday(selDate);
-
-  // If exceptions not loaded for this week, load them
   if(!S.bronExceptions){fetchExceptions(selDate);}
 
-  var h='<div class="ph"><div class="pt">Bron Cədvəli</div>'
-    +'<div style="display:flex;gap:8px;align-items:center">'
-    +'<input type="date" value="'+selDate+'" onchange="S.bronSelDate=this.value;S.bronExceptions=null;fetchExceptions(this.value).then(function(){render();});render()" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit">'
-    +'<button class="btn btn-gray btn-sm" onclick="reloadBron()">↻</button>'
-    +'</div></div>';
+  var h='<div class="ph"><div class="pt">Qrup Yerləri</div>'
+    +'<button class="btn btn-gray btn-sm" onclick="reloadBron()">↻ Yenilə</button></div>';
 
-  // Search bar
-  h+='<div class="sbar" style="margin-bottom:12px"><span class="sicon">&#128269;</span>'
-    +'<input id="bron-search" placeholder="Müştəri adı axtar..." value="'+S.bronSearch+'" oninput="bronSearchUpdate(this.value)" style="background:none;border:none;outline:none;width:100%;font-size:14px"></div>';
-
-  h+='<div id="bron-search-results">'+getBronSearchHTML(S.bronSearch)+'</div>';
-  if(S.bronSearch.trim())return h;
+  h+='<div class="tab-row">'
+    +'<button class="tab'+(S.bronSubTab==='today'?' active':'')+'" onclick="S.bronSubTab=\'today\';render()">📅 Bugünkü qruplar</button>'
+    +'<button class="tab'+(S.bronSubTab==='sabit'?' active':'')+'" onclick="S.bronSubTab=\'sabit\';render()">📌 Sabit bronlar</button>'
+    +'<button class="tab'+(S.bronSubTab==='bos'?' active':'')+'" onclick="S.bronSubTab=\'bos\';render()">🟢 Boş yerlər</button>'
+    +'</div>';
 
   if(S.bronLoading)return h+'<div class="empty"><span class="spin"></span> Yüklənir...</div>';
   if(!S.bronData)return h+'<div class="empty">Yüklənir...</div>';
 
-  // Week date header (Mon-Sat)
-  var weekDates=[];
-  for(var i=0;i<6;i++) weekDates.push(dateAddDays(weekMon,i));
+  if(S.bronSubTab==='sabit')h+=rBronSabit();
+  else if(S.bronSubTab==='bos')h+=rBronBos();
+  else h+=rBronToday();
 
-  // Get all unique time slots
-  var times=[];
-  for(var i=0;i<S.bronData.length;i++){
-    if(times.indexOf(S.bronData[i].time_slot)<0)times.push(S.bronData[i].time_slot);
-  }
-  times.sort();
-
-  // Two views: week grid or day detail
-  var selDow=getDayOfWeek(selDate); // 1-6 or null
-
-  // === WEEK GRID VIEW ===
-  var colW='minmax(80px,1fr)';
-  var gridCols='60px '+Array(6).fill(colW).join(' ');
-
-  h+='<div style="overflow-x:auto"><div class="bron-grid" style="min-width:520px">';
-
-  // Day headers with dates
-  h+='<div style="display:grid;grid-template-columns:'+gridCols+';gap:3px;margin-bottom:4px">';
-  h+='<div></div>';
-  for(var d=0;d<6;d++){
-    var isToday=weekDates[d]===td();
-    var isSel=weekDates[d]===selDate;
-    h+='<div onclick="S.bronSelDate=\''+weekDates[d]+'\';S.selBronDay='+(d+1)+';S.selBronTime=null;render()" style="text-align:center;padding:6px 2px;border-radius:7px;cursor:pointer;background:'+(isSel?'#1D9E75':isToday?'#E8F5EE':'#f8faf8')+';color:'+(isSel?'#fff':'#555')+'">'
-      +'<div style="font-size:11px;font-weight:700">'+DAYS_SHORT[d]+'</div>'
-      +'<div style="font-size:10px;opacity:0.8">'+fmtShort(weekDates[d])+'</div>'
-      +'</div>';
-  }
-  h+='</div>';
-
-  // Time rows
-  for(var ti=0;ti<times.length;ti++){
-    var time=times[ti];
-    h+='<div style="display:grid;grid-template-columns:'+gridCols+';gap:3px;margin-bottom:3px">';
-    h+='<div style="display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#888">'+time+'</div>';
-
-    for(var d=1;d<=6;d++){
-      var dateForDay=weekDates[d-1];
-      var brons=getSlotBookings(d,time);
-      var excs=getSlotExceptions(d,time,dateForDay);
-      var activeCount=brons.length-excs.absents.length+excs.temps.length;
-      var empty=MAX_PER_SLOT-activeCount;
-      var isSel=S.selBronDay===d&&S.selBronTime===time;
-
-      var bg=brons.length===0?'#f8f8f8':activeCount>=MAX_PER_SLOT?'#FFEBEE':activeCount>=6?'#FFF3E0':'#E8F5EE';
-      var border=isSel?'2px solid #1D9E75':'2px solid transparent';
-
-      h+='<div style="background:'+bg+';border:'+border+';border-radius:8px;padding:5px 4px;cursor:pointer;min-height:54px" onclick="S.selBronDay='+d+';S.selBronTime=\''+time+'\';S.selBronDate=\''+dateForDay+'\';render()">';
-      if(activeCount>0){
-        var shown=0;
-        for(var si=0;si<brons.length&&shown<3;si++){
-          var b=brons[si];
-          var isAbsent=excs.absents.some(function(ex){return ex.booking_id===b.id;});
-          if(!isAbsent){
-            h+='<div style="font-size:10px;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">'+(b.customer_name||'?').split(' ')[0]+'</div>';
-            shown++;
-          }
-        }
-        for(var si=0;si<excs.temps.length&&shown<3;si++){
-          h+='<div style="font-size:10px;color:#1565C0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4">'+(excs.temps[si].temp_customer_name||'?').split(' ')[0]+'</div>';
-          shown++;
-        }
-        if(activeCount>3)h+='<div style="font-size:10px;color:#999">+'+(activeCount-3)+'</div>';
-        if(empty>0)h+='<div style="font-size:10px;color:#1D9E75;font-weight:600">'+empty+' boş</div>';
-        if(excs.absents.length>0)h+='<div style="font-size:10px;color:#C62828">-'+excs.absents.length+' yox</div>';
-      } else {
-        h+='<div style="font-size:11px;color:#ddd;text-align:center;padding-top:14px">—</div>';
-      }
-      h+='</div>';
-    } // close day loop
-
-    // === SLOT DETAIL PANEL ===
-    if(S.selBronDay&&S.selBronTime===time){
-      var sd=S.selBronDay;
-      var st=time;
-      var sdate=S.selBronDate||weekDates[sd-1];
-      var slotBrons=getSlotBookings(sd,st);
-      var slotExcs=getSlotExceptions(sd,st,sdate);
-      var activeCount2=slotBrons.length-slotExcs.absents.length+slotExcs.temps.length;
-      var canAdd=activeCount2<MAX_PER_SLOT;
-
-      h+='<div style="background:#f0faf5;border:1px solid #b2dfc8;border-radius:10px;padding:12px 14px;margin:4px 0 8px 0">';
-      h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
-      h+='<div><span style="font-weight:700;font-size:13px">'+DAYS_AZ[sd-1]+' '+st+'</span>'
-        +' <span style="font-size:12px;color:#888">'+fmtShort(sdate)+'</span>'
-        +' <span style="font-size:12px;color:'+(activeCount2>=MAX_PER_SLOT?'#C62828':'#1D9E75')+';font-weight:600"> '+activeCount2+'/'+MAX_PER_SLOT+'</span></div>';
-      h+='<div style="display:flex;gap:6px">';
-      if(canAdd)h+='<button class="btn btn-g btn-sm" onclick="openAddBron('+sd+',\''+st+'\',\''+sdate+'\')">+ Bron</button>';
-h+='<button class="btn btn-gray btn-sm" onclick="event.stopPropagation();S.selBronDay=null;S.selBronTime=null;render()">✕ Bağla</button>';
-      h+='</div></div>';
-
-      // Permanent bookings
-      for(var si=0;si<slotBrons.length;si++){
-        var b=slotBrons[si];
-        var isAbsent=slotExcs.absents.some(function(ex){return ex.booking_id===b.id;});
-        var absentEx=slotExcs.absents.find(function(ex){return ex.booking_id===b.id;});
-        var isPending=!b.customer_id;
-
-        h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:'+(isAbsent?'#FFF5F5':'#fff')+';border-radius:7px;margin-bottom:4px;border-left:3px solid '+(isAbsent?'#C62828':isPending?'#E65100':'#1D9E75')+'">';
-        h+='<div>'
-          +'<div style="font-size:13px;font-weight:500;color:'+(isAbsent?'#C62828':isPending?'#E65100':'#1a1a1a')+';text-decoration:'+(isAbsent?'line-through':'none')+'">'+( b.customer_name||'Naməlum')+'</div>'
-          +(isPending?'<div style="font-size:10px;color:#E65100">ID gözlənilir</div>':'<div style="font-size:10px;color:#aaa">'+b.customer_id+'</div>')
-          +(b.valid_from&&b.valid_from>td()?'<div style="font-size:10px;color:#1565C0">'+fmt(b.valid_from)+'-dən</div>':'')
-          +'</div>';
-        h+='<div style="display:flex;gap:6px;align-items:center">';
-        if(!isAbsent){
-          h+='<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FFF3E0;color:#E65100" onclick="markAbsent(\''+b.id+'\',\''+sdate+'\')">Gəlməyəcək</button>';
-        } else {
-          h+='<button class="btn btn-gray btn-sm" style="font-size:11px;background:#E8F5EE;color:#1D9E75" onclick="cancelAbsent(\''+absentEx.id+'\')">Geri al</button>';
-        }
-        h+='<button class="btn btn-gray btn-sm" style="color:#C62828;font-size:11px" onclick="deleteBron(\''+b.id+'\')">Sil</button>';
-        h+='</div></div>';
-      }
-
-      // Temp additions
-      for(var si=0;si<slotExcs.temps.length;si++){
-        var tex=slotExcs.temps[si];
-        h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:#EFF6FF;border-radius:7px;margin-bottom:4px;border-left:3px solid #1565C0">';
-        h+='<div>'
-          +'<div style="font-size:13px;font-weight:500;color:#1565C0">'+(tex.temp_customer_name||'Naməlum')+'</div>'
-          +'<div style="font-size:10px;color:#1565C0">Müvəqqəti</div>'
-          +'</div>';
-        h+='<button class="btn btn-gray btn-sm" style="color:#C62828;font-size:11px" onclick="deleteException(\''+tex.id+'\')">Sil</button>';
-        h+='</div>';
-      }
-
-      if(slotBrons.length===0&&slotExcs.temps.length===0){
-        h+='<div style="color:#aaa;font-size:13px;text-align:center;padding:10px">Bu slot boşdur</div>';
-      }
-      h+='</div>';
-    }
-  }
-
-  h+='</div></div>';
-  if(S.showAddBron)h+=rModalAddBron();
+  if(S.showTempAdd)h+=rModalTempAdd();
+  if(S.showMarkAbsent)h+=rModalMarkAbsent();
+  if(S.showAddBron)h+=rModalNewSabitBron();
   if(S.showEditBronEx)h+=rModalEditBronEx();
   return h;
 }
@@ -1305,6 +1254,764 @@ async function deleteBron(id){
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
+
+// ==================== BRON YENİ UI ====================
+
+var PARTNER_PROG_IDS=['ROF','RPS','RPP'];
+var SAT_TIMES=['10:00','11:00','12:00','13:00','14:00','15:00'];
+
+function escQ(s){return(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+
+function getTimesForDay(dow){
+  if(dow===null)return null;
+  if(dow===6)return SAT_TIMES;
+  return TIMES;
+}
+
+// Returns {type, txt, sub, isPartner} for bron context
+function getCustBronStatus(custId){
+  if(!custId)return{type:'none',txt:'Abunə yoxdur',sub:null,isPartner:false};
+  var today=td();
+  var pendingSub=null;
+  var latestExpired=null;
+  for(var i=0;i<D.subscriptions.length;i++){
+    var s=D.subscriptions[i];
+    if(s.customer_id!==custId||!s.is_active)continue;
+    // 1. Active subscription — highest priority
+    if(s.status!=='pending'&&s.end_date>=today){
+      if(s.is_partner){
+        var used=0;var cm=curMonth();
+        for(var j=0;j<D.attendances.length;j++){
+          var a=D.attendances[j];
+          if(a.subscription_id===s.id&&a.class_date.indexOf(cm)===0)used++;
+        }
+        var left=12-used;
+        if(left<=0)return{type:'warn',txt:'Bu ay limiti dolub',sub:s,isPartner:true};
+        if(left<=2)return{type:'warn',txt:left+' dərs qaldı',sub:s,isPartner:true};
+        return{type:'ok',txt:'Aktiv',sub:s,isPartner:true};
+      }
+      if(s.remaining<=0)return{type:'warn',txt:'Dərs qalmayıb',sub:s,isPartner:false};
+      if(s.remaining<=2)return{type:'warn',txt:s.remaining+' dərs qaldı',sub:s,isPartner:false};
+      return{type:'ok',txt:'Aktiv',sub:s,isPartner:false};
+    }
+    // 2. Pending — keep as fallback
+    if(s.status==='pending'&&!pendingSub)pendingSub=s;
+    // 3. Expired — track latest
+    if(s.status!=='pending'&&s.end_date<today){
+      if(!latestExpired||s.end_date>latestExpired.end_date)latestExpired=s;
+    }
+  }
+  if(pendingSub)return{type:'pending',txt:'Pending',sub:pendingSub,isPartner:!!pendingSub.is_partner};
+  if(latestExpired)return{type:'grace',txt:'Abunə bitib',sub:latestExpired,isPartner:!!latestExpired.is_partner};
+  return{type:'none',txt:'Abunə yoxdur',sub:null,isPartner:false};
+}
+
+function getBronSubBadge(bst){
+  if(!bst)return'';
+  if(bst.type==='ok')return'<span class="badge b-green" style="font-size:10px">Aktiv</span>';
+  if(bst.type==='warn')return'<span class="badge b-yellow" style="font-size:10px">'+bst.txt+'</span>';
+  if(bst.type==='grace')return'<span class="badge b-orange" style="font-size:10px">Abunə bitib</span>';
+  if(bst.type==='pending')return'<span class="badge b-blue" style="font-size:10px">Pending</span>';
+  return'<span class="badge b-gray" style="font-size:10px">Abunə yoxdur</span>';
+}
+
+function getSlotStatusLabel(count){
+  if(count>MAX_PER_SLOT)return{txt:'Artıq doluluq!',cls:'b-red'};
+  if(count>=MAX_PER_SLOT)return{txt:'Tam dolu',cls:'b-red'};
+  if(count>=6)return{txt:'Demək olar dolu',cls:'b-yellow'};
+  if(count>0)return{txt:'Açıq',cls:'b-green'};
+  return{txt:'Boş',cls:'b-gray'};
+}
+
+function bronNavDay(dir){
+  var cur=S.bronSelDate||td();
+  var newDate=dateAddDays(cur,dir);
+  S.bronSelDate=newDate;
+  S.bronExceptions=null;
+  S.bronSelTime=null;
+  render();
+  fetchExceptions(newDate);
+}
+
+// ---- BUGÜNKÜ QRUPLAR ----
+
+function rBronToday(){
+  var selDate=S.bronSelDate||td();
+  var dow=getDayOfWeek(selDate);
+  var times=getTimesForDay(dow);
+  var todayStr=td();
+
+  var h='<div class="day-nav">'
+    +'<button class="btn btn-gray btn-sm" onclick="bronNavDay(-1)">← Əvvəlki</button>'
+    +'<div class="day-nav-center">'
+    +'<div class="day-nav-title">'+fmt(selDate)+'</div>'
+    +'<div class="day-nav-sub">'+(dow?DAYS_AZ[dow-1]:'Bazar')+'</div>'
+    +'</div>'
+    +'<button class="btn btn-gray btn-sm" style="'+(selDate===todayStr?'color:#1D9E75;font-weight:700;':'')+'" '
+    +'onclick="S.bronSelDate=\''+todayStr+'\';S.bronExceptions=null;S.bronSelTime=null;render();fetchExceptions(\''+todayStr+'\')">Bugün</button>'
+    +'<button class="btn btn-gray btn-sm" onclick="bronNavDay(1)">Növbəti →</button>'
+    +'</div>';
+
+  if(dow===null){
+    return h+'<div style="text-align:center;padding:40px 20px;background:#fff;border-radius:12px;border:1px solid #eaeaea">'
+      +'<div style="font-size:32px;margin-bottom:10px">🔒</div>'
+      +'<div style="font-size:15px;font-weight:700;color:#555">Bazar günü studio bağlıdır</div>'
+      +'<div style="font-size:12px;color:#aaa;margin-top:6px">Başqa bir tarix seçin</div>'
+      +'</div>';
+  }
+
+  for(var ti=0;ti<times.length;ti++){
+    h+=rSlotCard(times[ti],selDate,dow);
+  }
+  return h;
+}
+
+function rSlotCard(time,dateStr,dow){
+  var brons=getSlotBookings(dow,time,dateStr);
+  var excs=getSlotExceptions(dow,time,dateStr);
+  var count=brons.length-excs.absents.length+excs.temps.length;
+  var slotSt=getSlotStatusLabel(count);
+  var free=Math.max(0,MAX_PER_SLOT-count);
+  var isOpen=S.bronSelTime===time;
+
+  var borderColor=count>MAX_PER_SLOT?'#C62828':count>=MAX_PER_SLOT?'#E53935':count>=6?'#FB8C00':isOpen?'#1D9E75':'#e0e0e0';
+  var headerBg=isOpen?'#f0faf5':count>MAX_PER_SLOT?'#FFEBEE':count>=MAX_PER_SLOT?'#FFF5F5':count>=6?'#FFFDE7':'#fff';
+  var pct=Math.min(100,Math.round(count/MAX_PER_SLOT*100));
+  var barColor=count>MAX_PER_SLOT?'#C62828':count>=MAX_PER_SLOT?'#E53935':count>=6?'#FB8C00':'#1D9E75';
+
+  var h='<div class="slot-card" style="border-color:'+borderColor+'">'
+    +'<div class="slot-card-hdr" style="background:'+headerBg+'" onclick="S.bronSelTime=S.bronSelTime===\''+time+'\'?null:\''+time+'\';render()">'
+    // Time
+    +'<div style="font-size:17px;font-weight:800;color:#1a1a1a;min-width:56px">'+time+'</div>'
+    // Bar + count
+    +'<div style="flex:1">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
+    +'<span style="font-size:13px;font-weight:600;color:#1a1a1a">'+count+'/'+MAX_PER_SLOT+'</span>'
+    +'<span class="badge '+slotSt.cls+'" style="font-size:10px">'+slotSt.txt+'</span>'
+    +'</div>'
+    +'<div class="slot-fill-bar"><div class="slot-fill-fill" style="background:'+barColor+';width:'+pct+'%"></div></div>'
+    +'</div>'
+    // Free + absents summary
+    +'<div style="text-align:right;min-width:56px">';
+  if(free>0&&count>0)h+='<div style="font-size:12px;color:#1D9E75;font-weight:600">'+free+' boş</div>';
+  if(free===MAX_PER_SLOT)h+='<div style="font-size:11px;color:#bbb">Boş slot</div>';
+  if(excs.absents.length>0)h+='<div style="font-size:11px;color:#E65100">-'+excs.absents.length+' gəlməyəcək</div>';
+  if(excs.temps.length>0)h+='<div style="font-size:11px;color:#1565C0">+'+excs.temps.length+' müvəqqəti</div>';
+  h+='</div>'
+    +'<div style="color:#ccc;font-size:13px;margin-left:4px">'+(isOpen?'▲':'▼')+'</div>'
+    +'</div>';
+
+  if(isOpen){
+    h+='<div class="slot-card-body">'
+      +rSlotDetail(time,dateStr,dow,brons,excs,count)
+      +'</div>';
+  }
+  h+='</div>';
+  return h;
+}
+
+function rSlotDetail(time,dateStr,dow,brons,excs,count){
+  var h='';
+  var canAdd=count<MAX_PER_SLOT;
+
+  // --- Sabit bronlar ---
+  if(brons.length>0){
+    h+='<div class="slabel" style="margin-top:0">SABİT BRONLAR ('+brons.length+')</div>';
+    for(var i=0;i<brons.length;i++){
+      var b=brons[i];
+      var isAbsent=false;
+      var absentExId=null;
+      for(var ai=0;ai<excs.absents.length;ai++){
+        if(excs.absents[ai].booking_id===b.id){isAbsent=true;absentExId=excs.absents[ai].id;break;}
+      }
+      var bst=getCustBronStatus(b.customer_id);
+      var isGrace=bst.type==='grace'||bst.type==='none';
+      var leftC=isAbsent?'#E53935':isGrace?'#FB8C00':bst.isPartner?'#7B1FA2':'#1D9E75';
+      var rowBg=isAbsent?'#FFF5F5':isGrace?'#FFFDE7':'#fff';
+
+      h+='<div class="bron-row" style="background:'+rowBg+';border-left:3px solid '+leftC+'">'
+        +'<div class="bron-row-left">'
+        +'<div class="bron-row-name" style="color:'+(isAbsent?'#bbb':'#1a1a1a')+';text-decoration:'+(isAbsent?'line-through':'none')+'">'+escHtml(b.customer_name||'?')+'</div>'
+        +'<div style="font-size:10px;color:#aaa">'+b.customer_id+'</div>'
+        +'<div class="bron-row-badges">'
+        +getBronSubBadge(bst);
+      if(isGrace)h+='<span class="badge b-orange" style="font-size:10px">Grace — yer saxlanılır</span>';
+      h+=(bst.isPartner?'<span class="badge b-purple" style="font-size:10px">Partner</span>':'<span class="badge b-green" style="font-size:10px">Studio</span>');
+      if(isAbsent)h+='<span class="badge b-red" style="font-size:10px">Gəlməyəcək ✕</span>';
+      h+='</div></div>'
+        +'<div class="bron-row-actions">';
+      if(!isAbsent){
+        h+='<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FFF3E0;color:#E65100" '
+          +'onclick="openMarkAbsent(\''+escQ(b.id)+'\',\''+escQ(b.customer_name||'')+'\',\''+dateStr+'\')">Gəlməyəcək</button>';
+      } else {
+        h+='<button class="btn btn-gray btn-sm" style="font-size:11px;background:#E8F5EE;color:#1D9E75" '
+          +'onclick="cancelAbsent(\''+absentExId+'\')">Geri al</button>';
+      }
+      h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="deleteBron(\''+escQ(b.id)+'\')">Sil</button>'
+        +'</div></div>';
+    }
+  }
+
+  // --- Müvəqqəti əlavələr ---
+  if(excs.temps.length>0){
+    h+='<div class="slabel">MÜVƏQQƏTİ ƏLAVƏLƏR ('+excs.temps.length+')</div>';
+    for(var i=0;i<excs.temps.length;i++){
+      var tex=excs.temps[i];
+      var tbst=getCustBronStatus(tex.temp_customer_id);
+      h+='<div class="bron-row" style="background:#EFF6FF;border-left:3px solid #1565C0">'
+        +'<div class="bron-row-left">'
+        +'<div class="bron-row-name" style="color:#1565C0">'+escHtml(tex.temp_customer_name||'?')+'</div>'
+        +'<div class="bron-row-badges">'
+        +'<span class="badge b-blue" style="font-size:10px">Müvəqqəti</span>'
+        +getBronSubBadge(tbst)
+        +'</div></div>'
+        +'<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="deleteException(\''+escQ(tex.id)+'\')">Sil</button>'
+        +'</div>';
+    }
+  }
+
+  if(brons.length===0&&excs.temps.length===0){
+    h+='<div class="empty-slot">Bu slot boşdur. Müvəqqəti müştəri əlavə edə bilərsiniz.</div>';
+  }
+
+  // Partner xəbərdarlığı
+  if(count>=MAX_PER_SLOT){
+    var hasPartnerInSlot=false;
+    for(var pi=0;pi<brons.length;pi++){
+      var pbst=getCustBronStatus(brons[pi].customer_id);
+      if(pbst.isPartner){hasPartnerInSlot=true;break;}
+    }
+    if(hasPartnerInSlot){
+      h+='<div class="al al-y" style="font-size:12px;margin-top:8px">⚠ Bu slotda partner bronu var. Yeni studio abunəçisi üçün yer lazımdırsa, əlaqədar partner bronunu ayrıca idarə edin.</div>';
+    }
+  }
+
+  // Actions
+  h+='<div class="slot-actions-bar">';
+  if(canAdd){
+    h+='<button class="btn btn-g btn-sm" onclick="openTempAdd(\''+time+'\',\''+dateStr+'\','+dow+')">+ Müvəqqəti əlavə</button>';
+  } else {
+    h+='<span style="font-size:12px;color:#aaa">Slot dolu — müvəqqəti əlavə mümkün deyil</span>';
+  }
+  // Mərhələ 6 placeholder: Davamiyyət inteqrasiyası
+  h+='<button class="btn btn-gray btn-sm" onclick="openAttFromSlot(\''+time+'\',\''+dateStr+'\','+dow+')">📋 Davamiyyəti qeyd et</button>';
+  h+='</div>';
+
+  return h;
+}
+
+// ---- SABİT BRONLAR ----
+
+function rBronSabit(){
+  var h='<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">'
+    +'<div class="sbar" style="flex:1;min-width:160px;margin-bottom:0"><span class="sicon">&#128269;</span>'
+    +'<input placeholder="Müştəri adı axtar..." value="'+escHtml(S.bronSabitSearch)+'" '
+    +'oninput="S.bronSabitSearch=this.value;var el=document.getElementById(\'sabit-list\');if(el)el.innerHTML=rBronSabitList()" '
+    +'style="background:none;border:none;outline:none;width:100%;font-size:13px"></div>'
+    +'<select class="fs" style="width:auto;min-width:110px;padding:8px 10px" onchange="S.bronSabitDay=parseInt(this.value);render()">'
+    +'<option value="0"'+(S.bronSabitDay===0?' selected':'')+'>Bütün günlər</option>';
+  for(var d=0;d<6;d++){
+    h+='<option value="'+(d+1)+'"'+(S.bronSabitDay===(d+1)?' selected':'')+'>'+DAYS_SHORT[d]+'</option>';
+  }
+  h+='</select>'
+    +'<button class="btn btn-g btn-sm" onclick="S._bronNewCustId=null;S._bronNewCustName=null;S.showAddBron=true;render()">+ Yeni bron</button>'
+    +'</div>';
+  h+='<div id="sabit-list">'+rBronSabitList()+'</div>';
+  return h;
+}
+
+function rBronSabitList(){
+  if(!S.bronData)return'<div class="empty">Yüklənir...</div>';
+  var q=normQ((S.bronSabitSearch||'').trim());
+  var filtered=[];
+  for(var i=0;i<S.bronData.length;i++){
+    var b=S.bronData[i];
+    if(S.bronSabitDay&&b.day_of_week!==S.bronSabitDay)continue;
+    if(q&&normQ(b.customer_name||'').indexOf(q)<0)continue;
+    filtered.push(b);
+  }
+  if(!filtered.length)return'<div class="empty">Bron tapılmadı</div>';
+
+  // Group by customer
+  var groups={};
+  var order=[];
+  for(var i=0;i<filtered.length;i++){
+    var b=filtered[i];
+    var key=b.customer_id||('__'+b.customer_name);
+    if(!groups[key]){groups[key]={name:b.customer_name,custId:b.customer_id,brons:[]};order.push(key);}
+    groups[key].brons.push(b);
+  }
+
+  var h='<div class="slabel">'+order.length+' müştəri / '+filtered.length+' bron</div>';
+  for(var gi=0;gi<order.length;gi++){
+    var g=groups[order[gi]];
+    var bst=getCustBronStatus(g.custId);
+    var cardBorderColor=bst.type==='ok'?'#c8eada':bst.type==='warn'?'#ffe082':bst.type==='grace'?'#ffcc80':'#e0e0e0';
+
+    h+='<div style="background:#fff;border:1px solid '+cardBorderColor+';border-radius:12px;padding:13px 15px;margin-bottom:8px">'
+      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">'
+      +'<div>'
+      +'<div style="font-weight:700;font-size:14px;color:#1a1a1a">'+escHtml(g.name)+'</div>'
+      +'<div style="font-size:10px;color:#aaa;margin-top:1px">'+g.custId+'</div>'
+      +'</div>'
+      +'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'
+      +getBronSubBadge(bst);
+    if(bst.type==='grace')h+='<span class="badge b-orange" style="font-size:10px">Grace</span>';
+    h+='<span class="badge '+(bst.isPartner?'b-purple':'b-green')+'" style="font-size:10px">'+(bst.isPartner?'Partner':'Studio')+'</span>'
+      +'</div></div>';
+
+    // Slots as pills
+    h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">';
+    for(var bi=0;bi<g.brons.length;bi++){
+      var bron=g.brons[bi];
+      h+='<div style="background:#f0faf5;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:500;color:#0F6E56;border:1px solid #b2dfc8">'
+        +DAYS_SHORT[bron.day_of_week-1]+' <strong>'+bron.time_slot+'</strong>'
+        +'</div>';
+    }
+    h+='</div>';
+
+    // Actions
+    h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    h+='<button class="btn btn-g btn-sm" style="font-size:11px" '
+      +'onclick="openAddSabitBronForCust(\''+escQ(g.custId)+'\',\''+escQ(g.name||'')+'\')">+ Gün əlavə et</button>';
+    for(var bi=0;bi<g.brons.length;bi++){
+      var bron=g.brons[bi];
+      h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" '
+        +'onclick="deleteBron(\''+escQ(bron.id)+'\')">'+DAYS_SHORT[bron.day_of_week-1]+' '+bron.time_slot+' — Sil</button>';
+    }
+    h+='</div></div>';
+  }
+  return h;
+}
+
+// ---- BOŞ YERLƏR ----
+
+function rBronBos(){
+  var selDate=S.bronSelDate||td();
+  var dow=getDayOfWeek(selDate);
+  var times=getTimesForDay(dow);
+  var todayStr=td();
+
+  var h='<div class="day-nav">'
+    +'<button class="btn btn-gray btn-sm" onclick="bronNavDay(-1)">← Əvvəlki</button>'
+    +'<div class="day-nav-center">'
+    +'<div class="day-nav-title">'+fmt(selDate)+'</div>'
+    +'<div class="day-nav-sub">'+(dow?DAYS_AZ[dow-1]:'Bazar')+'</div>'
+    +'</div>'
+    +'<button class="btn btn-gray btn-sm" style="'+(selDate===todayStr?'color:#1D9E75;font-weight:700;':'')+'" '
+    +'onclick="S.bronSelDate=\''+todayStr+'\';S.bronExceptions=null;render();fetchExceptions(\''+todayStr+'\')">Bugün</button>'
+    +'<button class="btn btn-gray btn-sm" onclick="bronNavDay(1)">Növbəti →</button>'
+    +'</div>';
+
+  if(dow===null)return h+'<div style="text-align:center;padding:30px;color:#aaa">Bazar günü studio bağlıdır</div>';
+
+  var freeSlots=[];
+  for(var ti=0;ti<times.length;ti++){
+    var t=times[ti];
+    var count=getSlotCount(dow,t,selDate);
+    var free=MAX_PER_SLOT-count;
+    if(free>0)freeSlots.push({time:t,count:count,free:free});
+  }
+
+  if(!freeSlots.length){
+    return h+'<div style="text-align:center;padding:40px;background:#fff;border-radius:12px;border:1px solid #eaeaea">'
+      +'<div style="font-size:28px;margin-bottom:8px">📋</div>'
+      +'<div style="font-weight:600;color:#555">Bu gün bütün slotlar doludur</div>'
+      +'<div style="font-size:12px;color:#aaa;margin-top:6px">'+fmt(selDate)+' tarixə boş yer yoxdur</div>'
+      +'</div>';
+  }
+
+  h+='<div class="slabel">'+freeSlots.length+' slotda boş yer var</div>';
+  for(var fi=0;fi<freeSlots.length;fi++){
+    var fs=freeSlots[fi];
+    var barColor=fs.free>=4?'#1D9E75':fs.free>=2?'#FB8C00':'#E53935';
+    h+='<div style="display:flex;align-items:center;gap:12px;padding:13px 16px;background:#fff;border:1px solid #e0f2ea;border-radius:10px;margin-bottom:6px">'
+      +'<div style="font-size:17px;font-weight:800;min-width:56px">'+fs.time+'</div>'
+      +'<div style="flex:1">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
+      +'<span style="font-size:13px;font-weight:600;color:'+barColor+'">'+fs.free+' boş yer</span>'
+      +'<span style="font-size:12px;color:#aaa">'+fs.count+'/'+MAX_PER_SLOT+' dolub</span>'
+      +'</div>'
+      +'<div class="slot-fill-bar"><div class="slot-fill-fill" style="background:#e0e0e0;width:100%">'
+      +'<div style="height:4px;background:#1D9E75;border-radius:2px;width:'+Math.round(fs.count/MAX_PER_SLOT*100)+'%"></div>'
+      +'</div></div>'
+      +'</div>'
+      +'<button class="btn btn-g btn-sm" onclick="openTempAdd(\''+fs.time+'\',\''+selDate+'\','+dow+')">+ Müştəri yerləşdir</button>'
+      +'</div>';
+  }
+  return h;
+}
+
+// ---- MARK ABSENT MODAL ----
+
+function openMarkAbsent(bronId,custName,date){
+  S.markAbsentBron={bronId:bronId,custName:custName,date:date};
+  S.showMarkAbsent=true;
+  render();
+}
+
+function rModalMarkAbsent(){
+  var b=S.markAbsentBron;
+  if(!b)return'';
+  return'<div class="ov" onclick="S.showMarkAbsent=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">Gəlməyəcək kimi qeyd et</div>'
+    +'<div style="background:#FFF3E0;border-radius:10px;padding:14px;margin-bottom:16px">'
+    +'<div style="font-weight:700;font-size:14px;margin-bottom:6px">'+escHtml(b.custName)+'</div>'
+    +'<div style="font-size:13px;color:#E65100">Bu müştəri <strong>yalnız '+fmt(b.date)+'</strong> tarixinə bu slotdan çıxarılsın.</div>'
+    +'<div style="font-size:12px;color:#aaa;margin-top:6px">Sabit bron silinmir — yalnız həmin gün üçün "absent" qeyd yaranır.</div>'
+    +'</div>'
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showMarkAbsent=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" style="background:#E65100" onclick="confirmMarkAbsent()">Bəli, qeyd et</button>'
+    +'</div></div></div>';
+}
+
+async function confirmMarkAbsent(){
+  var b=S.markAbsentBron;
+  if(!b)return;
+  S.showMarkAbsent=false;render();
+  await markAbsent(b.bronId,b.date);
+}
+
+// ---- TEMP ADD MODAL ----
+
+function openTempAdd(time,dateStr,dow){
+  S.tempAddSlot={time:time,date:dateStr,dow:dow};
+  S.showTempAdd=true;
+  render();
+}
+
+function rModalTempAdd(){
+  var slot=S.tempAddSlot;
+  if(!slot)return'';
+  var dow=slot.dow;
+  var count=getSlotCount(dow,slot.time,slot.date);
+  var free=MAX_PER_SLOT-count;
+  return'<div class="ov" onclick="S.showTempAdd=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">+ Müvəqqəti Müştəri Əlavə Et</div>'
+    +'<div style="background:#f0faf5;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;font-size:13px">'
+    +'<span style="font-weight:600">'+(dow?DAYS_AZ[dow-1]:'?')+' — '+slot.time+'</span>'
+    +'<span style="color:#666">'+fmt(slot.date)+'</span>'
+    +'<span style="font-weight:700;color:'+(free>0?'#1D9E75':'#C62828')+'">'+count+'/'+MAX_PER_SLOT+'</span>'
+    +'</div>'
+    +(free<=0?'<div class="al al-r" style="margin-bottom:12px">Bu slot tam doludur (8/8)!</div>':'')
+    +'<div class="fg"><label class="fl">Müştəri *</label>'
+    +'<input class="fi" id="ta-cust-search" placeholder="Ad ilə axtar..." oninput="filterTempAddCusts()" autocomplete="off" style="margin-bottom:4px">'
+    +'<div id="ta-cust-list" style="max-height:160px;overflow-y:auto;border:1px solid #ddd;border-radius:8px;background:#fff"></div>'
+    +'<input type="hidden" id="ta-cust-id">'
+    +'<div id="ta-sub-status" style="margin-top:6px"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Qeyd</label><input class="fi" id="ta-note" placeholder="İstəyə görə"></div>'
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showTempAdd=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g"'+(free<=0?' disabled':'')+' onclick="submitTempAdd()">Əlavə et</button>'
+    +'</div></div></div>';
+}
+
+function filterTempAddCusts(){
+  var inp=document.getElementById('ta-cust-search');
+  var list=document.getElementById('ta-cust-list');
+  if(!inp||!list)return;
+  var q=normQ(inp.value.trim());
+  var sorted=D.customers.slice().sort(function(a,b){return a.name.localeCompare(b.name,'az');});
+  list.innerHTML='';
+  var shown=0;
+  for(var i=0;i<sorted.length;i++){
+    var c=sorted[i];
+    if(q&&normQ(c.name).indexOf(q)<0)continue;
+    if(shown>=50)break;
+    (function(cust){
+      var el=document.createElement('div');
+      el.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px';
+      el.innerHTML=cust.name+'<span style="font-size:10px;color:#aaa;margin-left:6px">'+cust.id+'</span>';
+      el.onmouseenter=function(){this.style.background='#f0faf5';};
+      el.onmouseleave=function(){this.style.background='';};
+      el.onclick=function(){selectTempAddCust(cust.id,cust.name);};
+      list.appendChild(el);
+    })(c);
+    shown++;
+  }
+  if(shown===0)list.innerHTML='<div style="padding:10px;color:#aaa;font-size:13px;text-align:center">Tapılmadı</div>';
+}
+
+function selectTempAddCust(id,name){
+  var inp=document.getElementById('ta-cust-search');
+  var list=document.getElementById('ta-cust-list');
+  var hidden=document.getElementById('ta-cust-id');
+  var statusDiv=document.getElementById('ta-sub-status');
+  if(inp)inp.value=name;
+  if(hidden)hidden.value=id;
+  if(list)list.innerHTML='<div style="padding:8px 12px;background:#E8F5EE;font-size:13px;border-radius:6px">✓ '+escHtml(name)+'</div>';
+  if(statusDiv){
+    var bst=getCustBronStatus(id);
+    var colorMap={ok:'#1D9E75',warn:'#E65100',grace:'#E65100',pending:'#1565C0',none:'#C62828'};
+    var col=colorMap[bst.type]||'#888';
+    statusDiv.innerHTML='<div style="font-size:12px;padding:6px 10px;background:#f8f8f8;border-radius:6px">Abunə: <span style="font-weight:600;color:'+col+'">'+bst.txt+'</span></div>';
+    if(bst.type==='none')statusDiv.innerHTML+='<div class="al al-y" style="margin-top:6px;font-size:12px">⚠ Aktiv abunəsi yoxdur. Müvəqqəti əlavə üçün abunəlik yaradın.</div>';
+  }
+}
+
+async function submitTempAdd(){
+  var custIdEl=document.getElementById('ta-cust-id');
+  var noteEl=document.getElementById('ta-note');
+  var custId=custIdEl?custIdEl.value:'';
+  var note=noteEl?noteEl.value:'';
+  var slot=S.tempAddSlot;
+  if(!custId)return alert('Müştəri seçin');
+  if(!slot)return;
+  var cust=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  S.saving=true;S.showTempAdd=false;render();
+  try{
+    var eid='EX'+Date.now();
+    var ex={id:eid,booking_id:null,exception_date:slot.date,
+      type:'temp_add',temp_customer_id:custId,
+      temp_customer_name:cust?cust.name:'',
+      day_of_week:slot.dow,time_slot:slot.time,
+      note:note||null};
+    await dbPost('booking_exceptions',ex);
+    if(!S.bronExceptions)S.bronExceptions=[];
+    S.bronExceptions.push(ex);
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+// ---- YENİ SABİT BRON MODAL ----
+
+function openAddSabitBronForCust(custId,custName){
+  S._bronNewCustId=custId||null;
+  S._bronNewCustName=custName||null;
+  S.showAddBron=true;
+  render();
+}
+
+function rModalNewSabitBron(){
+  var custId=S._bronNewCustId||'';
+  var custName=S._bronNewCustName||'';
+
+  // Determine limit from active subscription
+  var maxDays=0;
+  var limitMsg='';
+  var isPartnerCust=false;
+  var activSubForCust=null;
+  if(custId){
+    for(var i=0;i<D.subscriptions.length;i++){
+      var s=D.subscriptions[i];
+      if(s.customer_id===custId&&s.is_active&&s.status!=='pending'&&s.end_date>=td()){activSubForCust=s;break;}
+    }
+  }
+  if(activSubForCust){
+    isPartnerCust=!!activSubForCust.is_partner;
+    if(activSubForCust.sessions_total>=12){maxDays=3;limitMsg='12 dərslik → maks. 3 gün';}
+    else if(activSubForCust.sessions_total>=8){maxDays=2;limitMsg='8 dərslik → maks. 2 gün';}
+    else if(activSubForCust.sessions_total>1){maxDays=2;limitMsg='Aktiv abunə var';}
+    else{maxDays=0;limitMsg='Tək giriş proqramı — sabit bron olmaz';}
+    if(isPartnerCust)limitMsg+=' (partner — aşağı prioritet)';
+  }
+  var existingDays=0;
+  if(S.bronData&&custId){for(var i=0;i<S.bronData.length;i++){if(S.bronData[i].customer_id===custId)existingDays++;}}
+
+  var dOpts='';
+  for(var d=0;d<6;d++)dOpts+='<option value="'+(d+1)+'">'+DAYS_AZ[d]+'</option>';
+  var tOpts='';
+  for(var ti=0;ti<TIMES.length;ti++)tOpts+='<option value="'+TIMES[ti]+'">'+TIMES[ti]+'</option>';
+
+  var blocked=maxDays===0&&custId&&activSubForCust;
+
+  return'<div class="ov" onclick="S.showAddBron=false;S._bronNewCustId=null;S._bronNewCustName=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">+ Sabit Bron Əlavə Et</div>'
+    +(custName?'<div style="font-size:14px;font-weight:700;background:#f0faf5;border-radius:8px;padding:10px 14px;margin-bottom:12px">'+escHtml(custName)+'</div>':'')
+    +(limitMsg?'<div class="al '+(blocked?'al-r':'al-b')+'" style="font-size:12px;margin-bottom:12px">'+limitMsg+(existingDays?' | Mövcud: '+existingDays+' gün':'')+'</div>':'')
+    +(!custId?'<div class="fg"><label class="fl">Müştəri *</label>'
+      +'<input class="fi" id="nsb-search" placeholder="Ad ilə axtar..." oninput="filterNsbCusts()" autocomplete="off" style="margin-bottom:4px">'
+      +'<div id="nsb-list" style="max-height:130px;overflow-y:auto;border:1px solid #ddd;border-radius:8px;background:#fff"></div>'
+      +'<input type="hidden" id="nsb-cust-id">'
+      +'<div id="nsb-cust-info" style="margin-top:8px"></div>'
+      +'</div>':'<input type="hidden" id="nsb-cust-id" value="'+custId+'">')
+    +(blocked?'<div class="mact"><button class="btn btn-gray" onclick="S.showAddBron=false;render()">Bağla</button></div></div></div>':'')
+    +(!blocked?
+      '<div class="fi-row">'
+      +'<div class="fg"><label class="fl">Gün *</label><select class="fs" id="nsb-day">'+dOpts+'</select></div>'
+      +'<div class="fg"><label class="fl">Saat *</label><select class="fs" id="nsb-time">'+tOpts+'</select></div>'
+      +'</div>'
+      +'<div class="fg"><label class="fl">Başlama tarixi</label><input class="fi" id="nsb-from" type="date" value="'+td()+'"></div>'
+      +'<div class="fg"><label class="fl">Qeyd</label><input class="fi" id="nsb-note" placeholder="İstəyə görə"></div>'
+      +'<div class="mact">'
+      +'<button class="btn btn-gray" onclick="S.showAddBron=false;S._bronNewCustId=null;S._bronNewCustName=null;render()">Ləğv et</button>'
+      +'<button class="btn btn-g" id="nsb-submit-btn" onclick="submitNewSabitBron()">Əlavə et</button>'
+      +'</div></div></div>':'');
+}
+
+async function submitNewSabitBron(){
+  var custIdEl=document.getElementById('nsb-cust-id');
+  var dayEl=document.getElementById('nsb-day');
+  var timeEl=document.getElementById('nsb-time');
+  var fromEl=document.getElementById('nsb-from');
+  var noteEl=document.getElementById('nsb-note');
+  var custId=custIdEl?custIdEl.value:'';
+  var day=dayEl?parseInt(dayEl.value):0;
+  var time=timeEl?timeEl.value:'';
+  var from=fromEl?fromEl.value:'';
+  var note=noteEl?noteEl.value:'';
+  if(!custId)return alert('Müştəri seçin');
+  if(!day||!time)return alert('Gün və saat seçin');
+
+  // ── 1. Abunə yoxlama (none → blok, grace → blok, pending → icazə, active → icazə) ──
+  var bst=getCustBronStatus(custId);
+  if(bst.type==='none'||bst.type==='grace'){
+    return alert('Bu müştərinin aktiv abunəliyi yoxdur.\nSabit bron yaratmaq üçün əvvəlcə abunəlik əlavə edin.');
+  }
+
+  // ── 2. Proqram limiti yoxlama ──
+  var activSubForLimit=bst.sub;
+  if(activSubForLimit&&bst.type!=='pending'){
+    var maxD=activSubForLimit.sessions_total>=12?3:activSubForLimit.sessions_total>=8?2:activSubForLimit.sessions_total>1?2:0;
+    if(maxD===0){return alert('Tək giriş proqramı üçün sabit bron yaratmaq olmaz.');}
+    var existD=0;
+    if(S.bronData){for(var i=0;i<S.bronData.length;i++){if(S.bronData[i].customer_id===custId)existD++;}}
+    if(existD>=maxD){return alert('Bu müştəri üçün artıq '+existD+' sabit bron var.\nProqrama görə limit: '+maxD+' gün.');}
+  }
+
+  // ── 3. Dublikat yoxlama (eyni müştəri + gün + saat) ──
+  if(S.bronData){
+    for(var i=0;i<S.bronData.length;i++){
+      var eb=S.bronData[i];
+      if(eb.customer_id===custId&&eb.day_of_week===day&&eb.time_slot===time){
+        return alert('Bu müştərinin '+DAYS_AZ[day-1]+' '+time+' üçün artıq sabit bronu var.');
+      }
+    }
+  }
+
+  // ── 4. Slot tutumu yoxlama (HARD LIMIT — override yoxdur) ──
+  // checkDate: seçilən day_of_week-ə düşən ən yaxın tarix (valid_from/valid_until dəqiq filter üçün)
+  var checkDate=getNextDateForDow(S.bronSelDate||td(),day);
+  var slotCount=getSlotCount(day,time,checkDate);
+  if(slotCount>=MAX_PER_SLOT){
+    // Partner bronu var mı yoxla
+    var slotBrons=getSlotBookings(day,time,checkDate);
+    var partnerNames=[];
+    for(var i=0;i<slotBrons.length;i++){
+      var pb=getCustBronStatus(slotBrons[i].customer_id);
+      if(pb.isPartner)partnerNames.push(slotBrons[i].customer_name||'?');
+    }
+    var msg='Bu slot tam doludur ('+slotCount+'/'+MAX_PER_SLOT+').\nƏvvəl mövcud bronu silin və ya başqa saat seçin.';
+    if(partnerNames.length>0)msg+='\n\n⚠ Slotda partner bronu var: '+partnerNames.join(', ')+'.\nStudio abunəçisinə yer vermək üçün partner bronunu ayrıca idarə edin.';
+    return alert(msg);
+  }
+
+  var cust=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  S.saving=true;render();
+  try{
+    var bid='BK'+Date.now();
+    var bron={id:bid,customer_id:custId,customer_name:cust?cust.name:'',
+      day_of_week:day,time_slot:time,type:'permanent',
+      valid_from:from||null,note:note||null,is_active:true};
+    await dbPost('bookings',bron);
+    S.bronData.push(bron);
+    S.showAddBron=false;S._bronNewCustId=null;S._bronNewCustName=null;
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+function filterNsbCusts(){
+  var inp=document.getElementById('nsb-search');
+  var list=document.getElementById('nsb-list');
+  var hidden=document.getElementById('nsb-cust-id');
+  if(!inp||!list)return;
+  var q=normQ(inp.value.trim());
+  var sorted=D.customers.slice().sort(function(a,b){return a.name.localeCompare(b.name,'az');});
+  list.innerHTML='';
+  var shown=0;
+  for(var i=0;i<sorted.length;i++){
+    var c=sorted[i];
+    if(q&&normQ(c.name).indexOf(q)<0)continue;
+    if(shown>=50)break;
+    (function(cust){
+      var el=document.createElement('div');
+      el.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px';
+      el.innerHTML=cust.name+'<span style="font-size:10px;color:#aaa;margin-left:6px">'+cust.id+'</span>';
+      el.onmouseenter=function(){this.style.background='#f0faf5';};
+      el.onmouseleave=function(){this.style.background='';};
+      el.onclick=function(){selectNsbCust(cust.id,cust.name);};
+      list.appendChild(el);
+    })(c);
+    shown++;
+  }
+  if(shown===0)list.innerHTML='<div style="padding:10px;color:#aaa;text-align:center;font-size:13px">Tapılmadı</div>';
+}
+
+function selectNsbCust(id,name){
+  var inp=document.getElementById('nsb-search');
+  var list=document.getElementById('nsb-list');
+  var hidden=document.getElementById('nsb-cust-id');
+  var infoDiv=document.getElementById('nsb-cust-info');
+  var submitBtn=document.getElementById('nsb-submit-btn');
+  if(inp)inp.value=name;
+  if(hidden)hidden.value=id;
+  if(list)list.innerHTML='<div style="padding:8px 12px;background:#E8F5EE;font-size:13px;border-radius:6px">✓ '+escHtml(name)+'</div>';
+  if(!infoDiv)return;
+
+  var bst=getCustBronStatus(id);
+  // Limit calc
+  var maxD=0;var existD=0;var subName='';var sessTotal=0;
+  if(bst.sub){
+    sessTotal=bst.sub.sessions_total||0;
+    subName=bst.sub.program_name||'';
+    if(bst.type==='ok'||bst.type==='warn'){
+      maxD=sessTotal>=12?3:sessTotal>=8?2:sessTotal>1?2:0;
+    } else if(bst.type==='pending'){
+      maxD=sessTotal>=12?3:sessTotal>=8?2:sessTotal>1?2:0;
+    }
+  }
+  if(S.bronData){for(var i=0;i<S.bronData.length;i++){if(S.bronData[i].customer_id===id)existD++;}}
+
+  var blocked=(bst.type==='none'||bst.type==='grace');
+  var limitFull=(maxD>0&&existD>=maxD);
+  var colorMap={ok:'#1D9E75',warn:'#E65100',grace:'#E65100',pending:'#1565C0',none:'#C62828'};
+  var col=colorMap[bst.type]||'#888';
+
+  var html='<div style="background:#f8f8f8;border-radius:8px;padding:10px 12px;font-size:12px;border:1px solid #e8e8e8">';
+  html+='<div style="display:flex;justify-content:space-between;margin-bottom:6px">';
+  html+='<span>Abunə statusu: <strong style="color:'+col+'">'+bst.txt+'</strong></span>';
+  if(subName)html+='<span style="color:#888">'+escHtml(subName)+'</span>';
+  html+='</div>';
+  if(sessTotal>0)html+='<div style="margin-bottom:4px">Proqram: <strong>'+sessTotal+' dərslik</strong></div>';
+  if(maxD>0){
+    var limitColor=limitFull?'#C62828':existD===maxD-1?'#E65100':'#1D9E75';
+    html+='<div style="color:'+limitColor+'">Sabit bron limiti: <strong>'+existD+'/'+maxD+' gün</strong></div>';
+  }
+  html+='<div style="margin-top:6px;display:flex;gap:4px">';
+  html+=(bst.isPartner?'<span class="badge b-purple" style="font-size:10px">Partner</span>':'<span class="badge b-green" style="font-size:10px">Studio</span>');
+  html+=getBronSubBadge(bst);
+  html+='</div>';
+  if(blocked)html+='<div class="al al-r" style="margin-top:8px;font-size:12px">Aktiv abunəlik yoxdur — sabit bron yaradıla bilməz</div>';
+  else if(limitFull)html+='<div class="al al-r" style="margin-top:8px;font-size:12px">Sabit bron limiti dolub ('+existD+'/'+maxD+')</div>';
+  else if(maxD===0&&bst.sub)html+='<div class="al al-r" style="margin-top:8px;font-size:12px">Tək giriş proqramı — sabit bron olmaz</div>';
+  html+='</div>';
+  infoDiv.innerHTML=html;
+
+  // Disable submit if blocked
+  if(submitBtn)submitBtn.disabled=(blocked||limitFull||(maxD===0&&bst.sub));
+}
+
+// ---- MƏRHƏLƏ 6 STUB — Davamiyyət inteqrasiyası ----
+// TODO: Slot bron siyahısından checkbox ilə attendances yazılacaq
+// Pending abunə → ilk iştirakda aktivləşəcək
+function openAttFromSlot(time, dateStr, dow){
+  // Stub: upcoming implementation
+  var brons=getSlotBookings(dow,time,dateStr);
+  var excs=getSlotExceptions(dow,time,dateStr);
+  var names=[];
+  for(var i=0;i<brons.length;i++){
+    var isAbs=excs.absents.some(function(e){return e.booking_id===brons[i].id;});
+    if(!isAbs)names.push(brons[i].customer_name);
+  }
+  for(var i=0;i<excs.temps.length;i++)names.push(excs.temps[i].temp_customer_name+' (müvəqqəti)');
+  alert('Mərhələ 6 — tezliklə.\n\nBu slotda gözlənilən müştərilər:\n'+(names.length?names.join('\n'):'(heç kim)'));
+}
+
+function escHtml(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 // ==================== PARTNER RECONCİLİASİYA ====================
 function rPartnerRecon(){
