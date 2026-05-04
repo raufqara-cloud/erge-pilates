@@ -160,7 +160,9 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showMarkAbsent:false,markAbsentBron:null,
   bronSabitSearch:'',bronSabitDay:0,
   _bronNewCustId:null,_bronNewCustName:null,
-  zCloseHistory:null,zCloseLoading:false,showZClose:false,zCloseDate:null};
+  zCloseHistory:null,zCloseLoading:false,showZClose:false,zCloseDate:null,
+  showPlanAbsent:false,planAbsentBooking:null,
+  showSlotAttModal:false,slotAttData:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -390,6 +392,8 @@ function render(){
   if(S.editCust)h+=rModalEditCust();
   if(S.showSingleAtt)h+=rModalSingleAtt();
   if(S.showAlert)h+=rAlertModal();
+  if(S.showPlanAbsent)h+=rModalPlanAbsent();
+  if(S.showSlotAttModal)h+=rModalSlotAttendance();
   root.innerHTML=h;
 }
 
@@ -702,19 +706,37 @@ function rDetail(){
       } else {
         for(var bi=0;bi<custBrons.length;bi++){
           var cbron=custBrons[bi];
-          h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:#f8f0ff;border-radius:9px;margin-bottom:6px;border-left:3px solid #7B1FA2">'
-            +'<div>'
+          var futureAbsents=(S.bronExceptions||[]).filter(function(ae){
+            return ae.type==='absent'&&ae.booking_id===cbron.id&&ae.exception_date>=td();
+          });
+          h+='<div style="padding:9px 12px;background:#f8f0ff;border-radius:9px;margin-bottom:6px;border-left:3px solid #7B1FA2">'
+            +'<div style="display:flex;align-items:flex-start;justify-content:space-between">'
+            +'<div style="flex:1">'
             +'<div style="font-weight:700;font-size:14px">'+DAYS_AZ[cbron.day_of_week-1]+' — '+cbron.time_slot+'</div>'
-            +'<div style="display:flex;gap:4px;margin-top:5px">'
+            +'<div style="display:flex;gap:4px;margin-top:5px;flex-wrap:wrap">'
             +getBronSubBadge(bstForCust)
             +'<span class="badge '+(bstForCust.isPartner?'b-purple':'b-green')+'" style="font-size:10px">'+(bstForCust.isPartner?'Partner':'Studio')+'</span>'
             +(cbron.valid_from&&cbron.valid_from>td()?'<span class="badge b-blue" style="font-size:10px">'+fmt(cbron.valid_from)+'-dən</span>':'')
-            +'</div></div>'
-            +'<div style="display:flex;gap:5px">'
+            +'</div>'
+            +(futureAbsents.length?
+              '<div style="margin-top:7px;padding-top:7px;border-top:1px dashed #d8b4fe">'
+              +'<div style="font-size:10px;font-weight:600;color:#7B1FA2;margin-bottom:3px;letter-spacing:.3px">📋 PLANLAŞDIRILMIŞ GƏLMƏYƏCƏKlər:</div>'
+              +futureAbsents.map(function(ae){
+                return '<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#555;padding:2px 0">'
+                  +'<span style="color:#7B1FA2;font-weight:500">'+fmt(ae.exception_date)+'</span>'
+                  +(ae.note?'<span style="color:#888;margin-left:6px;font-style:italic">'+escHtml(ae.note)+'</span>':'')
+                  +'<button class="btn btn-gray btn-sm" style="font-size:10px;color:#C62828;padding:2px 6px;margin-left:8px" onclick="deleteException(\''+escQ(ae.id)+'\')">✕</button>'
+                  +'</div>';
+              }).join('')
+              +'</div>':'')
+            +'</div>'
+            +'<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;margin-left:8px">'
             +'<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FFF3E0;color:#E65100" '
             +'onclick="openMarkAbsent(\''+escQ(cbron.id)+'\',\''+escQ(c.name)+'\',\''+td()+'\')">Bugün gəlməyəcək</button>'
+            +'<button class="btn btn-gray btn-sm" style="font-size:11px;background:#F3E5F5;color:#7B1FA2" '
+            +'onclick="openPlanAbsent(\''+escQ(cbron.id)+'\',\''+escQ(c.name)+'\')">📅 Tarix planla</button>'
             +'<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="deleteBron(\''+escQ(cbron.id)+'\')">Sil</button>'
-            +'</div></div>';
+            +'</div></div></div>';
         }
       }
 
@@ -997,6 +1019,8 @@ function rBron(){
   if(S.showMarkAbsent)h+=rModalMarkAbsent();
   if(S.showAddBron)h+=rModalNewSabitBron();
   if(S.showEditBronEx)h+=rModalEditBronEx();
+  if(S.showPlanAbsent)h+=rModalPlanAbsent();
+  if(S.showSlotAttModal)h+=rModalSlotAttendance();
   return h;
 }
 
@@ -1392,6 +1416,8 @@ function rBronToday(){
     +'<div class="day-nav-title">'+fmt(selDate)+'</div>'
     +'<div class="day-nav-sub">'+(dow?DAYS_AZ[dow-1]:'Bazar')+'</div>'
     +'</div>'
+    +'<input type="date" value="'+selDate+'" style="padding:5px 8px;border:1px solid #ddd;border-radius:8px;font-size:12px;font-family:inherit;outline:none;max-width:130px" '
+    +'onchange="var d=this.value;S.bronSelDate=d;S.bronExceptions=null;S.bronSelTime=null;render();fetchExceptions(d);">'
     +'<button class="btn btn-gray btn-sm" style="'+(selDate===todayStr?'color:#1D9E75;font-weight:700;':'')+'" '
     +'onclick="S.bronSelDate=\''+todayStr+'\';S.bronExceptions=null;S.bronSelTime=null;render();fetchExceptions(\''+todayStr+'\')">Bugün</button>'
     +'<button class="btn btn-gray btn-sm" onclick="bronNavDay(1)">Növbəti →</button>'
@@ -1538,8 +1564,9 @@ function rSlotDetail(time,dateStr,dow,brons,excs,count){
   } else {
     h+='<span style="font-size:12px;color:#aaa">Slot dolu — müvəqqəti əlavə mümkün deyil</span>';
   }
-  // Mərhələ 6 placeholder: Davamiyyət inteqrasiyası
-  h+='<button class="btn btn-gray btn-sm" onclick="openAttFromSlot(\''+time+'\',\''+dateStr+'\','+dow+')">📋 Davamiyyəti qeyd et</button>';
+  // Mərhələ 6: Davamiyyət inteqrasiyası — yalnız bugün və keçmiş tarix
+  var isFutureDate=dateStr>td();
+  h+='<button class="btn btn-gray btn-sm"'+(isFutureDate?' disabled title="Gələcək tarix üçün davamiyyət qeyd edilmir"':' onclick="openAttFromSlot(\''+time+'\',\''+dateStr+'\','+dow+')"')+'>📋 Davamiyyəti qeyd et</button>';
   h+='</div>';
 
   return h;
@@ -2040,20 +2067,292 @@ function selectNsbCust(id,name){
   if(submitBtn)submitBtn.disabled=(blocked||limitFull||(maxD===0&&bst.sub));
 }
 
-// ---- MƏRHƏLƏ 6 STUB — Davamiyyət inteqrasiyası ----
-// TODO: Slot bron siyahısından checkbox ilə attendances yazılacaq
-// Pending abunə → ilk iştirakda aktivləşəcək
+// ==================== MƏRHƏLƏ 6 — Slot Davamiyyət + Gəlməyəcək Planlaması ====================
+
+// ---- openAttFromSlot: real implementation ----
 function openAttFromSlot(time, dateStr, dow){
-  // Stub: upcoming implementation
   var brons=getSlotBookings(dow,time,dateStr);
   var excs=getSlotExceptions(dow,time,dateStr);
-  var names=[];
+  // Build customer list for modal
+  var customers=[];
+  var absentBronIds={};
+  for(var i=0;i<excs.absents.length;i++)absentBronIds[excs.absents[i].booking_id]=excs.absents[i].id;
+  // 1. Sabit bronlar
   for(var i=0;i<brons.length;i++){
-    var isAbs=excs.absents.some(function(e){return e.booking_id===brons[i].id;});
-    if(!isAbs)names.push(brons[i].customer_name);
+    var b=brons[i];
+    var isAbsent=!!absentBronIds[b.id];
+    var sub=activeSub(b.customer_id);
+    var bst=getCustBronStatus(b.customer_id);
+    customers.push({custId:b.customer_id,custName:b.customer_name,sub:sub,bst:bst,
+      type:'permanent',absent:isAbsent,absentExId:absentBronIds[b.id]||null,bronId:b.id});
   }
-  for(var i=0;i<excs.temps.length;i++)names.push(excs.temps[i].temp_customer_name+' (müvəqqəti)');
-  alert('Mərhələ 6 — tezliklə.\n\nBu slotda gözlənilən müştərilər:\n'+(names.length?names.join('\n'):'(heç kim)'));
+  // 2. Temp_add müştərilər
+  for(var i=0;i<excs.temps.length;i++){
+    var t=excs.temps[i];
+    var sub=activeSub(t.temp_customer_id);
+    var bst=getCustBronStatus(t.temp_customer_id);
+    customers.push({custId:t.temp_customer_id,custName:t.temp_customer_name,sub:sub,bst:bst,
+      type:'temp',absent:false,absentExId:null,bronId:null});
+  }
+  S.slotAttData={time:time,dateStr:dateStr,dow:dow,customers:customers};
+  S.showSlotAttModal=true;
+  render();
+}
+
+function rModalSlotAttendance(){
+  var sd=S.slotAttData;
+  if(!sd)return'';
+  var dow=sd.dow;
+  var customers=sd.customers;
+  // Check which customers already recorded
+  var alreadyRec={};
+  for(var i=0;i<D.attendances.length;i++){
+    var a=D.attendances[i];
+    if(a.class_date===sd.dateStr&&a.class_time===sd.time)alreadyRec[a.customer_id]=a.id;
+  }
+  // Instructor options
+  var iOpts='<option value="">— İnstruktor seçin —</option>';
+  for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
+
+  var h='<div class="ov" onclick="S.showSlotAttModal=false;S.slotAttData=null;render()"><div class="modal" onclick="event.stopPropagation()" style="width:480px;max-width:100%">'
+    +'<div class="mtitle">📋 Davamiyyət Qeydiyyatı</div>'
+    +'<div style="background:#f0faf5;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;font-size:13px">'
+    +'<span style="font-weight:700;color:#1D9E75">'+sd.time+'</span>'
+    +'<span style="color:#555">'+(dow?DAYS_AZ[dow-1]:'?')+' — '+fmt(sd.dateStr)+'</span>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="satt-inst">'+iOpts+'</select></div>';
+
+  if(!customers.length){
+    h+='<div class="empty" style="padding:20px">Bu slot üzrə qeyd ediləcək müştəri yoxdur</div>';
+    h+='<div class="mact"><button class="btn btn-gray" onclick="S.showSlotAttModal=false;S.slotAttData=null;render()">Bağla</button></div>';
+    h+='</div></div>';
+    return h;
+  }
+
+  h+='<div class="slabel" style="margin-top:4px">MÜŞTƏRİLƏR ('+customers.length+')</div>';
+  h+='<div style="max-height:320px;overflow-y:auto;border:1px solid #eaeaea;border-radius:10px;margin-bottom:14px">';
+  for(var i=0;i<customers.length;i++){
+    var cu=customers[i];
+    var isRec=!!alreadyRec[cu.custId];
+    var sub=cu.sub;
+    var noSub=!sub||cu.bst.type==='none';
+    var isDisabled=isRec||noSub;
+    var defaultChecked=!cu.absent&&!isRec&&!noSub;
+    var bg=cu.absent?'#FFF5F5':cu.type==='temp'?'#EFF6FF':'#fff';
+    var cbId='satt-cb-'+i;
+    h+='<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+'">'
+      +'<input type="checkbox" id="'+cbId+'" name="satt-cust" value="'+cu.custId+'"'
+      +' data-sub="'+(sub?sub.id:'')+'"'
+      +(defaultChecked?' checked':'')+(isDisabled?' disabled':'')
+      +' style="margin-top:4px;flex-shrink:0" onchange="sattWarnAbsent(this,'+cu.absent+',\''+cbId+'\')">'
+      +'<label for="'+cbId+'" style="flex:1;cursor:'+(isDisabled?'not-allowed':'pointer')+'">'
+      +'<div style="font-weight:600;font-size:13px;color:'+(isRec?'#aaa':cu.absent?'#C62828':'#1a1a1a')
+      +';text-decoration:'+(isRec?'line-through':'none')+'">'+escHtml(cu.custName||'?')+'</div>'
+      +'<div style="font-size:11px;color:#888;margin-top:1px">'+(sub?sub.program_name+' — ':'')+(cu.bst.txt)+'</div>'
+      +'<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">'
+      +(cu.type==='temp'?'<span class="badge b-blue" style="font-size:10px">Müvəqqəti</span>':'<span class="badge b-green" style="font-size:10px">Sabit</span>')
+      +(cu.bst.isPartner?'<span class="badge b-purple" style="font-size:10px">Partner</span>':'<span class="badge b-green" style="font-size:10px">Studio</span>')
+      +(cu.absent?'<span class="badge b-red" style="font-size:10px">Gəlməyəcək ⚠</span>':'')
+      +(isRec?'<span class="badge b-gray" style="font-size:10px">Artıq qeyd edilib ✓</span>':'')
+      +(noSub&&!isRec?'<span class="badge b-red" style="font-size:10px">Abunə yoxdur</span>':'')
+      +(sub&&sub.status==='pending'?'<span class="badge b-blue" style="font-size:10px">Pending → aktivləşəcək</span>':'')
+      +'</div></label></div>';
+  }
+  h+='</div>';
+  h+='<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showSlotAttModal=false;S.slotAttData=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitSlotAttendance()">Qeydə al</button>'
+    +'</div></div></div>';
+  return h;
+}
+
+function sattWarnAbsent(cb, wasAbsent, cbId){
+  if(wasAbsent&&cb.checked){
+    // Show warning inline
+    var label=cb.nextElementSibling;
+    if(label){
+      var warn=label.querySelector('.absent-warn');
+      if(!warn){
+        warn=document.createElement('div');
+        warn.className='absent-warn';
+        warn.style.cssText='font-size:11px;color:#E65100;background:#FFF3E0;padding:4px 8px;border-radius:5px;margin-top:4px';
+        warn.textContent='⚠ Bu müştəri gəlməyəcəq kimi işarələnib — əmin misiniz?';
+        label.appendChild(warn);
+      }
+    }
+  }
+}
+
+async function submitSlotAttendance(){
+  var instEl=document.getElementById('satt-inst');
+  var instId=instEl?instEl.value:'';
+  if(!instId){alert('İnstruktor seçin');return;}
+  var sd=S.slotAttData;
+  if(!sd)return;
+  if(sd.dateStr>td()){
+    alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.\nBu tarix üçün yalnız bron/istisna planlana bilər.');
+    return;
+  }
+  var cbs=document.querySelectorAll('input[name="satt-cust"]:checked:not(:disabled)');
+  if(!cbs.length){alert('Ən azı bir müştəri seçin');return;}
+  S.saving=true;render();
+  var errors=[];
+  var done=0;
+  for(var i=0;i<cbs.length;i++){
+    var cb=cbs[i];
+    var custId=cb.value;
+    var subId=cb.getAttribute('data-sub');
+    if(!custId||!subId){errors.push('Müştəri '+custId+': abunəlik tapılmadı');continue;}
+    try{
+      await createAttendance(custId,subId,sd.time,instId,sd.dateStr);
+      done++;
+    }catch(e){errors.push(e.message);}
+  }
+  if(errors.length)alert('Bəzi xətalar:\n'+errors.join('\n'));
+  if(done>0)S.showAlert={t:'ok',cust:{name:done+' müştəri'},st:{t:'ok',txt:fmt(sd.dateStr)+' '+sd.time+' — davamiyyət qeydə alındı'}};
+  S.showSlotAttModal=false;
+  S.slotAttData=null;
+  S.saving=false;
+  render();
+}
+
+async function createAttendance(custId, subId, classTime, instId, attDate){
+  var cust=null,sub=null,inst=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
+  for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
+  if(!cust||!sub)throw new Error('Müştəri/abunə tapılmadı: '+custId);
+  // Check duplicate
+  for(var i=0;i<D.attendances.length;i++){
+    var a=D.attendances[i];
+    if(a.customer_id===custId&&a.class_date===attDate&&a.class_time===classTime)return; // skip duplicate
+  }
+  // Activate pending sub
+  if(sub.status==='pending'){
+    var prog=null;
+    for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
+    var newStart=attDate;
+    var newEnd=addDays(newStart,prog?prog.duration_days:30);
+    await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
+    sub.status='active';sub.start_date=newStart;sub.end_date=newEnd;
+    if(S.custDetail&&S.custDetail.subs){
+      for(var i=0;i<S.custDetail.subs.length;i++){
+        if(S.custDetail.subs[i].id===subId){
+          S.custDetail.subs[i].status='active';S.custDetail.subs[i].start_date=newStart;S.custDetail.subs[i].end_date=newEnd;break;
+        }
+      }
+    }
+  }
+  var att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
+    program_id:sub.program_id,program_name:sub.program_name,
+    class_date:attDate,class_time:classTime,
+    instructor_id:instId,instructor_name:inst?inst.full_name:''};
+  await dbPost('attendances',att);
+  D.attendances.unshift(att);
+  if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date)S.selDateAtts.unshift(att);
+  // Decrement remaining for non-partner
+  if(!sub.is_partner){
+    var nr=Math.max(0,sub.remaining-1);
+    await dbPatch('subscriptions','id=eq.'+subId,{remaining:nr});
+    sub.remaining=nr;
+    if(S.custDetail&&S.custDetail.subs){
+      for(var i=0;i<S.custDetail.subs.length;i++){if(S.custDetail.subs[i].id===subId){S.custDetail.subs[i].remaining=nr;break;}}
+    }
+  }
+}
+
+// ---- Plan Absent: gələcək tarix üçün absent planlaması ----
+function openPlanAbsent(bronId, custName){
+  // Find booking
+  var booking=null;
+  if(S.bronData){for(var i=0;i<S.bronData.length;i++){if(S.bronData[i].id===bronId){booking=S.bronData[i];break;}}}
+  if(!booking){alert('Bron tapılmadı');return;}
+  S.planAbsentBooking={bronId:bronId,custName:custName,booking:booking};
+  S.showPlanAbsent=true;
+  render();
+}
+
+function rModalPlanAbsent(){
+  var pb=S.planAbsentBooking;
+  if(!pb)return'';
+  var bk=pb.booking;
+  var dow=bk.day_of_week;
+  var defaultDate=getNextDateForDow(addDays(td(),1),dow); // next occurrence (not today)
+  return'<div class="ov" onclick="S.showPlanAbsent=false;S.planAbsentBooking=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">📅 Gəlməyəcək Tarix Planla</div>'
+    +'<div style="background:#F3E5F5;border-radius:9px;padding:12px 14px;margin-bottom:16px">'
+    +'<div style="font-weight:700;font-size:14px;color:#6A1B9A;margin-bottom:4px">'+escHtml(pb.custName)+'</div>'
+    +'<div style="font-size:13px;color:#7B1FA2">'+DAYS_AZ[dow-1]+' — '+bk.time_slot+'</div>'
+    +(bk.valid_from?'<div style="font-size:11px;color:#aaa;margin-top:3px">Aktiv: '+fmt(bk.valid_from)+(bk.valid_until?' → '+fmt(bk.valid_until):'')+'</div>':'')
+    +'</div>'
+    +'<div class="fg"><label class="fl">Tarix * <span style="font-size:11px;color:#aaa">('+DAYS_AZ[dow-1]+' olmalıdır)</span></label>'
+    +'<input class="fi" id="pa-date" type="date" value="'+defaultDate+'"></div>'
+    +'<div class="fg"><label class="fl">Qeyd (opsional)</label>'
+    +'<input class="fi" id="pa-note" placeholder="Məsələn: İşlə bağlı"></div>'
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showPlanAbsent=false;S.planAbsentBooking=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" style="background:#7B1FA2" onclick="submitPlanAbsent()">Saxla</button>'
+    +'</div></div></div>';
+}
+
+async function submitPlanAbsent(){
+  var pb=S.planAbsentBooking;
+  if(!pb)return;
+  var dateEl=document.getElementById('pa-date');
+  var noteEl=document.getElementById('pa-note');
+  var selDate=dateEl?dateEl.value:'';
+  var note=noteEl?noteEl.value:'';
+  if(!selDate){alert('Tarix seçin');return;}
+  var bk=pb.booking;
+  var dow=bk.day_of_week;
+  // Validation 1: dow check
+  var selDow=getDayOfWeek(selDate);
+  if(selDow!==dow){
+    alert('Seçilən tarix '+DAYS_AZ[dow-1]+' günü olmalıdır!\n\n'+fmt(selDate)+' — '+( selDow?DAYS_AZ[selDow-1]:'Bazar')+' günüdür.');
+    return;
+  }
+  // Validation 2: valid_from
+  if(bk.valid_from&&selDate<bk.valid_from){
+    alert('Bu bron '+fmt(bk.valid_from)+' tarixindən etibarən aktivdir.\nSeçilən tarix bundan əvvəldir.');
+    return;
+  }
+  // Validation 3: valid_until
+  if(bk.valid_until&&selDate>bk.valid_until){
+    alert('Bu bron '+fmt(bk.valid_until)+' tarixinə qədər aktivdir.\nSeçilən tarix bundan sonradır.');
+    return;
+  }
+  // Validation 4: duplicate check
+  if(S.bronExceptions){
+    for(var i=0;i<S.bronExceptions.length;i++){
+      var ex=S.bronExceptions[i];
+      if(ex.booking_id===pb.bronId&&ex.exception_date===selDate&&ex.type==='absent'){
+        alert('Bu tarix üçün artıq gəlməyəcək qeydi var.');
+        return;
+      }
+    }
+  }
+  S.saving=true;render();
+  try{
+    var eid='EX'+Date.now();
+    var exRec={id:eid,booking_id:pb.bronId,exception_date:selDate,type:'absent',note:note||null};
+    await dbPost('booking_exceptions',exRec);
+    if(!S.bronExceptions)S.bronExceptions=[];
+    S.bronExceptions.push(exRec);
+    S.showPlanAbsent=false;
+    S.planAbsentBooking=null;
+    // Re-fetch exceptions if the date is in the currently loaded range
+    var curDate=S.bronSelDate||td();
+    var mon=getWeekMonday(curDate);
+    var endR=dateAddDays(mon,27);
+    if(selDate>=mon&&selDate<=endR){
+      // Already loaded range — exception is in bronExceptions
+    } else {
+      // Extend the fetch to include the new date if needed
+      await fetchExceptions(selDate);
+    }
+    alert('✓ '+fmt(selDate)+' tarixi üçün gəlməyəcək qeydi saxlandı.');
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
 }
 
 function escHtml(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
