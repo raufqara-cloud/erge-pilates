@@ -2324,11 +2324,16 @@ async function fetchCustDetail(custId){
       dbGet('attendances','customer_id=eq.'+custId+'&order=class_date.desc')
     ]);
     S.custDetail={subs:res[0]||[],atts:res[1]||[]};
-    // Update local cache too
-    var existSubIds={};
-    for(var i=0;i<D.subscriptions.length;i++)existSubIds[D.subscriptions[i].id]=true;
+    // Update local cache: UPDATE existing entries with fresh DB data, ADD new ones
+    var existSubIdxs={};
+    for(var i=0;i<D.subscriptions.length;i++)existSubIdxs[D.subscriptions[i].id]=i;
     for(var i=0;i<S.custDetail.subs.length;i++){
-      if(!existSubIds[S.custDetail.subs[i].id])D.subscriptions.push(S.custDetail.subs[i]);
+      var freshSub=S.custDetail.subs[i];
+      if(existSubIdxs[freshSub.id]!==undefined){
+        D.subscriptions[existSubIdxs[freshSub.id]]=freshSub; // fresh DB data ilə üzərinə yaz
+      }else{
+        D.subscriptions.push(freshSub); // yeni abunəliyi əlavə et
+      }
     }
   }catch(e){S.custDetail={subs:[],atts:[]};}
   S.custDetailLoading=false;render();
@@ -2437,17 +2442,18 @@ async function submitEditSub(){
       price_due:due,price_paid:paid,remaining:remaining,
       is_active:true
     });
-    for(var i=0;i<D.subscriptions.length;i++){
-      if(D.subscriptions[i].id===S.editSub){
-        D.subscriptions[i].start_date=start;
-        D.subscriptions[i].end_date=end;
-        D.subscriptions[i].price_due=due;
-        D.subscriptions[i].price_paid=paid;
-        D.subscriptions[i].remaining=remaining;
-        D.subscriptions[i].is_active=true;
-        break;
+    function _applyEdit(arr){
+      for(var i=0;i<arr.length;i++){
+        if(arr[i].id===S.editSub){
+          arr[i].start_date=start;arr[i].end_date=end;
+          arr[i].price_due=due;arr[i].price_paid=paid;
+          arr[i].remaining=remaining;arr[i].is_active=true;
+          break;
+        }
       }
     }
+    _applyEdit(D.subscriptions);
+    if(S.custDetail&&S.custDetail.subs)_applyEdit(S.custDetail.subs);
     S.editSub=null;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
