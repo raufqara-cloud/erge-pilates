@@ -297,6 +297,14 @@ async function doAddSub(custId,progId,priceDue,pricePaid,startDate,isPending,acc
       S.kassaData=null;
     }
     S.showAddSub=false;
+    // Bron state-ni tam sıfırla — heç bir halda avtomatik bron yaranmasın
+    S.showAddBron=false;
+    S._bronNewCustId=null;
+    S._bronNewCustName=null;
+    S.selBronDay=null;
+    S.selBronTime=null;
+    S.selBronDate=null;
+    alert('Abunəlik yaradıldı.\n\nSabit bron yaratmaq üçün müştəri profilinin "SABİT BRONLAR" bölməsindən "+ Bron əlavə et" düyməsini istifadə edin.');
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -660,41 +668,78 @@ function rDetail(){
   // BRON ACCORDION
   var bronOpen=S.custSection==='bron';
   var custBrons=S.bronData?S.bronData.filter(function(b){return b.customer_id===c.id;}):[]; 
+  // Müvəqqəti bronlar: gələcəkdəki temp_add exception-lar
+  var custTemps=S.bronExceptions?S.bronExceptions.filter(function(e){
+    return e.type==='temp_add'&&e.temp_customer_id===c.id&&e.exception_date>=td();
+  }):[];
+  var totalBronCount=custBrons.length+custTemps.length;
+
   h+='<div style="margin-bottom:8px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
   h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(bronOpen?'#F3E5F5':'#fff')+';cursor:pointer" '
-    +'onclick="S.custSection=S.custSection===\'bron\'?null:\'bron\';if(S.custSection===\'bron\'&&!S.bronData){fetchBron();}render()">';
+    +'onclick="S.custSection=S.custSection===\'bron\'?null:\'bron\';'
+    +'if(S.custSection===\'bron\'){if(!S.bronData)fetchBron();if(!S.bronExceptions)fetchExceptions(td());}render()">';
   h+='<div style="display:flex;align-items:center;gap:10px">'
-    +'<span style="font-size:12px;font-weight:700;color:#6A1B9A">SABİT BRONLAR</span>';
+    +'<span style="font-size:12px;font-weight:700;color:#6A1B9A">BRONLAR</span>';
   if(S.bronData)h+='<span style="background:#6A1B9A;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+custBrons.length+'</span>';
+  if(custTemps.length)h+='<span class="badge b-blue" style="font-size:10px">+'+custTemps.length+' müvəqqəti</span>';
   h+='</div><div style="display:flex;gap:8px;align-items:center">';
   if(bronOpen)h+='<button class="btn btn-sm" style="background:#6A1B9A;color:#fff;padding:5px 10px;border-radius:8px;font-size:12px" onclick="event.stopPropagation();openAddSabitBronForCust(\''+escQ(c.id)+'\',\''+escQ(c.name)+'\')">+ Bron əlavə et</button>';
   h+='<span style="color:#6A1B9A;font-size:14px">'+(bronOpen?'▲':'▼')+'</span>'
     +'</div></div>';
+
   if(bronOpen){
+    var isLoadingBron=!S.bronData||(!S.bronExceptions&&S.bronLoading);
     if(!S.bronData){
       h+='<div class="empty" style="padding:14px"><span class="spin"></span> Yüklənir...</div>';
-    } else if(!custBrons.length){
-      h+='<div class="empty" style="padding:14px">Sabit bron yoxdur</div>';
     } else {
       h+='<div style="padding:12px 14px">';
       var bstForCust=getCustBronStatus(c.id);
-      for(var bi=0;bi<custBrons.length;bi++){
-        var cbron=custBrons[bi];
-        h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:#f8f0ff;border-radius:9px;margin-bottom:6px;border-left:3px solid #7B1FA2">'
-          +'<div>'
-          +'<div style="font-weight:700;font-size:14px">'+DAYS_AZ[cbron.day_of_week-1]+' — '+cbron.time_slot+'</div>'
-          +'<div style="display:flex;gap:4px;margin-top:5px">'
-          +getBronSubBadge(bstForCust)
-          +'<span class="badge '+(bstForCust.isPartner?'b-purple':'b-green')+'" style="font-size:10px">'+(bstForCust.isPartner?'Partner':'Studio')+'</span>'
-          +(cbron.valid_from&&cbron.valid_from>td()?'<span class="badge b-blue" style="font-size:10px">'+fmt(cbron.valid_from)+'-dən</span>':'')
-          +'</div>'
-          +'</div>'
-          +'<div style="display:flex;gap:5px">'
-          +'<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FFF3E0;color:#E65100" '
-          +'onclick="openMarkAbsent(\''+escQ(cbron.id)+'\',\''+escQ(c.name)+'\',\''+td()+'\')">Bugün gəlməyəcək</button>'
-          +'<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="deleteBron(\''+escQ(cbron.id)+'\')">Sil</button>'
-          +'</div>'
-          +'</div>';
+
+      // ── Daimi sabit bronlar ──
+      h+='<div class="slabel" style="margin-top:0">DAİMİ SABİT BRONLAR ('+custBrons.length+')</div>';
+      if(!custBrons.length){
+        h+='<div style="font-size:13px;color:#aaa;padding:6px 0 10px 0">Sabit bron yoxdur</div>';
+      } else {
+        for(var bi=0;bi<custBrons.length;bi++){
+          var cbron=custBrons[bi];
+          h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:#f8f0ff;border-radius:9px;margin-bottom:6px;border-left:3px solid #7B1FA2">'
+            +'<div>'
+            +'<div style="font-weight:700;font-size:14px">'+DAYS_AZ[cbron.day_of_week-1]+' — '+cbron.time_slot+'</div>'
+            +'<div style="display:flex;gap:4px;margin-top:5px">'
+            +getBronSubBadge(bstForCust)
+            +'<span class="badge '+(bstForCust.isPartner?'b-purple':'b-green')+'" style="font-size:10px">'+(bstForCust.isPartner?'Partner':'Studio')+'</span>'
+            +(cbron.valid_from&&cbron.valid_from>td()?'<span class="badge b-blue" style="font-size:10px">'+fmt(cbron.valid_from)+'-dən</span>':'')
+            +'</div></div>'
+            +'<div style="display:flex;gap:5px">'
+            +'<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FFF3E0;color:#E65100" '
+            +'onclick="openMarkAbsent(\''+escQ(cbron.id)+'\',\''+escQ(c.name)+'\',\''+td()+'\')">Bugün gəlməyəcək</button>'
+            +'<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="deleteBron(\''+escQ(cbron.id)+'\')">Sil</button>'
+            +'</div></div>';
+        }
+      }
+
+      // ── Müvəqqəti bronlar ──
+      h+='<div class="slabel" style="margin-top:8px">MÜVƏQQƏTİ BRONLAR ('+custTemps.length+')</div>';
+      if(!S.bronExceptions){
+        h+='<div style="font-size:12px;color:#aaa;padding:4px 0">Yüklənir...</div>';
+      } else if(!custTemps.length){
+        h+='<div style="font-size:13px;color:#aaa;padding:6px 0">Gözlənilən müvəqqəti bron yoxdur</div>';
+      } else {
+        for(var ti2=0;ti2<custTemps.length;ti2++){
+          var tex=custTemps[ti2];
+          var texDow=tex.day_of_week;
+          h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#EFF6FF;border-radius:9px;margin-bottom:5px;border-left:3px solid #1565C0">'
+            +'<div>'
+            +'<div style="font-weight:600;font-size:13px;color:#1565C0">'+fmt(tex.exception_date)
+            +' — '+(texDow?DAYS_AZ[texDow-1]:'?')+' — '+tex.time_slot+'</div>'
+            +'<div style="display:flex;gap:4px;margin-top:4px">'
+            +'<span class="badge b-blue" style="font-size:10px">Müvəqqəti</span>'
+            +'</div>'
+            +(tex.note?'<div style="font-size:11px;color:#888;margin-top:3px">'+escHtml(tex.note)+'</div>':'')
+            +'</div>'
+            +'<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="deleteException(\''+escQ(tex.id)+'\')">Sil</button>'
+            +'</div>';
+        }
       }
       h+='</div>';
     }
@@ -1811,9 +1856,9 @@ function rModalNewSabitBron(){
   var existingDays=0;
   if(S.bronData&&custId){for(var i=0;i<S.bronData.length;i++){if(S.bronData[i].customer_id===custId)existingDays++;}}
 
-  var dOpts='';
+  var dOpts='<option value="">— Gün seçin —</option>';
   for(var d=0;d<6;d++)dOpts+='<option value="'+(d+1)+'">'+DAYS_AZ[d]+'</option>';
-  var tOpts='';
+  var tOpts='<option value="">— Saat seçin —</option>';
   for(var ti=0;ti<TIMES.length;ti++)tOpts+='<option value="'+TIMES[ti]+'">'+TIMES[ti]+'</option>';
 
   var blocked=maxDays===0&&custId&&activSubForCust;
@@ -1854,7 +1899,7 @@ async function submitNewSabitBron(){
   var from=fromEl?fromEl.value:'';
   var note=noteEl?noteEl.value:'';
   if(!custId)return alert('Müştəri seçin');
-  if(!day||!time)return alert('Gün və saat seçin');
+  if(!day||!time)return alert('Gün və saat seçin.\n\nXahiş olunur hər iki sahəni doldurun.');
 
   // ── 1. Abunə yoxlama (none → blok, grace → blok, pending → icazə, active → icazə) ──
   var bst=getCustBronStatus(custId);
