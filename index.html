@@ -2465,9 +2465,7 @@ async function confirmSlotSinglePay(custId){
       amount:amount,account_id:accountId,
       to_account_id:null,subscription_id:null,customer_id:custId};
     await dbPost('transactions',txn);
-    if(!isPartner&&accountId===BANK_ACCT_ID){
-      await createPosCommission(amount,txnDate,txnDesc);
-    }
+    // Slot entry payment-lərdə POS commission yaranmır (biznes qaydası)
     var att={id:uid(),customer_id:custId,customer_name:cust.name,
       subscription_id:null,program_id:prog.id,program_name:prog.name,
       class_date:sd.dateStr,class_time:sd.time,
