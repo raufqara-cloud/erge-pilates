@@ -2456,7 +2456,7 @@ async function confirmSlotSinglePay(custId){
   var note=(noteEl?noteEl.value:(pay.note||''))||'';
   var instId=sd.instId||(instEl?instEl.value:'');
   if(!programId){alert('Proqram seçin');return;}
-  if(amount<=0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
+  if(amount<0||(amount===0&&programId!=='RTEST')){alert('Məbləğ 0-dan böyük olmalıdır');return;}
   if(sd.dateStr>td()){alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.');return;}
   if(!instId){alert('Əvvəl instruktor seçin.');return;}
   var entryItem=getSlotPayCustomer(key);
