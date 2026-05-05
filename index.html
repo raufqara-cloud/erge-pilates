@@ -2080,28 +2080,47 @@ function selectNsbCust(id,name){
 function openAttFromSlot(time, dateStr, dow){
   var brons=getSlotBookings(dow,time,dateStr);
   var excs=getSlotExceptions(dow,time,dateStr);
-  // Build customer list for modal
   var customers=[];
   var absentBronIds={};
   for(var i=0;i<excs.absents.length;i++)absentBronIds[excs.absents[i].booking_id]=excs.absents[i].id;
+  // Precompute alreadyRec
+  var alreadyRec={};
+  for(var i=0;i<D.attendances.length;i++){
+    var a=D.attendances[i];
+    if(a.class_date===dateStr&&a.class_time===time)alreadyRec[a.customer_id]=true;
+  }
   // 1. Sabit bronlar
   for(var i=0;i<brons.length;i++){
     var b=brons[i];
     var isAbsent=!!absentBronIds[b.id];
     var sub=activeSub(b.customer_id);
     var bst=getCustBronStatus(b.customer_id);
+    var noSub=!sub||bst.type==='none';
+    var already=!!alreadyRec[b.customer_id];
+    var isDisabled=already||noSub;
     customers.push({custId:b.customer_id,custName:b.customer_name,sub:sub,bst:bst,
-      type:'permanent',absent:isAbsent,absentExId:absentBronIds[b.id]||null,bronId:b.id});
+      type:'permanent',absent:isAbsent,absentExId:absentBronIds[b.id]||null,bronId:b.id,
+      already:already,isDisabled:isDisabled});
   }
   // 2. Temp_add müştərilər
   for(var i=0;i<excs.temps.length;i++){
     var t=excs.temps[i];
     var sub=activeSub(t.temp_customer_id);
     var bst=getCustBronStatus(t.temp_customer_id);
+    var noSub=!sub||bst.type==='none';
+    var already=!!alreadyRec[t.temp_customer_id];
+    var isDisabled=already||noSub;
     customers.push({custId:t.temp_customer_id,custName:t.temp_customer_name,sub:sub,bst:bst,
-      type:'temp',absent:false,absentExId:null,bronId:null});
+      type:'temp',absent:false,absentExId:null,bronId:null,
+      already:already,isDisabled:isDisabled});
   }
-  S.slotAttData={time:time,dateStr:dateStr,dow:dow,customers:customers};
+  // Build selectedIds: default checked = not absent, not disabled, not already
+  var selectedIds=[];
+  for(var i=0;i<customers.length;i++){
+    var cu=customers[i];
+    if(!cu.absent&&!cu.isDisabled&&!cu.already)selectedIds.push(cu.custId);
+  }
+  S.slotAttData={time:time,dateStr:dateStr,dow:dow,customers:customers,selectedIds:selectedIds,instId:null};
   S.showSlotAttModal=true;
   render();
 }
@@ -2111,17 +2130,12 @@ function rModalSlotAttendance(){
   if(!sd)return'';
   var dow=sd.dow;
   var customers=sd.customers;
-  // Check which customers already recorded
-  var alreadyRec={};
-  for(var i=0;i<D.attendances.length;i++){
-    var a=D.attendances[i];
-    if(a.class_date===sd.dateStr&&a.class_time===sd.time)alreadyRec[a.customer_id]=a.id;
-  }
-  // Instructor options — selected from state if already chosen
+  var selIds=sd.selectedIds||[];
+  // Instructor options — selected from state
   var iOpts='<option value="">— İnstruktor seçin —</option>';
   for(var i=0;i<D.instructors.length;i++){
-    var sel=(sd.instId===D.instructors[i].id)?' selected':'';
-    iOpts+='<option value="'+D.instructors[i].id+'"'+sel+'>'+D.instructors[i].full_name+'</option>';
+    var isel=(sd.instId===D.instructors[i].id)?' selected':'';
+    iOpts+='<option value="'+D.instructors[i].id+'"'+isel+'>'+D.instructors[i].full_name+'</option>';
   }
 
   var h='<div class="ov" onclick="S.showSlotAttModal=false;S.slotAttData=null;render()"><div class="modal" onclick="event.stopPropagation()" style="width:480px;max-width:100%">'
@@ -2143,28 +2157,28 @@ function rModalSlotAttendance(){
   h+='<div style="max-height:320px;overflow-y:auto;border:1px solid #eaeaea;border-radius:10px;margin-bottom:14px">';
   for(var i=0;i<customers.length;i++){
     var cu=customers[i];
-    var isRec=!!alreadyRec[cu.custId];
+    var isDisabled=cu.isDisabled||cu.already;
+    // Checked comes ONLY from selectedIds — never from defaultChecked logic
+    var isChecked=selIds.indexOf(cu.custId)>=0;
     var sub=cu.sub;
     var noSub=!sub||cu.bst.type==='none';
-    var isDisabled=isRec||noSub;
-    var defaultChecked=!cu.absent&&!isRec&&!noSub;
     var bg=cu.absent?'#FFF5F5':cu.type==='temp'?'#EFF6FF':'#fff';
     var cbId='satt-cb-'+i;
     h+='<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+'">'
       +'<input type="checkbox" class="slot-att-cb" id="'+cbId+'" value="'+cu.custId+'"'
-      +' data-sub="'+(sub?sub.id:'')+'"'
-      +(defaultChecked?' checked':'')+(isDisabled?' disabled':'')
-      +' style="margin-top:4px;flex-shrink:0" onchange="sattWarnAbsent(this,'+cu.absent+',\''+cbId+'\')">'
+      +(isChecked?' checked':'')+(isDisabled?' disabled':'')
+      +' style="margin-top:4px;flex-shrink:0"'
+      +' onchange="toggleSlotAttCustomer(\''+cu.custId+'\',this.checked,'+(cu.absent?'true':'false')+')">'
       +'<label for="'+cbId+'" style="flex:1;cursor:'+(isDisabled?'not-allowed':'pointer')+'">'
-      +'<div style="font-weight:600;font-size:13px;color:'+(isRec?'#aaa':cu.absent?'#C62828':'#1a1a1a')
-      +';text-decoration:'+(isRec?'line-through':'none')+'">'+escHtml(cu.custName||'?')+'</div>'
+      +'<div style="font-weight:600;font-size:13px;color:'+(cu.already?'#aaa':cu.absent?'#C62828':'#1a1a1a')
+      +';text-decoration:'+(cu.already?'line-through':'none')+'">'+escHtml(cu.custName||'?')+'</div>'
       +'<div style="font-size:11px;color:#888;margin-top:1px">'+(sub?sub.program_name+' — ':'')+(cu.bst.txt)+'</div>'
       +'<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">'
       +(cu.type==='temp'?'<span class="badge b-blue" style="font-size:10px">Müvəqqəti</span>':'<span class="badge b-green" style="font-size:10px">Sabit</span>')
       +(cu.bst.isPartner?'<span class="badge b-purple" style="font-size:10px">Partner</span>':'<span class="badge b-green" style="font-size:10px">Studio</span>')
       +(cu.absent?'<span class="badge b-red" style="font-size:10px">Gəlməyəcək ⚠</span>':'')
-      +(isRec?'<span class="badge b-gray" style="font-size:10px">Artıq qeyd edilib ✓</span>':'')
-      +(noSub&&!isRec?'<span class="badge b-red" style="font-size:10px">Abunə yoxdur</span>':'')
+      +(cu.already?'<span class="badge b-gray" style="font-size:10px">Artıq qeyd edilib ✓</span>':'')
+      +(noSub&&!cu.already?'<span class="badge b-red" style="font-size:10px">Abunə yoxdur</span>':'')
       +(sub&&sub.status==='pending'?'<span class="badge b-blue" style="font-size:10px">Pending → aktivləşəcək</span>':'')
       +'</div></label></div>';
   }
@@ -2176,17 +2190,24 @@ function rModalSlotAttendance(){
   return h;
 }
 
-function sattWarnAbsent(cb, wasAbsent, cbId){
-  if(wasAbsent&&cb.checked){
-    // Show warning inline
-    var label=cb.nextElementSibling;
-    if(label){
-      var warn=label.querySelector('.absent-warn');
-      if(!warn){
-        warn=document.createElement('div');
+// Checkbox toggle — state only, NO render() call
+function toggleSlotAttCustomer(custId, checked, wasAbsent){
+  if(!S.slotAttData)return;
+  if(!S.slotAttData.selectedIds)S.slotAttData.selectedIds=[];
+  var arr=S.slotAttData.selectedIds;
+  var idx=arr.indexOf(custId);
+  if(checked&&idx<0)arr.push(custId);
+  if(!checked&&idx>=0)arr.splice(idx,1);
+  // Absent xəbərdarlığı DOM-da göstər (render çağırmadan)
+  if(wasAbsent&&checked){
+    var cb=document.getElementById? document.querySelector('.slot-att-cb[value="'+custId+'"]'):null;
+    if(cb){
+      var label=cb.nextElementSibling;
+      if(label&&!label.querySelector('.absent-warn')){
+        var warn=document.createElement('div');
         warn.className='absent-warn';
         warn.style.cssText='font-size:11px;color:#E65100;background:#FFF3E0;padding:4px 8px;border-radius:5px;margin-top:4px';
-        warn.textContent='⚠ Bu müştəri gəlməyəcəq kimi işarələnib — əmin misiniz?';
+        warn.textContent='⚠ Bu müştəri gəlməyəcək kimi işarələnib — əmin misiniz?';
         label.appendChild(warn);
       }
     }
@@ -2196,30 +2217,35 @@ function sattWarnAbsent(cb, wasAbsent, cbId){
 async function submitSlotAttendance(){
   var sd=S.slotAttData;
   if(!sd)return;
-  // Read instId: state first (set by onchange), DOM as fallback
-  var instId=(sd.instId)||'';
+  // instId: state first, DOM fallback
+  var instId=sd.instId||'';
   if(!instId){var el=document.getElementById('slot-att-inst');instId=el?el.value:'';}
   if(!instId){alert('İnstruktor seçin');return;}
   if(sd.dateStr>td()){
     alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.\nBu tarix üçün yalnız bron/istisna planlana bilər.');
     return;
   }
-  // *** Checkbox məlumatlarını render()-dən ƏVVƏL oxu ***
-  var cbs=document.querySelectorAll('.slot-att-cb:not(:disabled):checked');
-  if(!cbs.length){alert('Ən azı bir müştəri seçin');return;}
-  var selected=[];
-  for(var i=0;i<cbs.length;i++){
-    selected.push({custId:cbs[i].value,subId:cbs[i].getAttribute('data-sub')});
+  // selectedIds state-dən — DOM-dan asılı deyil
+  var selectedIds=(sd.selectedIds||[]).slice();
+  if(!selectedIds.length){alert('Heç bir müştəri seçilməyib');return;}
+  // Build work list: skip disabled/already
+  var workList=[];
+  var custMap={};
+  for(var i=0;i<sd.customers.length;i++)custMap[sd.customers[i].custId]=sd.customers[i];
+  for(var i=0;i<selectedIds.length;i++){
+    var cu=custMap[selectedIds[i]];
+    if(!cu)continue;
+    if(cu.already||cu.isDisabled)continue; // double guard
+    if(!cu.sub||!cu.sub.id)continue;
+    workList.push({custId:cu.custId,subId:cu.sub.id});
   }
+  if(!workList.length){alert('Seçilmiş müştərilərin heç biri üçün davamiyyət yazıla bilmir');return;}
   S.saving=true;render();
   var errors=[];
   var done=0;
-  for(var i=0;i<selected.length;i++){
-    var custId=selected[i].custId;
-    var subId=selected[i].subId;
-    if(!custId||!subId){errors.push('Müştəri '+custId+': abunəlik tapılmadı');continue;}
+  for(var i=0;i<workList.length;i++){
     try{
-      var result=await createAttendance(custId,subId,sd.time,instId,sd.dateStr);
+      var result=await createAttendance(workList[i].custId,workList[i].subId,sd.time,instId,sd.dateStr);
       if(result!==null)done++;
     }catch(e){errors.push(e.message);}
   }
