@@ -165,7 +165,8 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showSlotAttModal:false,slotAttData:null,
   showSubPayment:false,paySubId:null,
   singleAttProgId:null,
-  slotSinglePayCustId:null};
+  slotSinglePayCustId:null,
+  slotSinglePayData:{}};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -2206,39 +2207,48 @@ function rModalSlotAttendance(){
         h+='<button class="btn btn-sm" style="background:#FFF3E0;color:#E65100;border:1px solid #ffcc80;font-size:11px" '
           +'onclick="openSlotSinglePay(\''+escQ(cu.custId)+'\')">💳 Tək giriş / partner giriş et</button>';
       } else {
-        // Inline payment panel
+        // Inline payment panel — values from state
+        var pay=(S.slotSinglePayData&&S.slotSinglePayData[cu.custId])||{};
         var sprogId='slot-sp-prog-'+cu.custId;
         var samtId='slot-sp-amount-'+cu.custId;
         var sacctId='slot-sp-acct-'+cu.custId;
-        var sacctInfoId='slot-sp-acct-info-'+cu.custId;
         var snoteId='slot-sp-note-'+cu.custId;
-        // Program options: ROF/RPP/RPS/ROTG/ROTI/RTEST + sessions_total<=1
         var singleProgs=['ROF','RPP','RPS','ROTG','ROTI','RTEST'];
         var pOpts='<option value="">— Proqram seçin —</option>';
         for(var pi=0;pi<D.programs.length;pi++){
           var pp=D.programs[pi];
           if(!pp.is_active)continue;
           if(singleProgs.indexOf(pp.id)<0&&pp.sessions_total>1)continue;
-          pOpts+='<option value="'+pp.id+'" data-price="'+pp.list_price+'">'+pp.name+' — '+pp.list_price+' ₼</option>';
+          var psel=(pay.programId===pp.id)?' selected':'';
+          pOpts+='<option value="'+pp.id+'"'+psel+'>'+pp.name+' — '+pp.list_price+' ₼</option>';
         }
-        // Account options
+        var isPartnerProg=isPartnerEntryProgram(pay.programId||'');
         var aOpts='<option value="">— Hesab seçin —</option>';
         for(var ai=0;ai<(D.accounts||[]).length;ai++){
           var ac=D.accounts[ai];
-          if(ac.is_active!==false)aOpts+='<option value="'+ac.id+'">'+ac.name+'</option>';
+          if(ac.is_active===false)continue;
+          var asel=(pay.accountId===ac.id)?' selected':'';
+          aOpts+='<option value="'+ac.id+'"'+asel+'>'+ac.name+'</option>';
+        }
+        var partnerAcctName='';
+        if(isPartnerProg&&pay.accountId){
+          for(var ai=0;ai<(D.accounts||[]).length;ai++){if(D.accounts[ai].id===pay.accountId){partnerAcctName=D.accounts[ai].name;break;}}
         }
         h+='<div style="background:#fff;border:1px solid #ffd699;border-radius:9px;padding:12px;margin-top:6px">'
           +'<div style="display:flex;gap:8px;margin-bottom:8px">'
           +'<div style="flex:1"><label class="fl" style="font-size:11px">Proqram *</label>'
           +'<select class="fs" id="'+sprogId+'" onchange="updateSlotSingleProgram(\''+escQ(cu.custId)+'\')">'+pOpts+'</select></div>'
           +'<div style="flex:0 0 90px"><label class="fl" style="font-size:11px">Məbləğ (₼)</label>'
-          +'<input class="fi" id="'+samtId+'" type="number" min="0" step="0.01" value="0"></div>'
+          +'<input class="fi" id="'+samtId+'" type="number" min="0" step="0.01" value="'+(pay.amount||0)+'" oninput="updateSlotSingleAmount(\''+escQ(cu.custId)+'\',this.value)"></div>'
           +'</div>'
           +'<div style="margin-bottom:6px"><label class="fl" style="font-size:11px">Hesab *</label>'
-          +'<select class="fs" id="'+sacctId+'">'+aOpts+'</select>'
-          +'<div id="'+sacctInfoId+'" style="font-size:11px;color:#1D9E75;margin-top:4px;display:none"></div></div>'
+          +(isPartnerProg
+            ?'<input class="fi" value="'+(partnerAcctName||pay.accountId||'')+'" disabled style="background:#f5f5f5">'
+             +'<div style="font-size:11px;color:#1D9E75;margin-top:3px">Partner proqramıdır — "'+(partnerAcctName||'')+'" hesabına avtomatik yazılacaq.</div>'
+            :'<select class="fs" id="'+sacctId+'" onchange="updateSlotSingleAccount(\''+escQ(cu.custId)+'\',this.value)">'+aOpts+'</select>')
+          +'</div>'
           +'<div style="margin-bottom:10px"><label class="fl" style="font-size:11px">Qeyd</label>'
-          +'<input class="fi" id="'+snoteId+'" placeholder="İstəyə görə"></div>'
+          +'<input class="fi" id="'+snoteId+'" placeholder="İstəyə görə" value="'+(pay.note||'')+'" oninput="updateSlotSingleNote(\''+escQ(cu.custId)+'\',this.value)"></div>'
           +'<div style="display:flex;gap:6px">'
           +'<button class="btn btn-gray btn-sm" onclick="cancelSlotSinglePay()">Ləğv et</button>'
           +'<button class="btn btn-g btn-sm" style="background:#E65100" onclick="confirmSlotSinglePay(\''+escQ(cu.custId)+'\')">✓ Təsdiqlə və seç</button>'
@@ -2299,60 +2309,74 @@ function toggleSlotAttCustomer(custId, checked, wasAbsent){
   }
 }
 
-// ── Slot single pay helpers ──
+// ── Slot single pay — state-controlled form ──
+function getSingleEntryPrograms(){
+  var ids=['ROF','RPP','RPS','ROTG','ROTI','RTEST'];
+  return(D.programs||[]).filter(function(p){
+    return p.is_active!==false&&(ids.indexOf(p.id)>=0||p.sessions_total<=1);
+  });
+}
+
 function openSlotSinglePay(custId){
+  if(!S.slotSinglePayData)S.slotSinglePayData={};
+  var progs=getSingleEntryPrograms();
+  var p=progs[0]||null;
+  var programId=p?p.id:'';
+  var amount=p?p.list_price:'';
+  var acctId=isPartnerEntryProgram(programId)?(getPartnerReceivableAccountId(programId)||''):'';
+  S.slotSinglePayData[custId]={programId:programId,amount:amount,accountId:acctId,note:''};
   S.slotSinglePayCustId=custId;
   render();
 }
+
 function cancelSlotSinglePay(){
+  if(S.slotSinglePayCustId&&S.slotSinglePayData)delete S.slotSinglePayData[S.slotSinglePayCustId];
   S.slotSinglePayCustId=null;
   render();
 }
 
-// Program dəyişdikdə DOM update — render() çağırmır
+// Program dəyişdikdə state yenilə + render — state qoruyur seçimi
 function updateSlotSingleProgram(custId){
-  var progEl=document.getElementById('slot-sp-prog-'+custId);
-  if(!progEl||!progEl.value)return;
-  var programId=progEl.value;
-  var prog=null;
-  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===programId){prog=D.programs[i];break;}}
-  if(!prog)return;
-  var amtEl=document.getElementById('slot-sp-amount-'+custId);
-  if(amtEl)amtEl.value=prog.list_price||0;
-  var acctEl=document.getElementById('slot-sp-acct-'+custId);
-  var infoEl=document.getElementById('slot-sp-acct-info-'+custId);
-  if(isPartnerEntryProgram(programId)){
-    var pid=getPartnerReceivableAccountId(programId);
-    if(acctEl){acctEl.disabled=true;acctEl.value=pid||'';}
-    var acctName='';
-    for(var i=0;i<(D.accounts||[]).length;i++){if(D.accounts[i].id===pid){acctName=D.accounts[i].name;break;}}
-    if(infoEl){infoEl.style.display='block';infoEl.textContent='Partner proqramıdır — "'+acctName+'" hesabına avtomatik yazılacaq.';}
-  } else {
-    if(acctEl)acctEl.disabled=false;
-    if(infoEl)infoEl.style.display='none';
-  }
+  var sel=document.getElementById('slot-sp-prog-'+custId);
+  var progId=sel?sel.value:'';
+  if(!S.slotSinglePayData)S.slotSinglePayData={};
+  if(!S.slotSinglePayData[custId])S.slotSinglePayData[custId]={};
+  var p=null;
+  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){p=D.programs[i];break;}}
+  S.slotSinglePayData[custId].programId=progId;
+  S.slotSinglePayData[custId].amount=p?p.list_price:'';
+  S.slotSinglePayData[custId].accountId=isPartnerEntryProgram(progId)?(getPartnerReceivableAccountId(progId)||''):'';
+  render();
+}
+
+// Input dəyişiklikləri state-ə yazılır — render yoxdur
+function updateSlotSingleAmount(custId,val){
+  if(!S.slotSinglePayData||!S.slotSinglePayData[custId])return;
+  S.slotSinglePayData[custId].amount=val;
+}
+function updateSlotSingleAccount(custId,val){
+  if(!S.slotSinglePayData||!S.slotSinglePayData[custId])return;
+  S.slotSinglePayData[custId].accountId=val;
+}
+function updateSlotSingleNote(custId,val){
+  if(!S.slotSinglePayData||!S.slotSinglePayData[custId])return;
+  S.slotSinglePayData[custId].note=val;
 }
 
 async function confirmSlotSinglePay(custId){
   var sd=S.slotAttData;
   if(!sd)return;
-  // ── Bütün DOM dəyərləri await-dən əvvəl ──
-  var progEl=document.getElementById('slot-sp-prog-'+custId);
-  var amtEl=document.getElementById('slot-sp-amount-'+custId);
-  var acctEl=document.getElementById('slot-sp-acct-'+custId);
-  var noteEl=document.getElementById('slot-sp-note-'+custId);
-  var instEl=document.getElementById('slot-att-inst');
-  var programId=progEl?progEl.value:'';
-  var amount=parseFloat(amtEl?amtEl.value:0)||0;
-  var acctIdDom=acctEl?acctEl.value:'';
-  var note=noteEl?noteEl.value:'';
-  var instId=sd.instId||(instEl?instEl.value:'');
-  // Validations
+  // ── State-dən oxu — DOM-a güvənmə ──
+  var pay=(S.slotSinglePayData&&S.slotSinglePayData[custId])||{};
+  var programId=pay.programId||'';
+  var amount=parseFloat(pay.amount)||0;
+  var note=pay.note||'';
+  var instId=sd.instId||'';
+  if(!instId){var iel=document.getElementById('slot-att-inst');instId=iel?iel.value:'';}
   if(!programId){alert('Proqram seçin');return;}
   if(amount<=0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
   if(sd.dateStr>td()){alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.');return;}
   if(!instId){alert('Əvvəl instruktor seçin.');return;}
-  // Account resolve
   var accountId=null;
   if(isPartnerEntryProgram(programId)){
     accountId=getPartnerReceivableAccountId(programId);
@@ -2361,23 +2385,22 @@ async function confirmSlotSinglePay(custId){
       return;
     }
   } else {
-    accountId=acctIdDom;
+    accountId=pay.accountId||'';
     if(!accountId){alert('Hesab seçin.');return;}
   }
-  // Objects
   var cust=null,prog=null,inst=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===programId){prog=D.programs[i];break;}}
   for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
   if(!cust||!prog){alert('Müştəri və ya proqram tapılmadı');return;}
-  // Duplicate guard
   for(var i=0;i<D.attendances.length;i++){
     var a=D.attendances[i];
     if(a.customer_id===custId&&a.class_date===sd.dateStr&&a.class_time===sd.time){
-      alert(escHtml(cust.name)+' artıq bu slot üçün davamiyyətdə qeydlidir.');
+      alert(cust.name+' artıq bu slot üçün davamiyyətdə qeydlidir.');
       return;
     }
   }
+  if(S.slotSinglePayData)delete S.slotSinglePayData[custId];
   S.slotSinglePayCustId=null;
   S.saving=true;render();
   try{
@@ -2393,7 +2416,6 @@ async function confirmSlotSinglePay(custId){
     if(!isPartner&&accountId===BANK_ACCT_ID){
       await createPosCommission(amount,txnDate,txnDesc);
     }
-    // Attendance
     var att={id:uid(),customer_id:custId,customer_name:cust.name,
       subscription_id:null,program_id:prog.id,program_name:prog.name,
       class_date:sd.dateStr,class_time:sd.time,
@@ -2402,13 +2424,10 @@ async function confirmSlotSinglePay(custId){
     D.attendances.unshift(att);
     if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date)S.selDateAtts.unshift(att);
     S.kassaData=null;S.reportData=null;S.izlemeData=null;
-    // Update customer in slotAttData
     if(sd&&sd.customers){
       for(var i=0;i<sd.customers.length;i++){
         if(sd.customers[i].custId===custId){
-          sd.customers[i].already=true;
-          sd.customers[i].isDisabled=true;
-          sd.customers[i].singleNeedsPay=false;
+          sd.customers[i].already=true;sd.customers[i].isDisabled=true;sd.customers[i].singleNeedsPay=false;
           var idx2=sd.selectedIds?sd.selectedIds.indexOf(custId):-1;
           if(idx2>=0)sd.selectedIds.splice(idx2,1);
           break;
