@@ -338,10 +338,9 @@ async function doAtt(custId,subId,classTime,instId,attDate){
     await dbPost('attendances',att);
     D.attendances.unshift(att);
      if(att.class_date===td()&&S.selDateAtts!==null){S.selDateAtts.unshift(att);}
+    // Remaining: real attendance count əsasında yenidən hesabla
     if(!sub.is_partner){
-      var nr=Math.max(0,sub.remaining-1);
-      await dbPatch('subscriptions','id=eq.'+subId,{remaining:nr});
-      sub.remaining=nr;
+      await recalcSubscriptionRemaining(subId);
     }
     S.showAtt=false;
     S.showAlert={t:'ok',cust:cust,st:subStatus(activeSub(custId))};
@@ -623,11 +622,12 @@ function rDetail(){
     for(var i=0;i<subs.length;i++){
       var sub=subs[i];
       var st2=subStatus(sub);var bc2=st2.t==='ok'?'b-green':st2.t==='warn'?'b-yellow':st2.t==='pending'?'b-blue':'b-red';
-      var frozen=sub.freeze_end&&sub.freeze_end>=td();
-      var pct=sub.is_partner?0:Math.min(100,Math.round((1-sub.remaining/sub.sessions_total)*100));
       var subAttCount=0;
       for(var ai=0;ai<atts.length;ai++){if(atts[ai].subscription_id===sub.id)subAttCount++;}
-      var usedCount=sub.sessions_total-sub.remaining;
+      var usedCount=subAttCount;
+      var realRemaining=Math.max(0,(parseInt(sub.sessions_total)||0)-usedCount);
+      var pct=sub.is_partner?0:Math.min(100,Math.round(usedCount/(parseInt(sub.sessions_total)||1)*100));
+      var frozen=sub.freeze_end&&sub.freeze_end>=td();
       h+='<div class="subcard"><div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:6px">'
         +'<div><div style="font-size:13px;font-weight:600">'+sub.program_name+'</div>'
         +'<div style="font-size:11px;color:#999;margin-top:2px">'+fmt(sub.start_date)+' → '+fmt(sub.end_date)+'</div></div>'
@@ -645,7 +645,7 @@ function rDetail(){
         var debt=due-paid;
         var debtHtml=debt>0?'<span style="color:#C62828;font-weight:600"> | Borc: '+debt+' ₼</span>':'';
         h+='<div style="display:flex;justify-content:space-between;align-items:center">'
-          +'<div style="font-size:12px;color:#888">İstifadə: '+usedCount+'/'+sub.sessions_total+' | Qalan: '+sub.remaining+' dərs</div>'
+          +'<div style="font-size:12px;color:#888">İstifadə: '+usedCount+'/'+sub.sessions_total+' | Qalan: '+realRemaining+' dərs</div>'
           +'<div style="font-size:12px;color:#888">'+paid+' ₼ ödənilib'+debtHtml+'</div>'
           +'</div>'
           +'<div class="progress-bar"><div class="progress-fill '+(st2.t==='warn'?'warn':st2.t==='exp'?'exp':'')+'" style="width:'+pct+'%"></div></div>'
@@ -2611,14 +2611,9 @@ async function createAttendance(custId, subId, classTime, instId, attDate){
   await dbPost('attendances',att);
   D.attendances.unshift(att);
   if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date)S.selDateAtts.unshift(att);
-  // Decrement remaining for non-partner
+  // Remaining: real attendance count əsasında yenidən hesabla
   if(!sub.is_partner){
-    var nr=Math.max(0,sub.remaining-1);
-    await dbPatch('subscriptions','id=eq.'+subId,{remaining:nr});
-    sub.remaining=nr;
-    if(S.custDetail&&S.custDetail.subs){
-      for(var i=0;i<S.custDetail.subs.length;i++){if(S.custDetail.subs[i].id===subId){S.custDetail.subs[i].remaining=nr;break;}}
-    }
+    await recalcSubscriptionRemaining(subId);
   }
 }
 
@@ -2904,18 +2899,33 @@ async function fetchIzleme(){
       custMap[D.customers[i].id]=D.customers[i];
     }
 
-    // Category 1: Dərs sayı tamamlananlar (remaining=0, end_date >= today, is_active=true)
+    // Build subscription attendance count map from recentAtts + all local attendances
+    var subAttCount={};
+    for(var i=0;i<D.attendances.length;i++){
+      var sid=D.attendances[i].subscription_id;
+      if(sid)subAttCount[sid]=(subAttCount[sid]||0)+1;
+    }
+
+    // Helper: get real remaining for a sub
+    function getRealRemaining(s){
+      if(s.is_partner)return null;
+      var used=subAttCount[s.id]||0;
+      return Math.max(0,(parseInt(s.sessions_total)||0)-used);
+    }
+
+    // Category 1: Dərs sayı tamamlananlar (realRemaining=0, end_date >= today, is_active=true)
     var completedSessions=[];
-    // Build map of customers with active sub that has remaining > 0
     var hasActiveSub={};
     for(var i=0;i<activeSubs.length;i++){
       var s=activeSubs[i];
-      if(s.remaining>0&&!s.is_partner)hasActiveSub[s.customer_id]=true;
+      var rr=getRealRemaining(s);
+      if(rr!==null&&rr>0&&!s.is_partner)hasActiveSub[s.customer_id]=true;
     }
     for(var i=0;i<activeSubs.length;i++){
       var s=activeSubs[i];
-      if(s.remaining===0&&s.end_date>=today&&!s.is_partner){
-        if(hasActiveSub[s.customer_id])continue; // has newer active sub
+      var rr=getRealRemaining(s);
+      if(rr===0&&s.end_date>=today&&!s.is_partner){
+        if(hasActiveSub[s.customer_id])continue;
         var c=custMap[s.customer_id];
         if(c)completedSessions.push({c:c,s:s,last:lastAtt[c.id]||''});
       }
@@ -2940,11 +2950,12 @@ async function fetchIzleme(){
       }
     }
 
-    // Category 3: Tez bitəcək (remaining=1, active)
+    // Category 3: Tez bitəcək (realRemaining=1, active)
     var almostDone=[];
     for(var i=0;i<activeSubs.length;i++){
       var s=activeSubs[i];
-      if(s.remaining===1&&!s.is_partner&&singleProgs.indexOf(s.program_id)<0){
+      var rr=getRealRemaining(s);
+      if(rr===1&&!s.is_partner&&singleProgs.indexOf(s.program_id)<0){
         var c=custMap[s.customer_id];
         if(c)almostDone.push({c:c,s:s,last:lastAtt[c.id]||''});
       }
@@ -3708,35 +3719,22 @@ async function submitSingleAtt(){
 }
 
 async function deleteAtt(attId, subId, attDate){
-  if(!confirm(attDate+' tarixli məşqi silmək istədiyinizdən əminsinizmi?\nAbunəlik qalığı avtomatik +1 artacaq.'))return;
-  // Save values before any await
+  if(!confirm(attDate+' tarixli məşqi silmək istədiyinizdən əminsinizmi?'))return;
   var localAttId=attId;
   var localSubId=subId;
   S.saving=true;render();
   try{
     var r=await fetch(BASE+'/attendances?id=eq.'+localAttId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(!r.ok)throw new Error(await r.text());
-    // Local state sync
     D.attendances=D.attendances.filter(function(a){return a.id!==localAttId;});
     if(S.selDateAtts)S.selDateAtts=S.selDateAtts.filter(function(a){return a.id!==localAttId;});
     if(S.custDetail&&S.custDetail.atts)S.custDetail.atts=S.custDetail.atts.filter(function(a){return a.id!==localAttId;});
-    // Restore remaining +1
+    // Remaining: real attendance count əsasında yenidən hesabla
     if(localSubId&&localSubId!=='null'){
-      var sub=null;
-      for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===localSubId){sub=D.subscriptions[i];break;}}
-      if(sub){
-        var newRem=sub.remaining+1;
-        await dbPatch('subscriptions','id=eq.'+localSubId,{remaining:newRem});
-        sub.remaining=newRem;
-        if(S.custDetail&&S.custDetail.subs){
-          for(var j=0;j<S.custDetail.subs.length;j++){
-            if(S.custDetail.subs[j].id===localSubId){S.custDetail.subs[j].remaining=newRem;break;}
-          }
-        }
-      }
+      await recalcSubscriptionRemaining(localSubId);
     }
     S.reportData=null;S.izlemeData=null;
-    S.showAlert={t:'ok',cust:{name:'Məşq silindi'},st:{t:'ok',txt:'Abunəlik qalığı +1 artırıldı'}};
+    S.showAlert={t:'ok',cust:{name:'Məşq silindi'},st:{t:'ok',txt:'Abunəlik qalığı yeniləndi'}};
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -4843,6 +4841,46 @@ async function recalcSubscriptionPaid(subId){
   S.kassaData=null;
   S.izlemeData=null;
   S.reportData=null;
+}
+
+// ==================== SUBSCRIPTION REMAINING RECALC ====================
+
+async function recalcSubscriptionRemaining(subId){
+  if(!subId||subId==='null')return null;
+  var sub=null;
+  for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
+  if(!sub){
+    var rows=await dbGet('subscriptions','id=eq.'+subId);
+    sub=rows&&rows[0]?rows[0]:null;
+    if(!sub)return null;
+  }
+  if(sub.is_partner)return sub;
+  var atts=await dbGet('attendances','subscription_id=eq.'+subId);
+  var used=atts?atts.length:0;
+  var total=parseInt(sub.sessions_total)||0;
+  var newRemaining=Math.max(0,total-used);
+  await dbPatch('subscriptions','id=eq.'+subId,{remaining:newRemaining});
+  for(var i=0;i<D.subscriptions.length;i++){
+    if(D.subscriptions[i].id===subId){D.subscriptions[i].remaining=newRemaining;break;}
+  }
+  if(S.custDetail&&S.custDetail.subs){
+    for(var j=0;j<S.custDetail.subs.length;j++){
+      if(S.custDetail.subs[j].id===subId){S.custDetail.subs[j].remaining=newRemaining;break;}
+    }
+  }
+  S.reportData=null;S.izlemeData=null;
+  return{subId:subId,used:used,remaining:newRemaining};
+}
+
+async function repairCustomerSubscriptions(custId){
+  var subs=await dbGet('subscriptions','customer_id=eq.'+custId+'&order=start_date.desc');
+  if(!subs||!subs.length){alert(custId+' üçün abunə tapılmadı.');return;}
+  for(var i=0;i<subs.length;i++){
+    if(!subs[i].is_partner)await recalcSubscriptionRemaining(subs[i].id);
+  }
+  alert(custId+' üçün abunə qalıqları yenidən hesablandı.');
+  if(S.selCust===custId){S.custDetail=null;S.custDetailLoading=true;fetchCustDetail(custId);}
+  else render();
 }
 
 loadAll();
