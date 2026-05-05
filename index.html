@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates</title>
+<title>Erge Pilates — Discount/RTEST Fixed</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -455,7 +455,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">v: discount+rtest</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -893,7 +893,12 @@ function rModalAddCust(){
 
 function rModalAddSub(){
   var acctOpts='<option value="">— Seçin —</option>';
-  if(D.accounts){for(var i=0;i<D.accounts.length;i++){var a=D.accounts[i];if(a.is_active!==false)acctOpts+='<option value="'+a.id+'">'+escHtml(a.name)+'</option>';}}
+  if(D.accounts){
+    for(var i=0;i<D.accounts.length;i++){
+      var a=D.accounts[i];
+      if(a.is_active!==false)acctOpts+='<option value="'+a.id+'">'+escHtml(a.name)+'</option>';
+    }
+  }
   var opts='';
   var firstActive=null;
   for(var i=0;i<D.programs.length;i++){
@@ -906,7 +911,8 @@ function rModalAddSub(){
   var defP=firstActive?money(firstActive.list_price):0;
   var todayVal=td();
   return '<div class="ov" onclick="S.showAddSub=false;render()"><div class="modal" onclick="event.stopPropagation()">'
-    +'<div class="mtitle">Abunəlik Əlavə Et</div>'
+    +'<div class="mtitle">Abunəlik Əlavə Et <span class="badge b-blue" style="font-size:10px;margin-left:6px">endirim aktivdir</span></div>'
+    +'<div style="font-size:12px;color:#0F6E56;background:#E8F5EE;border:1px solid #b2dfc8;padding:8px 10px;border-radius:8px;margin-bottom:12px">Endirim sahəsi bu versiyada aktivdir: Paket qiyməti - Endirim = Ödənilməli məbləğ.</div>'
     +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="m-prog" onchange="updatePrice()">'+opts+'</select></div>'
     +'<div class="fg"><label class="fl">Başlama tarixi *</label><input class="fi" id="m-startdate" type="date" value="'+todayVal+'"></div>'
     +'<div class="fi-row">'
@@ -919,14 +925,10 @@ function rModalAddSub(){
     +'</div>'
     +'<div class="fg"><label class="fl">Endirim qeydi (opsional)</label><input class="fi" id="m-discount-note" placeholder="Məsələn: kampaniya, xüsusi razılaşma"></div>'
     +'<div style="font-size:12px;color:#1565C0;background:#E3F2FD;padding:7px 10px;border-radius:7px;margin-bottom:10px" id="m-phint">Paket: '+defP+' AZN | Endirim: 0 AZN | Ödənilməli: '+defP+' AZN</div>'
-    +'<div class="mact">'
-    +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Ödəniş hesabı</label><select class="fs" id="m-account">'+acctOpts+'</select></div>'
-    +'</div>'
     +'<div class="fg" style="margin-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="m-pending"> <span style="color:#1565C0">Ödənilib, hələ başlamayıb — ilk məşqdə aktivləşəcək</span></label></div>'
-    +'<button class="btn btn-gray" onclick="S.showAddSub=false;render()">Ləğv et</button>'
-    +'<button class="btn btn-g" onclick="submitSub()">Əlavə et</button>'
-    +'</div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddSub=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitSub()">Əlavə et</button></div>'
     +'</div></div>';
 }
 
@@ -2556,6 +2558,7 @@ async function confirmSlotSinglePay(custId){
   var instEl=document.getElementById('slot-att-inst');
   var programId=(pay.programId||'')||(progEl?progEl.value:'');
   var amount=parseFloat((amtEl?amtEl.value:pay.amount)||pay.amount)||0;
+  if(programId==='RTEST')amount=0;
   var note=(noteEl?noteEl.value:(pay.note||''))||'';
   var instId=sd.instId||(instEl?instEl.value:'');
   if(!programId){alert('Proqram seçin');return;}
@@ -3695,9 +3698,10 @@ function rModalSingleAtt(){
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
     if(!p.is_active)continue;
-    if(p.sessions_total!==1)continue;
+    if(p.sessions_total!==1&&['ROTG','ROTI','RTEST','ROF','RPP','RPS'].indexOf(p.id)<0)continue;
     var sel=(S.singleAttProgId===p.id)?' selected':'';
-    progOpts+='<option value="'+p.id+'"'+sel+' data-price="'+p.list_price+'" data-partner="'+(p.is_partner?'1':'0')+'" data-name="'+p.name+'">'+p.name+' — '+p.list_price+' AZN</option>';
+    var displayPrice=(p.id==='RTEST')?0:p.list_price;
+    progOpts+='<option value="'+p.id+'"'+sel+' data-price="'+displayPrice+'" data-partner="'+(p.is_partner?'1':'0')+'" data-name="'+escHtml(p.name)+'">'+escHtml(p.name)+' — '+displayPrice+' AZN</option>';
   }
   var saDateVal=S.singleAttDate||td();
   var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
@@ -3733,8 +3737,9 @@ function updateSingleProgram(){
   if(!prog)return;
   var due=document.getElementById('sa-due');
   var paid=document.getElementById('sa-paid');
-  if(due)due.value=prog.list_price;
-  if(paid)paid.value=prog.list_price;
+  var singlePrice=(prog.id==='RTEST')?0:prog.list_price;
+  if(due)due.value=singlePrice;
+  if(paid)paid.value=singlePrice;
   var acctSel=document.getElementById('sa-account');
   var hint=document.getElementById('sa-partner-hint');
   if(prog.is_partner){
@@ -3745,7 +3750,12 @@ function updateSingleProgram(){
     if(hint){hint.innerHTML='Partner proqramı — <b>'+acctName+'</b> hesabına avtomatik yazılır';hint.style.display='block';}
   } else {
     if(acctSel)acctSel.disabled=false;
-    if(hint)hint.style.display='none';
+    if(prog.id==='RTEST'){
+      if(acctSel)acctSel.value='';
+      if(hint){hint.innerHTML='RTEST sınaq dərsidir — 0 AZN ilə keçə bilər, hesab seçimi tələb olunmur.';hint.style.display='block';}
+    }else{
+      if(hint)hint.style.display='none';
+    }
   }
 }
 
@@ -3758,7 +3768,13 @@ async function submitSingleAtt(){
   var saPaidPre=parseFloat(document.getElementById('sa-paid')?document.getElementById('sa-paid').value:0)||0;
   var due=parseFloat(document.getElementById('sa-due').value)||0;
   var paid=parseFloat(document.getElementById('sa-paid').value)||0;
+  if(progId==='RTEST'){due=0;paid=0;}
   if(!progId||!time||!instId||!S.singleCust){alert('Proqram, saat və instruktor seçilməlidir');return;}
+  if(progId!=='RTEST'&&paid<=0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
+  if(progId!=='RTEST'&&paid>0&&!saAcctIdPre){
+    var _p=getProgramById(progId);
+    if(!_p||!_p.is_partner){alert('Hesab seçin');return;}
+  }
   S.saving=true;render();
   try{
     var c=null,inst=null,prog=null;
