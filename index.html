@@ -2244,17 +2244,20 @@ function rModalSlotAttendance(){
           +'<div style="margin-bottom:8px"><label class="fl" style="font-size:11px">Proqram *</label>'
           +'<select class="fs" id="'+sprogId+'" onchange="updateSlotSingleProgram(\''+escQ(cu.custId)+'\')">'+pOpts+'</select></div>'
           +'<div style="display:flex;gap:8px;margin-bottom:8px">'
-          // Məbləğ — readonly, proqramdan avtomatik
-          +'<div style="flex:0 0 110px"><label class="fl" style="font-size:11px">Məbləğ (₼)</label>'
-          +'<input class="fi" id="'+samtId+'" type="number" value="'+(pay.amount||'')+'" readonly style="background:#f5f5f5;cursor:default" tabindex="-1"></div>'
-          // Hesab — partner: disabled text; single: select
-          +'<div style="flex:1"><label class="fl" style="font-size:11px">Hesab</label>'
+          // Məbləğ: partner → readonly; tək giriş → editable
+          +'<div style="flex:0 0 110px"><label class="fl" style="font-size:11px">Məbləğ (₼) *</label>'
           +(isPartnerType
-            ?'<input class="fi" id="slot-sp-acct-display-'+cu.custId+'" value="'+(partnerAcctName||'')+'" readonly style="background:#f5f5f5;cursor:default" tabindex="-1">'
+            ?'<input class="fi" id="'+samtId+'" type="number" value="'+(pay.amount||'')+'" readonly placeholder="—" style="background:#f5f5f5;cursor:default" tabindex="-1">'
+            :'<input class="fi" id="'+samtId+'" type="number" min="0" step="0.01" value="'+(pay.amount||'')+'" placeholder="0.00" oninput="updateSlotSingleAmount(\''+escQ(cu.custId)+'\',this.value)">')
+          +'</div>'
+          // Hesab: partner → readonly text; single → select
+          +'<div style="flex:1"><label class="fl" style="font-size:11px">Hesab *</label>'
+          +(isPartnerType
+            ?'<input class="fi" id="slot-sp-acct-display-'+cu.custId+'" value="'+(partnerAcctName||'')+'" readonly placeholder="Proqram seçin ↑" style="background:#f5f5f5;cursor:default;color:'+(partnerAcctName?'#1a1a1a':'#aaa')+';" tabindex="-1">'
             :'<select class="fs" id="'+sacctId+'" onchange="updateSlotSingleAccount(\''+escQ(cu.custId)+'\',this.value)">'+aOpts+'</select>')
           +'</div>'
           +'</div>'
-          +(isPartnerType&&partnerAcctName?'<div id="slot-sp-acct-info-'+cu.custId+'" style="font-size:11px;color:#1D9E75;margin-bottom:8px">Avtomatik: "'+partnerAcctName+'" hesabına yazılacaq.</div>':'<div id="slot-sp-acct-info-'+cu.custId+'"></div>')
+          +'<div id="slot-sp-acct-info-'+cu.custId+'" style="font-size:11px;color:#1D9E75;margin-bottom:8px'+(isPartnerType&&partnerAcctName?'':';display:none')+'">'+(isPartnerType&&partnerAcctName?'Avtomatik: "'+partnerAcctName+'" hesabına yazılacaq.':'')+'</div>'
           +'<div style="margin-bottom:10px"><label class="fl" style="font-size:11px">Qeyd</label>'
           +'<input class="fi" id="'+snoteId+'" placeholder="İstəyə görə" value="'+(pay.note||'')+'" oninput="updateSlotSingleNote(\''+escQ(cu.custId)+'\',this.value)"></div>'
           +'<div style="display:flex;gap:6px">'
@@ -2390,10 +2393,13 @@ function updateSlotSingleProgram(custId){
     var acctName='';
     for(var j=0;j<(D.accounts||[]).length;j++){if(D.accounts[j].id===newAcctId){acctName=D.accounts[j].name;break;}}
     var dispEl=document.getElementById('slot-sp-acct-display-'+custId);
-    if(dispEl)dispEl.value=acctName||'';
+    if(dispEl){dispEl.value=acctName||'';dispEl.style.color=acctName?'#1a1a1a':'#aaa';}
     var infoEl=document.getElementById('slot-sp-acct-info-'+custId);
-    if(infoEl)infoEl.textContent=acctName?'Avtomatik: "'+acctName+'" hesabına yazılacaq.':'';
-  } else if(progId&&!isPartnerEntryProgram(progId)){
+    if(infoEl){
+      infoEl.textContent=acctName?'Avtomatik: "'+acctName+'" hesabına yazılacaq.':'Accounts bölməsindəki hesab tapılmadı';
+      infoEl.style.display='block';
+      infoEl.style.color=acctName?'#1D9E75':'#C62828';
+    }
     // Non-partner: mövcud account seçimini qoru
     var infoEl2=document.getElementById('slot-sp-acct-info-'+custId);
     if(infoEl2)infoEl2.textContent='';
@@ -2418,10 +2424,12 @@ function updateSlotSingleNote(custId,val){
 async function confirmSlotSinglePay(custId){
   var sd=S.slotAttData;
   if(!sd)return;
-  // ── State-dən oxu — DOM-a güvənmə ──
+  // ── State-dən oxu, DOM-dan fallback ──
   var pay=(S.slotSinglePayData&&S.slotSinglePayData[custId])||{};
-  var programId=pay.programId||'';
-  var amount=parseFloat(pay.amount)||0;
+  // BUG1 fix: state boşdursa DOM-dan da yoxla
+  var programId=pay.programId||(document.getElementById('slot-sp-prog-'+custId)||{}).value||'';
+  var amountFromDom=parseFloat((document.getElementById('slot-sp-amount-'+custId)||{}).value)||0;
+  var amount=parseFloat(pay.amount)||amountFromDom||0;
   var note=pay.note||'';
   var instId=sd.instId||'';
   if(!instId){var iel=document.getElementById('slot-att-inst');instId=iel?iel.value:'';}
