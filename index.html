@@ -2160,19 +2160,19 @@ function rModalSlotAttendance(){
   var sd=S.slotAttData;
   if(!sd)return'';
   var dow=sd.dow;
-  var customers=sd.customers;
+  var customers=sd.customers||[];
   var selIds=sd.selectedIds||[];
-  // Instructor options — selected from state
+
   var iOpts='<option value="">— İnstruktor seçin —</option>';
   for(var i=0;i<D.instructors.length;i++){
     var isel=(sd.instId===D.instructors[i].id)?' selected':'';
-    iOpts+='<option value="'+D.instructors[i].id+'"'+isel+'>'+D.instructors[i].full_name+'</option>';
+    iOpts+='<option value="'+D.instructors[i].id+'"'+isel+'>'+escHtml(D.instructors[i].full_name)+'</option>';
   }
 
   var h='<div class="ov" onclick="S.showSlotAttModal=false;S.slotAttData=null;render()"><div class="modal" onclick="event.stopPropagation()" style="width:480px;max-width:100%">'
     +'<div class="mtitle">📋 Davamiyyət Qeydiyyatı</div>'
     +'<div style="background:#f0faf5;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;font-size:13px">'
-    +'<span style="font-weight:700;color:#1D9E75">'+sd.time+'</span>'
+    +'<span style="font-weight:700;color:#1D9E75">'+escHtml(sd.time||'')+'</span>'
     +'<span style="color:#555">'+(dow?DAYS_AZ[dow-1]:'?')+' — '+fmt(sd.dateStr)+'</span>'
     +'</div>'
     +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="slot-att-inst" onchange="if(S.slotAttData)S.slotAttData.instId=this.value">'+iOpts+'</select></div>';
@@ -2185,22 +2185,22 @@ function rModalSlotAttendance(){
   }
 
   h+='<div class="slabel" style="margin-top:4px">MÜŞTƏRİLƏR ('+customers.length+')</div>';
-  // Payment panel ayrıca tutulur — overflow clip etməsin
   var payPanelHtml='';
   h+='<div style="max-height:380px;overflow-y:auto;border:1px solid #eaeaea;border-radius:10px;margin-bottom:0">';
+
   for(var i=0;i<customers.length;i++){
     var cu=customers[i];
+    var cid=String(cu.custId||cu.customer_id||'');
     var isDisabled=cu.isDisabled||cu.already;
-    var isChecked=selIds.indexOf(cu.custId)>=0;
+    var isChecked=selIds.indexOf(cid)>=0;
     var sub=cu.sub;
     var noSub=!sub||cu.bst.type==='none';
     var bg=cu.absent?'#FFF5F5':cu.type==='temp'?'#EFF6FF':'#fff';
     var cbId='satt-cb-'+i;
     var borderTop=i?'1px solid #f0f0f0':'none';
 
-    // ── needsEntryPayment müştəri — ayrıca UI ──
     if(cu.needsEntryPayment&&!cu.already){
-      var panelOpen=S.slotSinglePayCustId===cu.custId;
+      var panelOpen=S.slotSinglePayCustId===cid;
       var isPartnerType=cu.entryPaymentType==='partner';
       h+='<div style="padding:10px 12px;background:'+(isPartnerType?'#F9F0FF':'#FFF9F0')+';border-top:'+borderTop+'">';
       h+='<div style="font-weight:600;font-size:13px;color:'+(isPartnerType?'#7B1FA2':'#C62828')+'">'+escHtml(cu.custName||'?')+'</div>';
@@ -2212,83 +2212,95 @@ function rModalSlotAttendance(){
       if(!panelOpen){
         h+='<div style="font-size:11px;color:#888;margin-bottom:6px">Bu müştərini davamiyyətə salmaq üçün '+(isPartnerType?'partner giriş':'tək giriş')+' əməliyyatı yaradın.</div>';
         h+='<button class="btn btn-sm" style="background:'+(isPartnerType?'#F3E5F5':'#FFF3E0')+';color:'+(isPartnerType?'#7B1FA2':'#E65100')+';border:1px solid '+(isPartnerType?'#ce93d8':'#ffcc80')+';font-size:11px" '
-          +'onclick="openSlotSinglePay(\''+escQ(cu.custId)+'\')">💳 '+(isPartnerType?'Partner giriş et':'Tək giriş et')+'</button>';
+          +'onclick="openSlotSinglePay(\''+escQ(cid)+'\')">💳 '+(isPartnerType?'Partner giriş et':'Tək giriş et')+'</button>';
       } else {
-        // Inline payment panel — scroll div-dən kənarda render ediləcək (payPanelHtml)
-        var pay=(S.slotSinglePayData&&S.slotSinglePayData[cu.custId])||{};
-        var sprogId='slot-sp-prog-'+cu.custId;
-        var samtId='slot-sp-amount-'+cu.custId;
-        var sacctId='slot-sp-acct-'+cu.custId;
-        var snoteId='slot-sp-note-'+cu.custId;
-        var entryProgs=getEntryProgramsForCustomer(cu.custId);
-        var pOpts='<option value="">— Proqram seçin —</option>';
-        for(var pi=0;pi<entryProgs.length;pi++){
-          var pp=entryProgs[pi];
-          var psel=(pay.programId===pp.id)?' selected':'';
-          pOpts+='<option value="'+pp.id+'"'+psel+'>'+pp.name+' — '+pp.list_price+' ₼</option>';
+        var pay=(S.slotSinglePayData&&S.slotSinglePayData[cid])||{};
+        var entryProgs=getEntryProgramsForCustomer(cid);
+        var programId=pay.programId||'';
+        var amountVal=(pay.amount!==undefined&&pay.amount!==null)?pay.amount:'';
+        var accountId=pay.accountId||'';
+        var partnerAcctName='';
+        var partnerInfo='';
+        if(isPartnerType&&programId){
+          var pAcctId=getPartnerReceivableAccountId(programId);
+          accountId=pAcctId||accountId;
+          if(pAcctId){
+            for(var pai=0;pai<(D.accounts||[]).length;pai++){
+              if(D.accounts[pai].id===pAcctId){partnerAcctName=D.accounts[pai].name;break;}
+            }
+            partnerInfo=partnerAcctName?'Avtomatik: "'+partnerAcctName+'" hesabına yazılacaq.':'Bu partner proqramı üçün alacaq hesabı tapılmadı.';
+          } else {
+            partnerAcctName='Alacaq hesabı tapılmadı';
+            partnerInfo='Bu partner proqramı üçün alacaq hesabı tapılmadı.';
+          }
         }
-        var isPartnerProg=isPartnerEntryProgram(pay.programId||'');
+        var progButtons='';
+        if(!entryProgs.length){
+          progButtons='<div class="al al-r" style="font-size:12px;margin-bottom:8px">Uyğun proqram tapılmadı. Admin → Proqramlar bölməsini yoxlayın.</div>';
+        } else {
+          for(var pi=0;pi<entryProgs.length;pi++){
+            var pp=entryProgs[pi];
+            var active=programId===pp.id;
+            progButtons+='<button type="button" class="btn btn-sm" style="font-size:11px;margin:0 5px 6px 0;border:1px solid '+(active?'#1D9E75':'#ddd')+';background:'+(active?'#E8F5EF':'#fff')+';color:'+(active?'#0F6E56':'#555')+'" '
+              +'onclick="selectSlotSingleProgram(\''+escQ(cid)+'\',\''+escQ(pp.id)+'\')">'
+              +escHtml(pp.id)+' — '+escHtml(pp.name||pp.id)+' — '+((pp.list_price!=null?pp.list_price:0))+' ₼</button>';
+          }
+        }
         var aOpts='<option value="">— Hesab seçin —</option>';
         for(var ai=0;ai<(D.accounts||[]).length;ai++){
           var ac=D.accounts[ai];
           if(ac.is_active===false)continue;
-          var asel=(pay.accountId===ac.id)?' selected':'';
-          aOpts+='<option value="'+ac.id+'"'+asel+'>'+ac.name+'</option>';
-        }
-        var partnerAcctName='';
-        if(isPartnerProg&&pay.accountId){
-          for(var ai=0;ai<(D.accounts||[]).length;ai++){if(D.accounts[ai].id===pay.accountId){partnerAcctName=D.accounts[ai].name;break;}}
+          var asel=(accountId===ac.id)?' selected':'';
+          aOpts+='<option value="'+ac.id+'"'+asel+'>'+escHtml(ac.name)+'</option>';
         }
         payPanelHtml='<div style="background:#fff;border:1px solid #ffd699;border-radius:9px;padding:12px;margin-bottom:14px">'
           +'<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:10px">💳 '+(isPartnerType?'Partner giriş':'Tək giriş')+' — '+escHtml(cu.custName||'')+'</div>'
           +'<div style="margin-bottom:8px"><label class="fl" style="font-size:11px">Proqram *</label>'
-          +'<select class="fs" id="'+sprogId+'" onchange="updateSlotSingleProgram(\''+escQ(cu.custId)+'\')">'+pOpts+'</select></div>'
+          +'<div id="slot-sp-prog-buttons-'+cid+'" style="display:flex;flex-wrap:wrap;gap:0">'+progButtons+'</div>'
+          +'<input type="hidden" id="slot-sp-prog-'+cid+'" value="'+escHtml(programId)+'"></div>'
           +'<div style="display:flex;gap:8px;margin-bottom:8px">'
-          // Məbləğ: partner → readonly; tək giriş → editable
           +'<div style="flex:0 0 110px"><label class="fl" style="font-size:11px">Məbləğ (₼) *</label>'
           +(isPartnerType
-            ?'<input class="fi" id="'+samtId+'" type="number" value="'+(pay.amount||'')+'" readonly placeholder="—" style="background:#f5f5f5;cursor:default" tabindex="-1">'
-            :'<input class="fi" id="'+samtId+'" type="number" min="0" step="0.01" value="'+(pay.amount||'')+'" placeholder="0.00" oninput="updateSlotSingleAmount(\''+escQ(cu.custId)+'\',this.value)">')
+            ?'<input class="fi" id="slot-sp-amount-'+cid+'" type="number" value="'+escHtml(String(amountVal))+'" readonly placeholder="—" style="background:#f5f5f5;cursor:default" tabindex="-1">'
+            :'<input class="fi" id="slot-sp-amount-'+cid+'" type="number" min="0" step="0.01" value="'+escHtml(String(amountVal))+'" placeholder="0.00" oninput="updateSlotSingleAmount(\''+escQ(cid)+'\',this.value)">')
           +'</div>'
-          // Hesab: partner → readonly text; single → select
           +'<div style="flex:1"><label class="fl" style="font-size:11px">Hesab *</label>'
           +(isPartnerType
-            ?'<input class="fi" id="slot-sp-acct-display-'+cu.custId+'" value="'+(partnerAcctName||'')+'" readonly placeholder="—" style="background:#f5f5f5;cursor:default" tabindex="-1">'
-            :'<select class="fs" id="'+sacctId+'" onchange="updateSlotSingleAccount(\''+escQ(cu.custId)+'\',this.value)">'+aOpts+'</select>')
+            ?'<input class="fi" id="slot-sp-acct-display-'+cid+'" value="'+escHtml(partnerAcctName||'Proqram seçin ↑')+'" readonly disabled style="background:#f5f5f5;cursor:default;color:#555">'
+            :'<select class="fs" id="slot-sp-acct-'+cid+'" onchange="updateSlotSingleAccount(\''+escQ(cid)+'\',this.value)">'+aOpts+'</select>')
           +'</div>'
           +'</div>'
-          +'<div id="slot-sp-acct-info-'+cu.custId+'" style="font-size:11px;color:#1D9E75;margin-bottom:8px'+(isPartnerType&&partnerAcctName?'':';display:none')+'">'+(isPartnerType&&partnerAcctName?'Avtomatik: "'+partnerAcctName+'" hesabına yazılacaq.':'')+'</div>'
+          +'<div id="slot-sp-acct-info-'+cid+'" style="font-size:11px;color:'+(partnerAcctName&&partnerAcctName!=='Alacaq hesabı tapılmadı'?'#1D9E75':'#C62828')+';margin-bottom:8px'+(isPartnerType&&programId?'':' ;display:none')+'">'+(isPartnerType&&programId?escHtml(partnerInfo):'')+'</div>'
           +'<div style="margin-bottom:10px"><label class="fl" style="font-size:11px">Qeyd</label>'
-          +'<input class="fi" id="'+snoteId+'" placeholder="İstəyə görə" value="'+(pay.note||'')+'" oninput="updateSlotSingleNote(\''+escQ(cu.custId)+'\',this.value)"></div>'
+          +'<input class="fi" id="slot-sp-note-'+cid+'" placeholder="İstəyə görə" value="'+escHtml(pay.note||'')+'" oninput="updateSlotSingleNote(\''+escQ(cid)+'\',this.value)"></div>'
           +'<div style="display:flex;gap:6px">'
           +'<button class="btn btn-gray btn-sm" onclick="cancelSlotSinglePay()">Ləğv et</button>'
-          +'<button class="btn btn-g btn-sm" style="background:#E65100" onclick="confirmSlotSinglePay(\''+escQ(cu.custId)+'\')">✓ Təsdiqlə və seç</button>'
+          +'<button class="btn btn-g btn-sm" style="background:#E65100" onclick="confirmSlotSinglePay(\''+escQ(cid)+'\')">✓ Təsdiqlə və seç</button>'
           +'</div></div>';
       }
       h+='</div>';
-      continue; // skip standard checkbox row
+      continue;
     }
 
-    // ── Standard checkbox row ──
     h+='<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:'+bg+';border-top:'+borderTop+'">'
-      +'<input type="checkbox" class="slot-att-cb" id="'+cbId+'" value="'+cu.custId+'"'
+      +'<input type="checkbox" class="slot-att-cb" id="'+cbId+'" value="'+cid+'"'
       +(isChecked?' checked':'')+(isDisabled?' disabled':'')
       +' style="margin-top:4px;flex-shrink:0"'
-      +' onchange="toggleSlotAttCustomer(\''+cu.custId+'\',this.checked,'+(cu.absent?'true':'false')+')">'
+      +' onchange="toggleSlotAttCustomer(\''+escQ(cid)+'\',this.checked,'+(cu.absent?'true':'false')+')">'
       +'<label for="'+cbId+'" style="flex:1;cursor:'+(isDisabled?'not-allowed':'pointer')+'">'
       +'<div style="font-weight:600;font-size:13px;color:'+(cu.already?'#aaa':cu.absent?'#C62828':'#1a1a1a')
       +';text-decoration:'+(cu.already?'line-through':'none')+'">'+escHtml(cu.custName||'?')+'</div>'
-      +'<div style="font-size:11px;color:#888;margin-top:1px">'+(sub?sub.program_name+' — ':'')+(cu.bst.txt)+'</div>'
+      +'<div style="font-size:11px;color:#888;margin-top:1px">'+(sub?escHtml(sub.program_name)+' — ':'')+escHtml(cu.bst.txt||'')+'</div>'
       +'<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">'
       +(cu.type==='temp'?'<span class="badge b-blue" style="font-size:10px">Müvəqqəti</span>':'<span class="badge b-green" style="font-size:10px">Sabit</span>')
       +sourceBadge(cu.src||'studio')
       +(cu.absent?'<span class="badge b-red" style="font-size:10px">Gəlməyəcək ⚠</span>':'')
       +(cu.already?'<span class="badge b-gray" style="font-size:10px">Artıq qeyd edilib ✓</span>':'')
-      +(noSub&&!cu.already&&!cu.singleNeedsPay?'<span class="badge b-red" style="font-size:10px">Abunə yoxdur</span>':'')
+      +(noSub&&!cu.already&&!cu.needsEntryPayment?'<span class="badge b-red" style="font-size:10px">Abunə yoxdur</span>':'')
       +(sub&&sub.status==='pending'?'<span class="badge b-blue" style="font-size:10px">Pending → aktivləşəcək</span>':'')
       +'</div></label></div>';
   }
-  h+='</div>'; // close max-height scroll div
+  h+='</div>';
   h+='<div style="margin-bottom:14px">'+payPanelHtml+'</div>';
   h+='<div class="mact">'
     +'<button class="btn btn-gray" onclick="S.showSlotAttModal=false;S.slotAttData=null;render()">Ləğv et</button>'
@@ -2322,6 +2334,7 @@ function toggleSlotAttCustomer(custId, checked, wasAbsent){
 }
 
 // ── Slot single pay — state-controlled form ──
+function slotPayKey(custId){return String(custId||'');}
 function getSingleEntryPrograms(){
   var ids=['ROF','RPP','RPS','ROTG','ROTI','RTEST'];
   return(D.programs||[]).filter(function(p){
@@ -2341,87 +2354,112 @@ function getStudioSinglePrograms(){
     );
   });
 }
-function getEntryProgramsForCustomer(custId){
+function getSlotPayCustomer(custId){
+  var key=slotPayKey(custId);
   var sd=S.slotAttData;
   if(sd&&sd.customers){
     for(var i=0;i<sd.customers.length;i++){
-      if(sd.customers[i].custId===custId&&sd.customers[i].entryPaymentType==='partner')
-        return getPartnerEntryPrograms();
+      var cid=slotPayKey(sd.customers[i].custId||sd.customers[i].customer_id);
+      if(cid===key)return sd.customers[i];
     }
   }
+  return null;
+}
+function getEntryProgramsForCustomer(custId){
+  var item=getSlotPayCustomer(custId);
+  if(item&&item.entryPaymentType==='partner')return getPartnerEntryPrograms();
   return getStudioSinglePrograms();
 }
-
-function openSlotSinglePay(custId){
-  if(!S.slotSinglePayData)S.slotSinglePayData={};
-  if(!S.slotSinglePayData[custId]){
-    // Boş başla — proqram seçilmədən məbləğ və hesab görünməsin
-    S.slotSinglePayData[custId]={programId:'',amount:'',accountId:'',note:''};
+function getAccountNameById(id){
+  if(!id)return'';
+  for(var i=0;i<(D.accounts||[]).length;i++){
+    if(D.accounts[i].id===id)return D.accounts[i].name||'';
   }
-  console.log('openSlotSinglePay',custId,S.slotSinglePayData[custId]);
-  S.slotSinglePayCustId=custId;
+  return'';
+}
+function openSlotSinglePay(custId){
+  var key=slotPayKey(custId);
+  if(!S.slotSinglePayData)S.slotSinglePayData={};
+  S.slotSinglePayData[key]={programId:'',amount:'',accountId:'',note:''};
+  S.slotSinglePayCustId=key;
   render();
 }
-
 function cancelSlotSinglePay(){
   if(S.slotSinglePayCustId&&S.slotSinglePayData)delete S.slotSinglePayData[S.slotSinglePayCustId];
   S.slotSinglePayCustId=null;
   render();
 }
-
-// Program dəyişdikdə — state yenilə, render() çağır
-// openSlotSinglePay guard state-i qoruyur — render seçimi sıfırlamır
-function updateSlotSingleProgram(custId){
-  var sel=document.getElementById('slot-sp-prog-'+custId);
-  var progId=sel?sel.value:'';
-  console.log('slot single program changed',custId,progId);
+function selectSlotSingleProgram(custId,progId){
+  var key=slotPayKey(custId);
   if(!S.slotSinglePayData)S.slotSinglePayData={};
-  if(!S.slotSinglePayData[custId])S.slotSinglePayData[custId]={};
+  if(!S.slotSinglePayData[key])S.slotSinglePayData[key]={programId:'',amount:'',accountId:'',note:''};
   var p=null;
-  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){p=D.programs[i];break;}}
-  S.slotSinglePayData[custId].programId=progId;
-  S.slotSinglePayData[custId].amount=p?p.list_price:'';
-  if(isPartnerEntryProgram(progId)){
-    S.slotSinglePayData[custId].accountId=getPartnerReceivableAccountId(progId)||'';
+  for(var i=0;i<(D.programs||[]).length;i++){
+    if(D.programs[i].id===progId){p=D.programs[i];break;}
   }
-  // Non-partner: mövcud accountId qorunur, sadəcə programId+amount yeniləndi
-  console.log('state after update',S.slotSinglePayData[custId]);
+  S.slotSinglePayData[key].programId=progId;
+  S.slotSinglePayData[key].amount=(p&&p.list_price!=null)?p.list_price:'';
+  if(isPartnerEntryProgram(progId)){
+    S.slotSinglePayData[key].accountId=getPartnerReceivableAccountId(progId)||'';
+  }
+  var hidden=document.getElementById('slot-sp-prog-'+key);if(hidden)hidden.value=progId;
+  var amt=document.getElementById('slot-sp-amount-'+key);if(amt)amt.value=S.slotSinglePayData[key].amount;
+  var disp=document.getElementById('slot-sp-acct-display-'+key);
+  var info=document.getElementById('slot-sp-acct-info-'+key);
+  if(isPartnerEntryProgram(progId)){
+    var an=getAccountNameById(S.slotSinglePayData[key].accountId)||'Alacaq hesabı tapılmadı';
+    if(disp)disp.value=an;
+    if(info){
+      info.style.display='block';
+      info.style.color=(an==='Alacaq hesabı tapılmadı')?'#C62828':'#1D9E75';
+      info.textContent=(an==='Alacaq hesabı tapılmadı')?'Bu partner proqramı üçün alacaq hesabı tapılmadı.':'Partner proqramıdır — əməliyyat avtomatik '+an+' hesabına yazılacaq.';
+    }
+  }
   render();
 }
-
-// Input dəyişiklikləri state-ə yazılır — render yoxdur
+// Backward compatible wrapper; current UI uses selectSlotSingleProgram buttons.
+function updateSlotSingleProgram(custId){
+  var key=slotPayKey(custId);
+  var sel=document.getElementById('slot-sp-prog-'+key);
+  selectSlotSingleProgram(key,sel?sel.value:'');
+}
 function updateSlotSingleAmount(custId,val){
-  if(!S.slotSinglePayData||!S.slotSinglePayData[custId])return;
-  S.slotSinglePayData[custId].amount=val;
+  var key=slotPayKey(custId);
+  if(!S.slotSinglePayData)S.slotSinglePayData={};
+  if(!S.slotSinglePayData[key])S.slotSinglePayData[key]={programId:'',amount:'',accountId:'',note:''};
+  S.slotSinglePayData[key].amount=val;
 }
 function updateSlotSingleAccount(custId,val){
-  if(!S.slotSinglePayData||!S.slotSinglePayData[custId])return;
-  S.slotSinglePayData[custId].accountId=val;
+  var key=slotPayKey(custId);
+  if(!S.slotSinglePayData)S.slotSinglePayData={};
+  if(!S.slotSinglePayData[key])S.slotSinglePayData[key]={programId:'',amount:'',accountId:'',note:''};
+  S.slotSinglePayData[key].accountId=val;
 }
 function updateSlotSingleNote(custId,val){
-  if(!S.slotSinglePayData||!S.slotSinglePayData[custId])return;
-  S.slotSinglePayData[custId].note=val;
+  var key=slotPayKey(custId);
+  if(!S.slotSinglePayData)S.slotSinglePayData={};
+  if(!S.slotSinglePayData[key])S.slotSinglePayData[key]={programId:'',amount:'',accountId:'',note:''};
+  S.slotSinglePayData[key].note=val;
 }
-
 async function confirmSlotSinglePay(custId){
   var sd=S.slotAttData;
   if(!sd)return;
-  // ── State-dən oxu, DOM-dan fallback ──
-  var pay=(S.slotSinglePayData&&S.slotSinglePayData[custId])||{};
-  // BUG1 fix: state boşdursa DOM-dan da yoxla
-  var programId=pay.programId||(document.getElementById('slot-sp-prog-'+custId)||{}).value||'';
-  var amountFromDom=parseFloat((document.getElementById('slot-sp-amount-'+custId)||{}).value)||0;
-  var amount=parseFloat(pay.amount)||amountFromDom||0;
-  var note=pay.note||'';
-  var instId=sd.instId||'';
-  if(!instId){var iel=document.getElementById('slot-att-inst');instId=iel?iel.value:'';}
+  var key=slotPayKey(custId);
+  var pay=(S.slotSinglePayData&&S.slotSinglePayData[key])||{};
+  var progEl=document.getElementById('slot-sp-prog-'+key);
+  var amtEl=document.getElementById('slot-sp-amount-'+key);
+  var acctEl=document.getElementById('slot-sp-acct-'+key);
+  var noteEl=document.getElementById('slot-sp-note-'+key);
+  var instEl=document.getElementById('slot-att-inst');
+  var programId=(pay.programId||'')||(progEl?progEl.value:'');
+  var amount=parseFloat((amtEl?amtEl.value:pay.amount)||pay.amount)||0;
+  var note=(noteEl?noteEl.value:(pay.note||''))||'';
+  var instId=sd.instId||(instEl?instEl.value:'');
   if(!programId){alert('Proqram seçin');return;}
   if(amount<=0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
   if(sd.dateStr>td()){alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.');return;}
   if(!instId){alert('Əvvəl instruktor seçin.');return;}
-  // BUG3: Cross-type guard
-  var entryItem=null;
-  if(sd&&sd.customers){for(var i=0;i<sd.customers.length;i++){if(sd.customers[i].custId===custId){entryItem=sd.customers[i];break;}}}
+  var entryItem=getSlotPayCustomer(key);
   var entryType=entryItem?entryItem.entryPaymentType:'single';
   if(entryType==='single'&&isPartnerEntryProgram(programId)){
     alert('Bu bron Tək giriş kimi yaradılıb.\nPartner proqramı seçmək düzgün deyil — ROTG/ROTI/RTEST seçin.');
@@ -2431,30 +2469,30 @@ async function confirmSlotSinglePay(custId){
     alert('Bu bron Partner kimi yaradılıb.\nPartner proqramı ROF/RPP/RPS olmalıdır.');
     return;
   }
-  var accountId=null;
+  var accountId='';
   if(isPartnerEntryProgram(programId)){
-    accountId=getPartnerReceivableAccountId(programId);
+    accountId=getPartnerReceivableAccountId(programId)||'';
     if(!accountId){
       alert('Bu partner proqramı üçün alacaq hesabı tapılmadı.\nAccounts bölməsində "1FIT alacaqlar" və ya "Push30 alacaqlar" hesabını yaradın.');
       return;
     }
   } else {
-    accountId=pay.accountId||'';
+    accountId=(acctEl?acctEl.value:'')||pay.accountId||'';
     if(!accountId){alert('Hesab seçin.');return;}
   }
   var cust=null,prog=null,inst=null;
-  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===key){cust=D.customers[i];break;}}
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===programId){prog=D.programs[i];break;}}
   for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
   if(!cust||!prog){alert('Müştəri və ya proqram tapılmadı');return;}
   for(var i=0;i<D.attendances.length;i++){
     var a=D.attendances[i];
-    if(a.customer_id===custId&&a.class_date===sd.dateStr&&a.class_time===sd.time){
+    if(a.customer_id===key&&a.class_date===sd.dateStr&&a.class_time===sd.time){
       alert(cust.name+' artıq bu slot üçün davamiyyətdə qeydlidir.');
       return;
     }
   }
-  if(S.slotSinglePayData)delete S.slotSinglePayData[custId];
+  if(S.slotSinglePayData)delete S.slotSinglePayData[key];
   S.slotSinglePayCustId=null;
   S.saving=true;render();
   try{
@@ -2465,10 +2503,10 @@ async function confirmSlotSinglePay(custId){
       category:isPartner?'Partner giriş':'Tək giriş',
       description:txnDesc+(note?' ('+note+')':''),
       amount:amount,account_id:accountId,
-      to_account_id:null,subscription_id:null,customer_id:custId};
+      to_account_id:null,subscription_id:null,customer_id:key};
     await dbPost('transactions',txn);
     // Slot entry payment-lərdə POS commission yaranmır (biznes qaydası)
-    var att={id:uid(),customer_id:custId,customer_name:cust.name,
+    var att={id:uid(),customer_id:key,customer_name:cust.name,
       subscription_id:null,program_id:prog.id,program_name:prog.name,
       class_date:sd.dateStr,class_time:sd.time,
       instructor_id:instId,instructor_name:inst?inst.full_name:''};
@@ -2478,9 +2516,13 @@ async function confirmSlotSinglePay(custId){
     S.kassaData=null;S.reportData=null;S.izlemeData=null;
     if(sd&&sd.customers){
       for(var i=0;i<sd.customers.length;i++){
-        if(sd.customers[i].custId===custId){
-          sd.customers[i].already=true;sd.customers[i].isDisabled=true;sd.customers[i].singleNeedsPay=false;
-          var idx2=sd.selectedIds?sd.selectedIds.indexOf(custId):-1;
+        var cid=slotPayKey(sd.customers[i].custId||sd.customers[i].customer_id);
+        if(cid===key){
+          sd.customers[i].already=true;
+          sd.customers[i].isDisabled=true;
+          sd.customers[i].singleNeedsPay=false;
+          sd.customers[i].needsEntryPayment=false;
+          var idx2=sd.selectedIds?sd.selectedIds.indexOf(key):-1;
           if(idx2>=0)sd.selectedIds.splice(idx2,1);
           break;
         }
