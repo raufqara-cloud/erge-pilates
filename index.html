@@ -2151,7 +2151,7 @@ function rModalSlotAttendance(){
     var bg=cu.absent?'#FFF5F5':cu.type==='temp'?'#EFF6FF':'#fff';
     var cbId='satt-cb-'+i;
     h+='<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+'">'
-      +'<input type="checkbox" id="'+cbId+'" name="satt-cust" value="'+cu.custId+'"'
+      +'<input type="checkbox" class="slot-att-cb" id="'+cbId+'" value="'+cu.custId+'"'
       +' data-sub="'+(sub?sub.id:'')+'"'
       +(defaultChecked?' checked':'')+(isDisabled?' disabled':'')
       +' style="margin-top:4px;flex-shrink:0" onchange="sattWarnAbsent(this,'+cu.absent+',\''+cbId+'\')">'
@@ -2204,23 +2204,28 @@ async function submitSlotAttendance(){
     alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.\nBu tarix üçün yalnız bron/istisna planlana bilər.');
     return;
   }
-  var cbs=document.querySelectorAll('input[name="satt-cust"]:checked:not(:disabled)');
+  // *** Checkbox məlumatlarını render()-dən ƏVVƏL oxu ***
+  var cbs=document.querySelectorAll('.slot-att-cb:not(:disabled):checked');
   if(!cbs.length){alert('Ən azı bir müştəri seçin');return;}
+  var selected=[];
+  for(var i=0;i<cbs.length;i++){
+    selected.push({custId:cbs[i].value,subId:cbs[i].getAttribute('data-sub')});
+  }
   S.saving=true;render();
   var errors=[];
   var done=0;
-  for(var i=0;i<cbs.length;i++){
-    var cb=cbs[i];
-    var custId=cb.value;
-    var subId=cb.getAttribute('data-sub');
+  for(var i=0;i<selected.length;i++){
+    var custId=selected[i].custId;
+    var subId=selected[i].subId;
     if(!custId||!subId){errors.push('Müştəri '+custId+': abunəlik tapılmadı');continue;}
     try{
-      await createAttendance(custId,subId,sd.time,instId,sd.dateStr);
-      done++;
+      var result=await createAttendance(custId,subId,sd.time,instId,sd.dateStr);
+      if(result!==null)done++;
     }catch(e){errors.push(e.message);}
   }
   if(errors.length)alert('Bəzi xətalar:\n'+errors.join('\n'));
-  if(done>0)S.showAlert={t:'ok',cust:{name:done+' müştəri'},st:{t:'ok',txt:fmt(sd.dateStr)+' '+sd.time+' — davamiyyət qeydə alındı'}};
+  var msg=done===0?'Yeni davamiyyət yazılmadı.':done===1?'1 nəfər qeydə alındı.':done+' nəfər qeydə alındı.';
+  S.showAlert={t:done>0?'ok':'warn',cust:{name:''},st:{t:done>0?'ok':'warn',txt:fmt(sd.dateStr)+' '+sd.time+' — '+msg}};
   S.showSlotAttModal=false;
   S.slotAttData=null;
   S.saving=false;
@@ -2233,10 +2238,10 @@ async function createAttendance(custId, subId, classTime, instId, attDate){
   for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
   for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
   if(!cust||!sub)throw new Error('Müştəri/abunə tapılmadı: '+custId);
-  // Check duplicate
+  // Check duplicate: customer_id + class_date + class_time
   for(var i=0;i<D.attendances.length;i++){
     var a=D.attendances[i];
-    if(a.customer_id===custId&&a.class_date===attDate&&a.class_time===classTime)return; // skip duplicate
+    if(a.customer_id===custId&&a.class_date===attDate&&a.class_time===classTime)return null;
   }
   // Activate pending sub
   if(sub.status==='pending'){
