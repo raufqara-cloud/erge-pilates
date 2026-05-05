@@ -2117,17 +2117,21 @@ function openAttFromSlot(time, dateStr, dow){
     var bst=getCustBronStatus(b.customer_id);
     var src=getBookingSource(b,b.customer_id);
     var noSub=!sub;
-    // Single-source with no active sub: show but disable (needs single att payment first)
-    var singleNeedsPay=(src==='single'&&noSub);
     var already=!!alreadyRec[b.customer_id];
-    var isDisabled=already||(noSub&&!singleNeedsPay===false&&src!=='single')||singleNeedsPay;
-    // For partner: activeSub check normal; for single: disabled if no sub
-    if(src==='partner')isDisabled=already||(bst.type==='none'||bst.type==='grace');
-    if(src==='studio')isDisabled=already||noSub;
-    if(src==='single')isDisabled=already||singleNeedsPay;
+    // needsEntryPayment: partner veya single source + no activeSub
+    var needsEntryPayment=!already&&noSub&&(src==='single'||src==='partner');
+    var entryPaymentType=(src==='partner')?'partner':'single';
+    var isDisabled=already;
+    if(!needsEntryPayment){
+      if(src==='studio')isDisabled=isDisabled||noSub;
+      if(src==='partner')isDisabled=isDisabled||(bst.type==='none'||bst.type==='grace');
+      if(src==='single')isDisabled=isDisabled||noSub;
+    }
     customers.push({custId:b.customer_id,custName:b.customer_name,sub:sub,bst:bst,
       type:'permanent',absent:isAbsent,absentExId:absentBronIds[b.id]||null,bronId:b.id,
-      already:already,isDisabled:isDisabled,src:src,singleNeedsPay:singleNeedsPay});
+      already:already,isDisabled:needsEntryPayment?true:isDisabled,src:src,
+      needsEntryPayment:needsEntryPayment,entryPaymentType:entryPaymentType,
+      singleNeedsPay:needsEntryPayment}); // singleNeedsPay compat alias
   }
   // 2. Temp_add müştərilər
   for(var i=0;i<excs.temps.length;i++){
@@ -2192,20 +2196,21 @@ function rModalSlotAttendance(){
     var cbId='satt-cb-'+i;
     var borderTop=i?'1px solid #f0f0f0':'none';
 
-    // ── singleNeedsPay müştəri — ayrıca UI ──
-    if(cu.singleNeedsPay&&!cu.already){
+    // ── needsEntryPayment müştəri — ayrıca UI ──
+    if(cu.needsEntryPayment&&!cu.already){
       var panelOpen=S.slotSinglePayCustId===cu.custId;
-      h+='<div style="padding:10px 12px;background:#FFF9F0;border-top:'+borderTop+'">';
-      h+='<div style="font-weight:600;font-size:13px;color:#C62828">'+escHtml(cu.custName||'?')+'</div>';
+      var isPartnerType=cu.entryPaymentType==='partner';
+      h+='<div style="padding:10px 12px;background:'+(isPartnerType?'#F9F0FF':'#FFF9F0')+';border-top:'+borderTop+'">';
+      h+='<div style="font-weight:600;font-size:13px;color:'+(isPartnerType?'#7B1FA2':'#C62828')+'">'+escHtml(cu.custName||'?')+'</div>';
       h+='<div style="display:flex;gap:4px;margin:5px 0;flex-wrap:wrap">'
         +'<span class="badge b-green" style="font-size:10px">Sabit</span>'
         +sourceBadge(cu.src||'single')
-        +'<span class="badge b-red" style="font-size:10px">Ödəniş lazımdır</span>'
+        +'<span class="badge b-red" style="font-size:10px">'+(isPartnerType?'Partner giriş lazımdır':'Tək giriş ödənişi lazımdır')+'</span>'
         +'</div>';
       if(!panelOpen){
-        h+='<div style="font-size:11px;color:#888;margin-bottom:6px">Bu müştərini davamiyyətə salmaq üçün tək giriş və ya partner giriş əməliyyatı yaradın.</div>';
-        h+='<button class="btn btn-sm" style="background:#FFF3E0;color:#E65100;border:1px solid #ffcc80;font-size:11px" '
-          +'onclick="openSlotSinglePay(\''+escQ(cu.custId)+'\')">💳 Tək giriş / partner giriş et</button>';
+        h+='<div style="font-size:11px;color:#888;margin-bottom:6px">Bu müştərini davamiyyətə salmaq üçün '+(isPartnerType?'partner giriş':'tək giriş')+' əməliyyatı yaradın.</div>';
+        h+='<button class="btn btn-sm" style="background:'+(isPartnerType?'#F3E5F5':'#FFF3E0')+';color:'+(isPartnerType?'#7B1FA2':'#E65100')+';border:1px solid '+(isPartnerType?'#ce93d8':'#ffcc80')+';font-size:11px" '
+          +'onclick="openSlotSinglePay(\''+escQ(cu.custId)+'\')">💳 '+(isPartnerType?'Partner giriş et':'Tək giriş et')+'</button>';
       } else {
         // Inline payment panel — values from state
         var pay=(S.slotSinglePayData&&S.slotSinglePayData[cu.custId])||{};
@@ -2213,12 +2218,11 @@ function rModalSlotAttendance(){
         var samtId='slot-sp-amount-'+cu.custId;
         var sacctId='slot-sp-acct-'+cu.custId;
         var snoteId='slot-sp-note-'+cu.custId;
-        var singleProgs=['ROF','RPP','RPS','ROTG','ROTI','RTEST'];
+        // Source-aware program list
+        var entryProgs=getEntryProgramsForCustomer(cu.custId);
         var pOpts='<option value="">— Proqram seçin —</option>';
-        for(var pi=0;pi<D.programs.length;pi++){
-          var pp=D.programs[pi];
-          if(!pp.is_active)continue;
-          if(singleProgs.indexOf(pp.id)<0&&pp.sessions_total>1)continue;
+        for(var pi=0;pi<entryProgs.length;pi++){
+          var pp=entryProgs[pi];
           var psel=(pay.programId===pp.id)?' selected':'';
           pOpts+='<option value="'+pp.id+'"'+psel+'>'+pp.name+' — '+pp.list_price+' ₼</option>';
         }
@@ -2316,13 +2320,49 @@ function getSingleEntryPrograms(){
     return p.is_active!==false&&(ids.indexOf(p.id)>=0||p.sessions_total<=1);
   });
 }
+function getPartnerEntryPrograms(){
+  return(D.programs||[]).filter(function(p){
+    return p.is_active!==false&&['ROF','RPP','RPS'].indexOf(p.id)>=0;
+  });
+}
+function getStudioSinglePrograms(){
+  return(D.programs||[]).filter(function(p){
+    return p.is_active!==false&&(
+      ['ROTG','ROTI','RTEST'].indexOf(p.id)>=0||
+      (p.sessions_total<=1&&['ROF','RPP','RPS'].indexOf(p.id)<0)
+    );
+  });
+}
+function getEntryProgramsForCustomer(custId){
+  var sd=S.slotAttData;
+  if(sd&&sd.customers){
+    for(var i=0;i<sd.customers.length;i++){
+      if(sd.customers[i].custId===custId&&sd.customers[i].entryPaymentType==='partner')
+        return getPartnerEntryPrograms();
+    }
+  }
+  return getStudioSinglePrograms();
+}
 
 function openSlotSinglePay(custId){
   if(!S.slotSinglePayData)S.slotSinglePayData={};
-  var progs=getSingleEntryPrograms();
-  var p=progs[0]||null;
-  var programId=p?p.id:'';
-  var amount=p?p.list_price:'';
+  var sd=S.slotAttData;
+  var entryType='single';
+  if(sd&&sd.customers){
+    for(var i=0;i<sd.customers.length;i++){
+      if(sd.customers[i].custId===custId){entryType=sd.customers[i].entryPaymentType||'single';break;}
+    }
+  }
+  var progs=entryType==='partner'?getPartnerEntryPrograms():getStudioSinglePrograms();
+  if(!progs.length){
+    alert(entryType==='partner'
+      ?'Partner giriş proqramı tapılmadı. Admin → Proqramlarda ROF/RPP/RPS yaradın.'
+      :'Tək giriş proqramı tapılmadı. Admin → Proqramlarda ROTG/ROTI/RTEST yaradın.');
+    return;
+  }
+  var p=progs[0];
+  var programId=p.id;
+  var amount=p.list_price;
   var acctId=isPartnerEntryProgram(programId)?(getPartnerReceivableAccountId(programId)||''):'';
   S.slotSinglePayData[custId]={programId:programId,amount:amount,accountId:acctId,note:''};
   S.slotSinglePayCustId=custId;
@@ -2377,6 +2417,18 @@ async function confirmSlotSinglePay(custId){
   if(amount<=0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
   if(sd.dateStr>td()){alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.');return;}
   if(!instId){alert('Əvvəl instruktor seçin.');return;}
+  // BUG3: Cross-type guard
+  var entryItem=null;
+  if(sd&&sd.customers){for(var i=0;i<sd.customers.length;i++){if(sd.customers[i].custId===custId){entryItem=sd.customers[i];break;}}}
+  var entryType=entryItem?entryItem.entryPaymentType:'single';
+  if(entryType==='single'&&isPartnerEntryProgram(programId)){
+    alert('Bu bron Tək giriş kimi yaradılıb.\nPartner proqramı seçmək düzgün deyil — ROTG/ROTI/RTEST seçin.');
+    return;
+  }
+  if(entryType==='partner'&&!isPartnerEntryProgram(programId)){
+    alert('Bu bron Partner kimi yaradılıb.\nPartner proqramı ROF/RPP/RPS olmalıdır.');
+    return;
+  }
   var accountId=null;
   if(isPartnerEntryProgram(programId)){
     accountId=getPartnerReceivableAccountId(programId);
@@ -3615,25 +3667,33 @@ async function submitSingleAtt(){
 
 async function deleteAtt(attId, subId, attDate){
   if(!confirm(attDate+' tarixli məşqi silmək istədiyinizdən əminsinizmi?\nAbunəlik qalığı avtomatik +1 artacaq.'))return;
+  // Save values before any await
+  var localAttId=attId;
+  var localSubId=subId;
   S.saving=true;render();
   try{
-    // Delete attendance
-    var r=await fetch(BASE+'/attendances?id=eq.'+attId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    var r=await fetch(BASE+'/attendances?id=eq.'+localAttId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(!r.ok)throw new Error(await r.text());
-    
-    // Remove from local data
-    D.attendances=D.attendances.filter(function(a){return a.id!==attId;});
-    
-    // If has subscription, restore remaining +1
-    if(subId&&subId!=='null'){
+    // Local state sync
+    D.attendances=D.attendances.filter(function(a){return a.id!==localAttId;});
+    if(S.selDateAtts)S.selDateAtts=S.selDateAtts.filter(function(a){return a.id!==localAttId;});
+    if(S.custDetail&&S.custDetail.atts)S.custDetail.atts=S.custDetail.atts.filter(function(a){return a.id!==localAttId;});
+    // Restore remaining +1
+    if(localSubId&&localSubId!=='null'){
       var sub=null;
-      for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
+      for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===localSubId){sub=D.subscriptions[i];break;}}
       if(sub){
         var newRem=sub.remaining+1;
-        await dbPatch('subscriptions','id=eq.'+subId,{remaining:newRem});
+        await dbPatch('subscriptions','id=eq.'+localSubId,{remaining:newRem});
         sub.remaining=newRem;
+        if(S.custDetail&&S.custDetail.subs){
+          for(var j=0;j<S.custDetail.subs.length;j++){
+            if(S.custDetail.subs[j].id===localSubId){S.custDetail.subs[j].remaining=newRem;break;}
+          }
+        }
       }
     }
+    S.reportData=null;S.izlemeData=null;
     S.showAlert={t:'ok',cust:{name:'Məşq silindi'},st:{t:'ok',txt:'Abunəlik qalığı +1 artırıldı'}};
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -4625,6 +4685,12 @@ async function deleteTxn(id){
     await fetch(BASE+'/transactions?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(S.kassaData)S.kassaData.txns=S.kassaData.txns.filter(function(t){return t.id!==id;});
     if(subId)await recalcSubscriptionPaid(subId);
+    // custDetail yenilə — transaction silindikdən sonra profil anında düzəlsin
+    if(S.custDetail&&S.selCust){
+      S.custDetail=null;
+      fetchCustDetail(S.selCust).then(function(){render();});
+    }
+    S.reportData=null;S.izlemeData=null;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
