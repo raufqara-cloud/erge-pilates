@@ -164,7 +164,8 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showPlanAbsent:false,planAbsentBooking:null,
   showSlotAttModal:false,slotAttData:null,
   showSubPayment:false,paySubId:null,
-  singleAttProgId:null};
+  singleAttProgId:null,
+  slotSinglePayCustId:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -2179,17 +2180,76 @@ function rModalSlotAttendance(){
   }
 
   h+='<div class="slabel" style="margin-top:4px">MÜŞTƏRİLƏR ('+customers.length+')</div>';
-  h+='<div style="max-height:320px;overflow-y:auto;border:1px solid #eaeaea;border-radius:10px;margin-bottom:14px">';
+  h+='<div style="max-height:380px;overflow-y:auto;border:1px solid #eaeaea;border-radius:10px;margin-bottom:14px">';
   for(var i=0;i<customers.length;i++){
     var cu=customers[i];
     var isDisabled=cu.isDisabled||cu.already;
-    // Checked comes ONLY from selectedIds — never from defaultChecked logic
     var isChecked=selIds.indexOf(cu.custId)>=0;
     var sub=cu.sub;
     var noSub=!sub||cu.bst.type==='none';
     var bg=cu.absent?'#FFF5F5':cu.type==='temp'?'#EFF6FF':'#fff';
     var cbId='satt-cb-'+i;
-    h+='<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+'">'
+    var borderTop=i?'1px solid #f0f0f0':'none';
+
+    // ── singleNeedsPay müştəri — ayrıca UI ──
+    if(cu.singleNeedsPay&&!cu.already){
+      var panelOpen=S.slotSinglePayCustId===cu.custId;
+      h+='<div style="padding:10px 12px;background:#FFF9F0;border-top:'+borderTop+'">';
+      h+='<div style="font-weight:600;font-size:13px;color:#C62828">'+escHtml(cu.custName||'?')+'</div>';
+      h+='<div style="display:flex;gap:4px;margin:5px 0;flex-wrap:wrap">'
+        +'<span class="badge b-green" style="font-size:10px">Sabit</span>'
+        +sourceBadge(cu.src||'single')
+        +'<span class="badge b-red" style="font-size:10px">Ödəniş lazımdır</span>'
+        +'</div>';
+      if(!panelOpen){
+        h+='<div style="font-size:11px;color:#888;margin-bottom:6px">Bu müştərini davamiyyətə salmaq üçün tək giriş və ya partner giriş əməliyyatı yaradın.</div>';
+        h+='<button class="btn btn-sm" style="background:#FFF3E0;color:#E65100;border:1px solid #ffcc80;font-size:11px" '
+          +'onclick="openSlotSinglePay(\''+escQ(cu.custId)+'\')">💳 Tək giriş / partner giriş et</button>';
+      } else {
+        // Inline payment panel
+        var sprogId='slot-sp-prog-'+cu.custId;
+        var samtId='slot-sp-amount-'+cu.custId;
+        var sacctId='slot-sp-acct-'+cu.custId;
+        var sacctInfoId='slot-sp-acct-info-'+cu.custId;
+        var snoteId='slot-sp-note-'+cu.custId;
+        // Program options: ROF/RPP/RPS/ROTG/ROTI/RTEST + sessions_total<=1
+        var singleProgs=['ROF','RPP','RPS','ROTG','ROTI','RTEST'];
+        var pOpts='<option value="">— Proqram seçin —</option>';
+        for(var pi=0;pi<D.programs.length;pi++){
+          var pp=D.programs[pi];
+          if(!pp.is_active)continue;
+          if(singleProgs.indexOf(pp.id)<0&&pp.sessions_total>1)continue;
+          pOpts+='<option value="'+pp.id+'" data-price="'+pp.list_price+'">'+pp.name+' — '+pp.list_price+' ₼</option>';
+        }
+        // Account options
+        var aOpts='<option value="">— Hesab seçin —</option>';
+        for(var ai=0;ai<(D.accounts||[]).length;ai++){
+          var ac=D.accounts[ai];
+          if(ac.is_active!==false)aOpts+='<option value="'+ac.id+'">'+ac.name+'</option>';
+        }
+        h+='<div style="background:#fff;border:1px solid #ffd699;border-radius:9px;padding:12px;margin-top:6px">'
+          +'<div style="display:flex;gap:8px;margin-bottom:8px">'
+          +'<div style="flex:1"><label class="fl" style="font-size:11px">Proqram *</label>'
+          +'<select class="fs" id="'+sprogId+'" onchange="updateSlotSingleProgram(\''+escQ(cu.custId)+'\')">'+pOpts+'</select></div>'
+          +'<div style="flex:0 0 90px"><label class="fl" style="font-size:11px">Məbləğ (₼)</label>'
+          +'<input class="fi" id="'+samtId+'" type="number" min="0" step="0.01" value="0"></div>'
+          +'</div>'
+          +'<div style="margin-bottom:6px"><label class="fl" style="font-size:11px">Hesab *</label>'
+          +'<select class="fs" id="'+sacctId+'">'+aOpts+'</select>'
+          +'<div id="'+sacctInfoId+'" style="font-size:11px;color:#1D9E75;margin-top:4px;display:none"></div></div>'
+          +'<div style="margin-bottom:10px"><label class="fl" style="font-size:11px">Qeyd</label>'
+          +'<input class="fi" id="'+snoteId+'" placeholder="İstəyə görə"></div>'
+          +'<div style="display:flex;gap:6px">'
+          +'<button class="btn btn-gray btn-sm" onclick="cancelSlotSinglePay()">Ləğv et</button>'
+          +'<button class="btn btn-g btn-sm" style="background:#E65100" onclick="confirmSlotSinglePay(\''+escQ(cu.custId)+'\')">✓ Təsdiqlə və seç</button>'
+          +'</div></div>';
+      }
+      h+='</div>';
+      continue; // skip standard checkbox row
+    }
+
+    // ── Standard checkbox row ──
+    h+='<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:'+bg+';border-top:'+borderTop+'">'
       +'<input type="checkbox" class="slot-att-cb" id="'+cbId+'" value="'+cu.custId+'"'
       +(isChecked?' checked':'')+(isDisabled?' disabled':'')
       +' style="margin-top:4px;flex-shrink:0"'
@@ -2203,8 +2263,7 @@ function rModalSlotAttendance(){
       +sourceBadge(cu.src||'studio')
       +(cu.absent?'<span class="badge b-red" style="font-size:10px">Gəlməyəcək ⚠</span>':'')
       +(cu.already?'<span class="badge b-gray" style="font-size:10px">Artıq qeyd edilib ✓</span>':'')
-      +(cu.singleNeedsPay?'<span class="badge b-red" style="font-size:10px">Tək giriş ödənişi lazımdır</span>':'')
-      +(!cu.singleNeedsPay&&noSub&&!cu.already?'<span class="badge b-red" style="font-size:10px">Abunə yoxdur</span>':'')
+      +(noSub&&!cu.already&&!cu.singleNeedsPay?'<span class="badge b-red" style="font-size:10px">Abunə yoxdur</span>':'')
       +(sub&&sub.status==='pending'?'<span class="badge b-blue" style="font-size:10px">Pending → aktivləşəcək</span>':'')
       +'</div></label></div>';
   }
@@ -2238,6 +2297,127 @@ function toggleSlotAttCustomer(custId, checked, wasAbsent){
       }
     }
   }
+}
+
+// ── Slot single pay helpers ──
+function openSlotSinglePay(custId){
+  S.slotSinglePayCustId=custId;
+  render();
+}
+function cancelSlotSinglePay(){
+  S.slotSinglePayCustId=null;
+  render();
+}
+
+// Program dəyişdikdə DOM update — render() çağırmır
+function updateSlotSingleProgram(custId){
+  var progEl=document.getElementById('slot-sp-prog-'+custId);
+  if(!progEl||!progEl.value)return;
+  var programId=progEl.value;
+  var prog=null;
+  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===programId){prog=D.programs[i];break;}}
+  if(!prog)return;
+  var amtEl=document.getElementById('slot-sp-amount-'+custId);
+  if(amtEl)amtEl.value=prog.list_price||0;
+  var acctEl=document.getElementById('slot-sp-acct-'+custId);
+  var infoEl=document.getElementById('slot-sp-acct-info-'+custId);
+  if(isPartnerEntryProgram(programId)){
+    var pid=getPartnerReceivableAccountId(programId);
+    if(acctEl){acctEl.disabled=true;acctEl.value=pid||'';}
+    var acctName='';
+    for(var i=0;i<(D.accounts||[]).length;i++){if(D.accounts[i].id===pid){acctName=D.accounts[i].name;break;}}
+    if(infoEl){infoEl.style.display='block';infoEl.textContent='Partner proqramıdır — "'+acctName+'" hesabına avtomatik yazılacaq.';}
+  } else {
+    if(acctEl)acctEl.disabled=false;
+    if(infoEl)infoEl.style.display='none';
+  }
+}
+
+async function confirmSlotSinglePay(custId){
+  var sd=S.slotAttData;
+  if(!sd)return;
+  // ── Bütün DOM dəyərləri await-dən əvvəl ──
+  var progEl=document.getElementById('slot-sp-prog-'+custId);
+  var amtEl=document.getElementById('slot-sp-amount-'+custId);
+  var acctEl=document.getElementById('slot-sp-acct-'+custId);
+  var noteEl=document.getElementById('slot-sp-note-'+custId);
+  var instEl=document.getElementById('slot-att-inst');
+  var programId=progEl?progEl.value:'';
+  var amount=parseFloat(amtEl?amtEl.value:0)||0;
+  var acctIdDom=acctEl?acctEl.value:'';
+  var note=noteEl?noteEl.value:'';
+  var instId=sd.instId||(instEl?instEl.value:'');
+  // Validations
+  if(!programId){alert('Proqram seçin');return;}
+  if(amount<=0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
+  if(sd.dateStr>td()){alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.');return;}
+  if(!instId){alert('Əvvəl instruktor seçin.');return;}
+  // Account resolve
+  var accountId=null;
+  if(isPartnerEntryProgram(programId)){
+    accountId=getPartnerReceivableAccountId(programId);
+    if(!accountId){
+      alert('Bu partner proqramı üçün alacaq hesabı tapılmadı.\nAccounts bölməsində "1FIT alacaqlar" və ya "Push30 alacaqlar" hesabını yaradın.');
+      return;
+    }
+  } else {
+    accountId=acctIdDom;
+    if(!accountId){alert('Hesab seçin.');return;}
+  }
+  // Objects
+  var cust=null,prog=null,inst=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===programId){prog=D.programs[i];break;}}
+  for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
+  if(!cust||!prog){alert('Müştəri və ya proqram tapılmadı');return;}
+  // Duplicate guard
+  for(var i=0;i<D.attendances.length;i++){
+    var a=D.attendances[i];
+    if(a.customer_id===custId&&a.class_date===sd.dateStr&&a.class_time===sd.time){
+      alert(escHtml(cust.name)+' artıq bu slot üçün davamiyyətdə qeydlidir.');
+      return;
+    }
+  }
+  S.slotSinglePayCustId=null;
+  S.saving=true;render();
+  try{
+    var isPartner=isPartnerEntryProgram(programId);
+    var txnDate=sd.dateStr;
+    var txnDesc=prog.name+' — '+cust.name+(isPartner?' — partner giriş':' — tək giriş');
+    var txn={id:'TX'+Date.now(),date:txnDate,type:'income',
+      category:isPartner?'Partner giriş':'Tək giriş',
+      description:txnDesc+(note?' ('+note+')':''),
+      amount:amount,account_id:accountId,
+      to_account_id:null,subscription_id:null,customer_id:custId};
+    await dbPost('transactions',txn);
+    if(!isPartner&&accountId===BANK_ACCT_ID){
+      await createPosCommission(amount,txnDate,txnDesc);
+    }
+    // Attendance
+    var att={id:uid(),customer_id:custId,customer_name:cust.name,
+      subscription_id:null,program_id:prog.id,program_name:prog.name,
+      class_date:sd.dateStr,class_time:sd.time,
+      instructor_id:instId,instructor_name:inst?inst.full_name:''};
+    await dbPost('attendances',att);
+    D.attendances.unshift(att);
+    if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date)S.selDateAtts.unshift(att);
+    S.kassaData=null;S.reportData=null;S.izlemeData=null;
+    // Update customer in slotAttData
+    if(sd&&sd.customers){
+      for(var i=0;i<sd.customers.length;i++){
+        if(sd.customers[i].custId===custId){
+          sd.customers[i].already=true;
+          sd.customers[i].isDisabled=true;
+          sd.customers[i].singleNeedsPay=false;
+          var idx2=sd.selectedIds?sd.selectedIds.indexOf(custId):-1;
+          if(idx2>=0)sd.selectedIds.splice(idx2,1);
+          break;
+        }
+      }
+    }
+    S.showAlert={t:'ok',cust:cust,st:{t:'ok',txt:cust.name+(isPartner?' — partner giriş və davamiyyət qeyd edildi':' — tək giriş ödənişi və davamiyyət qeyd edildi')}};
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
 }
 
 async function submitSlotAttendance(){
@@ -4158,6 +4338,29 @@ function partnerAcctId(progName){
   if(n.indexOf('push30')>=0||n.indexOf('push 30')>=0)return'ACC005';
   if(n.indexOf('1fit')>=0)return'ACC006';
   return'ACC005'; // fallback
+}
+
+function isPartnerEntryProgram(programId){
+  return['ROF','RPP','RPS'].indexOf(programId)>=0;
+}
+
+function getPartnerReceivableAccountId(programId){
+  var accts=D.accounts||[];
+  if(programId==='ROF'){
+    for(var i=0;i<accts.length;i++){
+      var n=(accts[i].name||'').toLowerCase();
+      if(n.indexOf('1fit')>=0)return accts[i].id;
+    }
+    return null;
+  }
+  if(programId==='RPP'||programId==='RPS'){
+    for(var i=0;i<accts.length;i++){
+      var n=(accts[i].name||'').toLowerCase();
+      if(n.indexOf('push30')>=0||n.indexOf('push 30')>=0)return accts[i].id;
+    }
+    return null;
+  }
+  return null;
 }
 
 // Build category picker HTML (custom searchable dropdown)
