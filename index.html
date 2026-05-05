@@ -4276,6 +4276,7 @@ async function submitAddTxn(){
     if(!isPending&&type==='income'&&acctId===BANK_ACCT_ID){
       await createPosCommission(amount,date,desc||cat);
     }
+    if(txn.subscription_id)await recalcSubscriptionPaid(txn.subscription_id);
     S.showAddTxn=false;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -4309,6 +4310,7 @@ function rModalEditTxn(){
 
 async function submitEditTxn(){
   var txnId=S.editTxnId;
+  // DOM dəyərləri await-dən əvvəl oxu
   var type=document.getElementById('et-type').value;
   var cat=document.getElementById('et-cat').value;
   var date=document.getElementById('et-date').value;
@@ -4317,6 +4319,15 @@ async function submitEditTxn(){
   var desc=document.getElementById('et-desc').value;
   var status=document.getElementById('et-status')?document.getElementById('et-status').value:'posted';
   if(!cat||!date||!amount||!acctId)return;
+  // Keçmiş tarix xəbərdarlığı
+  if(date<td()){
+    if(!confirm('Bu əməliyyat keçmiş tarixə aiddir. Əgər həmin günün kassa bağlanışı aparılıbsa, yekunlarda fərq yarana bilər. Davam edilsin?'))return;
+  }
+  // Köhnə subId saxla
+  var oldSubId=null;
+  if(S.kassaData)for(var i=0;i<S.kassaData.txns.length;i++){
+    if(S.kassaData.txns[i].id===txnId){oldSubId=S.kassaData.txns[i].subscription_id||null;break;}
+  }
   S.saving=true;render();
   try{
     await dbPatch('transactions','id=eq.'+txnId,{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc,status:status});
@@ -4326,6 +4337,8 @@ async function submitEditTxn(){
         break;
       }
     }
+    // subscription_id dəyişmədiyi üçün oldSubId recalc-ı kifayətdir
+    if(oldSubId)await recalcSubscriptionPaid(oldSubId);
     S.editTxnId=null;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -4349,11 +4362,21 @@ async function executePending(id){
 }
 
 async function deleteTxn(id){
-  if(!confirm('Bu əməliyyatı silmək istədiyinizdən əminsinizmi?'))return;
+  // subId və tarixi əvvəlcədən saxla
+  var subId=null;
+  var txnDate=null;
+  if(S.kassaData){for(var i=0;i<S.kassaData.txns.length;i++){if(S.kassaData.txns[i].id===id){subId=S.kassaData.txns[i].subscription_id||null;txnDate=S.kassaData.txns[i].date||null;break;}}}
+  // Keçmiş tarix xəbərdarlığı
+  if(txnDate&&txnDate<td()){
+    if(!confirm('Bu əməliyyat keçmiş tarixə aiddir. Əgər həmin günün kassa bağlanışı aparılıbsa, yekunlarda fərq yarana bilər. Silinsin?'))return;
+  } else {
+    if(!confirm('Bu əməliyyatı silmək istədiyinizdən əminsinizmi?'))return;
+  }
   S.saving=true;render();
   try{
     await fetch(BASE+'/transactions?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(S.kassaData)S.kassaData.txns=S.kassaData.txns.filter(function(t){return t.id!==id;});
+    if(subId)await recalcSubscriptionPaid(subId);
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -4430,19 +4453,8 @@ async function submitSubPayment(){
       description:desc,amount:amount,account_id:acctId,
       to_account_id:null,subscription_id:sub.id,customer_id:sub.customer_id};
     await dbPost('transactions',txn);
-    // Update subscription price_paid
-    var newPaid=Math.round((paid+amount)*100)/100;
-    await dbPatch('subscriptions','id=eq.'+sub.id,{price_paid:newPaid});
-    // Update local state
-    sub.price_paid=newPaid;
-    for(var i=0;i<D.subscriptions.length;i++){
-      if(D.subscriptions[i].id===sub.id){D.subscriptions[i].price_paid=newPaid;break;}
-    }
-    if(S.custDetail&&S.custDetail.subs){
-      for(var i=0;i<S.custDetail.subs.length;i++){
-        if(S.custDetail.subs[i].id===sub.id){S.custDetail.subs[i].price_paid=newPaid;break;}
-      }
-    }
+    // price_paid-i bütün linked income-ların cəminə görə yenilə
+    await recalcSubscriptionPaid(sub.id);
     // POS commission if bank account
     if(acctId===BANK_ACCT_ID){
       await createPosCommission(amount,payDate,desc);
@@ -4453,6 +4465,28 @@ async function submitSubPayment(){
     S.showAlert={t:'ok',cust:cust||{name:''},st:{t:'ok',txt:'Ödəniş qeydə alındı: '+amount+' ₼'}};
   }catch(e){alert('Xəta: '+e.message);}
   S.saving=false;render();
+}
+
+// ==================== BUG 2 — Subscription price_paid recalc ====================
+
+async function recalcSubscriptionPaid(subId){
+  if(!subId)return;
+  var txns=await dbGet('transactions','subscription_id=eq.'+subId+'&type=eq.income');
+  var total=0;
+  for(var i=0;i<txns.length;i++)total+=parseFloat(txns[i].amount)||0;
+  total=Math.round(total*100)/100;
+  await dbPatch('subscriptions','id=eq.'+subId,{price_paid:total});
+  for(var i=0;i<D.subscriptions.length;i++){
+    if(D.subscriptions[i].id===subId){D.subscriptions[i].price_paid=total;break;}
+  }
+  if(S.custDetail&&S.custDetail.subs){
+    for(var j=0;j<S.custDetail.subs.length;j++){
+      if(S.custDetail.subs[j].id===subId){S.custDetail.subs[j].price_paid=total;break;}
+    }
+  }
+  S.kassaData=null;
+  S.izlemeData=null;
+  S.reportData=null;
 }
 
 loadAll();
