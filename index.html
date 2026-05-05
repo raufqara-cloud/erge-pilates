@@ -2241,18 +2241,20 @@ function rModalSlotAttendance(){
         }
         payPanelHtml='<div style="background:#fff;border:1px solid #ffd699;border-radius:9px;padding:12px;margin-bottom:14px">'
           +'<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:10px">💳 '+(isPartnerType?'Partner giriş':'Tək giriş')+' — '+escHtml(cu.custName||'')+'</div>'
-          +'<div style="display:flex;gap:8px;margin-bottom:8px">'
-          +'<div style="flex:1"><label class="fl" style="font-size:11px">Proqram *</label>'
+          +'<div style="margin-bottom:8px"><label class="fl" style="font-size:11px">Proqram *</label>'
           +'<select class="fs" id="'+sprogId+'" onchange="updateSlotSingleProgram(\''+escQ(cu.custId)+'\')">'+pOpts+'</select></div>'
-          +'<div style="flex:0 0 90px"><label class="fl" style="font-size:11px">Məbləğ (₼)</label>'
-          +'<input class="fi" id="'+samtId+'" type="number" min="0" step="0.01" value="'+(pay.amount||0)+'" oninput="updateSlotSingleAmount(\''+escQ(cu.custId)+'\',this.value)"></div>'
-          +'</div>'
-          +'<div style="margin-bottom:6px"><label class="fl" style="font-size:11px">Hesab *</label>'
-          +(isPartnerProg
-            ?'<input class="fi" id="slot-sp-acct-display-'+cu.custId+'" value="'+(partnerAcctName||pay.accountId||'')+'" disabled style="background:#f5f5f5">'
-             +'<div id="slot-sp-acct-info-'+cu.custId+'" style="font-size:11px;color:#1D9E75;margin-top:3px">Partner proqramıdır — "'+(partnerAcctName||'')+'" hesabına avtomatik yazılacaq.</div>'
+          +'<div style="display:flex;gap:8px;margin-bottom:8px">'
+          // Məbləğ — readonly, proqramdan avtomatik
+          +'<div style="flex:0 0 110px"><label class="fl" style="font-size:11px">Məbləğ (₼)</label>'
+          +'<input class="fi" id="'+samtId+'" type="number" value="'+(pay.amount||'')+'" readonly style="background:#f5f5f5;cursor:default" tabindex="-1"></div>'
+          // Hesab — partner: disabled text; single: select
+          +'<div style="flex:1"><label class="fl" style="font-size:11px">Hesab</label>'
+          +(isPartnerType
+            ?'<input class="fi" id="slot-sp-acct-display-'+cu.custId+'" value="'+(partnerAcctName||'')+'" readonly style="background:#f5f5f5;cursor:default" tabindex="-1">'
             :'<select class="fs" id="'+sacctId+'" onchange="updateSlotSingleAccount(\''+escQ(cu.custId)+'\',this.value)">'+aOpts+'</select>')
           +'</div>'
+          +'</div>'
+          +(isPartnerType&&partnerAcctName?'<div id="slot-sp-acct-info-'+cu.custId+'" style="font-size:11px;color:#1D9E75;margin-bottom:8px">Avtomatik: "'+partnerAcctName+'" hesabına yazılacaq.</div>':'<div id="slot-sp-acct-info-'+cu.custId+'"></div>')
           +'<div style="margin-bottom:10px"><label class="fl" style="font-size:11px">Qeyd</label>'
           +'<input class="fi" id="'+snoteId+'" placeholder="İstəyə görə" value="'+(pay.note||'')+'" oninput="updateSlotSingleNote(\''+escQ(cu.custId)+'\',this.value)"></div>'
           +'<div style="display:flex;gap:6px">'
@@ -2349,27 +2351,9 @@ function getEntryProgramsForCustomer(custId){
 
 function openSlotSinglePay(custId){
   if(!S.slotSinglePayData)S.slotSinglePayData={};
-  // Mövcud data varsa overwrite etmə — seçilmiş proqram qorunsun
   if(!S.slotSinglePayData[custId]){
-    var sd=S.slotAttData;
-    var entryType='single';
-    if(sd&&sd.customers){
-      for(var i=0;i<sd.customers.length;i++){
-        if(sd.customers[i].custId===custId){entryType=sd.customers[i].entryPaymentType||'single';break;}
-      }
-    }
-    var progs=entryType==='partner'?getPartnerEntryPrograms():getStudioSinglePrograms();
-    if(!progs.length){
-      alert(entryType==='partner'
-        ?'Partner giriş proqramı tapılmadı. Admin → Proqramlarda ROF/RPP/RPS yaradın.'
-        :'Tək giriş proqramı tapılmadı. Admin → Proqramlarda ROTG/ROTI/RTEST yaradın.');
-      return;
-    }
-    var p=progs[0];
-    var programId=p.id;
-    var amount=p.list_price;
-    var acctId=isPartnerEntryProgram(programId)?(getPartnerReceivableAccountId(programId)||''):'';
-    S.slotSinglePayData[custId]={programId:programId,amount:amount,accountId:acctId,note:''};
+    // Boş başla — proqram seçilmədən məbləğ və hesab görünməsin
+    S.slotSinglePayData[custId]={programId:'',amount:'',accountId:'',note:''};
   }
   console.log('openSlotSinglePay',custId,S.slotSinglePayData[custId]);
   S.slotSinglePayCustId=custId;
@@ -2382,33 +2366,39 @@ function cancelSlotSinglePay(){
   render();
 }
 
-// Program dəyişdikdə — render() ÇAĞIRMA, DOM birbaşa yenilə
+// Program dəyişdikdə — render() YOX, DOM birbaşa yenilə
 function updateSlotSingleProgram(custId){
   var sel=document.getElementById('slot-sp-prog-'+custId);
   var progId=sel?sel.value:'';
-  console.log('slot single program changed',custId,progId,S.slotSinglePayData&&S.slotSinglePayData[custId]);
+  console.log('slot single program changed',custId,progId);
   if(!S.slotSinglePayData)S.slotSinglePayData={};
   if(!S.slotSinglePayData[custId])S.slotSinglePayData[custId]={};
+  // Program tapılsın
   var p=null;
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){p=D.programs[i];break;}}
-  var newAmount=p?p.list_price:'';
+  var newAmount=(p&&p.list_price!=null)?p.list_price:'';
   S.slotSinglePayData[custId].programId=progId;
   S.slotSinglePayData[custId].amount=newAmount;
-  // Amount field-i birbaşa yenilə
+  // Məbləğ input-u yenilə (readonly)
   var amtEl=document.getElementById('slot-sp-amount-'+custId);
-  if(amtEl)amtEl.value=newAmount||0;
-  // Account yeniləmə
-  if(isPartnerEntryProgram(progId)){
+  if(amtEl)amtEl.value=(newAmount!==''?newAmount:'');
+  // Hesab yeniləmə
+  if(progId&&isPartnerEntryProgram(progId)){
     var newAcctId=getPartnerReceivableAccountId(progId)||'';
     S.slotSinglePayData[custId].accountId=newAcctId;
+    // Partner: disabled input-u yenilə
     var acctName='';
     for(var j=0;j<(D.accounts||[]).length;j++){if(D.accounts[j].id===newAcctId){acctName=D.accounts[j].name;break;}}
     var dispEl=document.getElementById('slot-sp-acct-display-'+custId);
-    if(dispEl)dispEl.value=acctName||newAcctId;
+    if(dispEl)dispEl.value=acctName||'';
     var infoEl=document.getElementById('slot-sp-acct-info-'+custId);
-    if(infoEl)infoEl.textContent='Partner proqramıdır — "'+acctName+'" hesabına avtomatik yazılacaq.';
+    if(infoEl)infoEl.textContent=acctName?'Avtomatik: "'+acctName+'" hesabına yazılacaq.':'';
+  } else if(progId&&!isPartnerEntryProgram(progId)){
+    // Non-partner: mövcud account seçimini qoru
+    var infoEl2=document.getElementById('slot-sp-acct-info-'+custId);
+    if(infoEl2)infoEl2.textContent='';
   }
-  // Non-partner: mövcud accountId-ni qoru; render() YOX — select öz dəyərini saxlayır
+  console.log('state after update',S.slotSinglePayData[custId]);
 }
 
 // Input dəyişiklikləri state-ə yazılır — render yoxdur
