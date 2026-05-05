@@ -2185,7 +2185,9 @@ function rModalSlotAttendance(){
   }
 
   h+='<div class="slabel" style="margin-top:4px">MÜŞTƏRİLƏR ('+customers.length+')</div>';
-  h+='<div style="max-height:380px;overflow-y:auto;border:1px solid #eaeaea;border-radius:10px;margin-bottom:14px">';
+  // Payment panel ayrıca tutulur — overflow clip etməsin
+  var payPanelHtml='';
+  h+='<div style="max-height:380px;overflow-y:auto;border:1px solid #eaeaea;border-radius:10px;margin-bottom:0">';
   for(var i=0;i<customers.length;i++){
     var cu=customers[i];
     var isDisabled=cu.isDisabled||cu.already;
@@ -2212,13 +2214,12 @@ function rModalSlotAttendance(){
         h+='<button class="btn btn-sm" style="background:'+(isPartnerType?'#F3E5F5':'#FFF3E0')+';color:'+(isPartnerType?'#7B1FA2':'#E65100')+';border:1px solid '+(isPartnerType?'#ce93d8':'#ffcc80')+';font-size:11px" '
           +'onclick="openSlotSinglePay(\''+escQ(cu.custId)+'\')">💳 '+(isPartnerType?'Partner giriş et':'Tək giriş et')+'</button>';
       } else {
-        // Inline payment panel — values from state
+        // Inline payment panel — scroll div-dən kənarda render ediləcək (payPanelHtml)
         var pay=(S.slotSinglePayData&&S.slotSinglePayData[cu.custId])||{};
         var sprogId='slot-sp-prog-'+cu.custId;
         var samtId='slot-sp-amount-'+cu.custId;
         var sacctId='slot-sp-acct-'+cu.custId;
         var snoteId='slot-sp-note-'+cu.custId;
-        // Source-aware program list
         var entryProgs=getEntryProgramsForCustomer(cu.custId);
         var pOpts='<option value="">— Proqram seçin —</option>';
         for(var pi=0;pi<entryProgs.length;pi++){
@@ -2238,7 +2239,8 @@ function rModalSlotAttendance(){
         if(isPartnerProg&&pay.accountId){
           for(var ai=0;ai<(D.accounts||[]).length;ai++){if(D.accounts[ai].id===pay.accountId){partnerAcctName=D.accounts[ai].name;break;}}
         }
-        h+='<div style="background:#fff;border:1px solid #ffd699;border-radius:9px;padding:12px;margin-top:6px">'
+        payPanelHtml='<div style="background:#fff;border:1px solid #ffd699;border-radius:9px;padding:12px;margin-bottom:14px">'
+          +'<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:10px">💳 '+(isPartnerType?'Partner giriş':'Tək giriş')+' — '+escHtml(cu.custName||'')+'</div>'
           +'<div style="display:flex;gap:8px;margin-bottom:8px">'
           +'<div style="flex:1"><label class="fl" style="font-size:11px">Proqram *</label>'
           +'<select class="fs" id="'+sprogId+'" onchange="updateSlotSingleProgram(\''+escQ(cu.custId)+'\')">'+pOpts+'</select></div>'
@@ -2281,7 +2283,8 @@ function rModalSlotAttendance(){
       +(sub&&sub.status==='pending'?'<span class="badge b-blue" style="font-size:10px">Pending → aktivləşəcək</span>':'')
       +'</div></label></div>';
   }
-  h+='</div>';
+  h+='</div>'; // close max-height scroll div
+  h+='<div style="margin-bottom:14px">'+payPanelHtml+'</div>';
   h+='<div class="mact">'
     +'<button class="btn btn-gray" onclick="S.showSlotAttModal=false;S.slotAttData=null;render()">Ləğv et</button>'
     +'<button class="btn btn-g" onclick="submitSlotAttendance()">Qeydə al</button>'
@@ -2379,13 +2382,18 @@ function cancelSlotSinglePay(){
 function updateSlotSingleProgram(custId){
   var sel=document.getElementById('slot-sp-prog-'+custId);
   var progId=sel?sel.value:'';
+  console.log('slot single program changed',custId,progId);
   if(!S.slotSinglePayData)S.slotSinglePayData={};
   if(!S.slotSinglePayData[custId])S.slotSinglePayData[custId]={};
   var p=null;
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){p=D.programs[i];break;}}
   S.slotSinglePayData[custId].programId=progId;
   S.slotSinglePayData[custId].amount=p?p.list_price:'';
-  S.slotSinglePayData[custId].accountId=isPartnerEntryProgram(progId)?(getPartnerReceivableAccountId(progId)||''):'';
+  if(isPartnerEntryProgram(progId)){
+    // Partner proqram: alacaq hesabını avtomatik seç
+    S.slotSinglePayData[custId].accountId=getPartnerReceivableAccountId(progId)||'';
+  }
+  // Non-partner: mövcud accountId-ni qoru (istifadəçi manual seçib)
   render();
 }
 
