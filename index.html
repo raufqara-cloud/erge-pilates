@@ -2349,25 +2349,29 @@ function getEntryProgramsForCustomer(custId){
 
 function openSlotSinglePay(custId){
   if(!S.slotSinglePayData)S.slotSinglePayData={};
-  var sd=S.slotAttData;
-  var entryType='single';
-  if(sd&&sd.customers){
-    for(var i=0;i<sd.customers.length;i++){
-      if(sd.customers[i].custId===custId){entryType=sd.customers[i].entryPaymentType||'single';break;}
+  // Mövcud data varsa overwrite etmə — seçilmiş proqram qorunsun
+  if(!S.slotSinglePayData[custId]){
+    var sd=S.slotAttData;
+    var entryType='single';
+    if(sd&&sd.customers){
+      for(var i=0;i<sd.customers.length;i++){
+        if(sd.customers[i].custId===custId){entryType=sd.customers[i].entryPaymentType||'single';break;}
+      }
     }
+    var progs=entryType==='partner'?getPartnerEntryPrograms():getStudioSinglePrograms();
+    if(!progs.length){
+      alert(entryType==='partner'
+        ?'Partner giriş proqramı tapılmadı. Admin → Proqramlarda ROF/RPP/RPS yaradın.'
+        :'Tək giriş proqramı tapılmadı. Admin → Proqramlarda ROTG/ROTI/RTEST yaradın.');
+      return;
+    }
+    var p=progs[0];
+    var programId=p.id;
+    var amount=p.list_price;
+    var acctId=isPartnerEntryProgram(programId)?(getPartnerReceivableAccountId(programId)||''):'';
+    S.slotSinglePayData[custId]={programId:programId,amount:amount,accountId:acctId,note:''};
   }
-  var progs=entryType==='partner'?getPartnerEntryPrograms():getStudioSinglePrograms();
-  if(!progs.length){
-    alert(entryType==='partner'
-      ?'Partner giriş proqramı tapılmadı. Admin → Proqramlarda ROF/RPP/RPS yaradın.'
-      :'Tək giriş proqramı tapılmadı. Admin → Proqramlarda ROTG/ROTI/RTEST yaradın.');
-    return;
-  }
-  var p=progs[0];
-  var programId=p.id;
-  var amount=p.list_price;
-  var acctId=isPartnerEntryProgram(programId)?(getPartnerReceivableAccountId(programId)||''):'';
-  S.slotSinglePayData[custId]={programId:programId,amount:amount,accountId:acctId,note:''};
+  console.log('openSlotSinglePay',custId,S.slotSinglePayData[custId]);
   S.slotSinglePayCustId=custId;
   render();
 }
@@ -2382,7 +2386,7 @@ function cancelSlotSinglePay(){
 function updateSlotSingleProgram(custId){
   var sel=document.getElementById('slot-sp-prog-'+custId);
   var progId=sel?sel.value:'';
-  console.log('slot single program changed',custId,progId);
+  console.log('slot single program changed',custId,progId,S.slotSinglePayData[custId]);
   if(!S.slotSinglePayData)S.slotSinglePayData={};
   if(!S.slotSinglePayData[custId])S.slotSinglePayData[custId]={};
   var p=null;
