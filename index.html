@@ -3354,6 +3354,10 @@ function rReport(){
 }
 function rAdmin(){
   var h='<div class="ph"><div class="pt">Admin Panel</div></div>';
+  h+='<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:10px;padding:12px 14px;margin-bottom:16px">'
+    +'<div style="font-weight:700;font-size:13px;color:#E65100;margin-bottom:6px">🔧 Məlumat Bütövlüyü</div>'
+    +'<div style="font-size:12px;color:#555;margin-bottom:10px">Abunə qalıq sayları real davamiyyətlə uyğunlaşmırsa, aşağıdakı düymə ilə bütün müştərilər üçün yenidən hesablayın.</div>'
+    +'<button class="btn btn-g" style="background:#E65100" onclick="repairAllSubscriptions()">🔄 Bütün abunə qalıqlarını düzəlt</button>'
   h+='<div class="slabel">PROQRAMLAR <button class="btn btn-g btn-sm" onclick="S.showAddProg=true;render()">+ Yeni</button></div>';
   var allProgs=D.programs.slice();
   for(var i=0;i<allProgs.length;i++){
@@ -3849,15 +3853,20 @@ async function fetchCustDetail(custId){
       dbGet('attendances','customer_id=eq.'+custId+'&order=class_date.desc')
     ]);
     S.custDetail={subs:res[0]||[],atts:res[1]||[]};
-    // Update local cache: UPDATE existing entries with fresh DB data, ADD new ones
+    // D.attendances-a bu musteri ucun TAM davamiyyeti yaz
+    // Belece calcSubRemaining her zaman duzgun netice verar
+    var freshAtts=S.custDetail.atts;
+    D.attendances=D.attendances.filter(function(a){return a.customer_id!==custId;});
+    for(var i=0;i<freshAtts.length;i++)D.attendances.push(freshAtts[i]);
+    // D.subscriptions-i da yenile
     var existSubIdxs={};
     for(var i=0;i<D.subscriptions.length;i++)existSubIdxs[D.subscriptions[i].id]=i;
     for(var i=0;i<S.custDetail.subs.length;i++){
       var freshSub=S.custDetail.subs[i];
       if(existSubIdxs[freshSub.id]!==undefined){
-        D.subscriptions[existSubIdxs[freshSub.id]]=freshSub; // fresh DB data ilə üzərinə yaz
+        D.subscriptions[existSubIdxs[freshSub.id]]=freshSub;
       }else{
-        D.subscriptions.push(freshSub); // yeni abunəliyi əlavə et
+        D.subscriptions.push(freshSub);
       }
     }
   }catch(e){S.custDetail={subs:[],atts:[]};}
@@ -5032,6 +5041,24 @@ async function recalcSubscriptionRemaining(subId){
   updateSubscriptionLocal(subId,{remaining:newRemaining});
   S.reportData=null;S.izlemeData=null;
   return{subId:subId,used:used,remaining:newRemaining};
+}
+
+async function repairAllSubscriptions(){
+  if(!confirm('Bütün müştərilərin abunə qalıqları real davamiyyət sayına görə yenidən hesablanacaq.\nBu əməliyyat bir neçə dəqiqə çəkə bilər. Davam edilsin?'))return;
+  S.saving=true;render();
+  try{
+    var allSubs=await dbGet('subscriptions','is_active=eq.true&order=customer_id');
+    var count=0;
+    for(var i=0;i<allSubs.length;i++){
+      if(!allSubs[i].is_partner){
+        await recalcSubscriptionRemaining(allSubs[i].id);
+        count++;
+      }
+    }
+    alert('✓ '+count+' abunəlik yenidən hesablandı.\nSəhifəni yeniləyin ki, dəyişikliklər görünsün.');
+    S.custDetail=null;
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
 }
 
 async function repairCustomerSubscriptions(custId){
