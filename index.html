@@ -269,14 +269,17 @@ function updateSubscriptionLocal(subId,patch){
 function activeSub(custId){
   var today=td();
   var pending=null;
-  // S.custDetail.atts varsa (müştəri profil görünüşü) daha tam davamiyyət siyahısından istifadə et
-  var attsForCalc=(S.custDetail&&S.selCust===custId&&S.custDetail.atts)?S.custDetail.atts:D.attendances;
+  // custDetail yüklüdürsə real say, yoxdursa DB remaining-ə güvən
+  var attsForCalc=(S.custDetail&&S.selCust===custId&&S.custDetail.atts)?S.custDetail.atts:null;
   for(var i=0;i<D.subscriptions.length;i++){
     var s=D.subscriptions[i];
     if(s.customer_id!==custId||!s.is_active)continue;
     if(s.status==='pending'){if(!pending)pending=s;continue;}
-    var realRemaining=s.is_partner?null:calcSubRemaining(s,attsForCalc);
-    if(s.end_date>=today&&(s.is_partner||realRemaining>0))return s;
+    var rem;
+    if(s.is_partner){rem=null;}
+    else if(attsForCalc){rem=calcSubRemaining(s,attsForCalc);}
+    else{rem=Math.max(0,(s.remaining||0));} // DB dəyəri — repairAllSubscriptions ilə sinxronlaşır
+    if(s.end_date>=today&&(s.is_partner||(rem!==null&&rem>0)))return s;
   }
   return pending;
 }
@@ -298,7 +301,7 @@ function subStatus(sub){
     if(left<=2)return{t:'warn',txt:'Bu ay '+left+' dərs qaldı'};
     return{t:'ok',txt:'Bu ay '+left+' dərs qaldı'};
   }
-  var rem=calcSubRemaining(sub,(S.custDetail&&S.custDetail.atts)||D.attendances);
+  var rem=(S.custDetail&&S.custDetail.atts)?calcSubRemaining(sub,S.custDetail.atts):Math.max(0,(sub.remaining||0));
   if(rem<=0)return{t:'exp',txt:'Dərs sayı tamamlandı'};
   if(rem<=2)return{t:'warn',txt:rem+' dərs qaldı'};
   return{t:'ok',txt:rem+' dərs qaldı'};
@@ -3807,14 +3810,14 @@ async function submitSingleAtt(){
     var saPaid=saPaidPre;
     if(saAcctId&&saPaid>0){
       var desc=(prog?prog.name:'Tək giriş')+' — '+c.name;
-      var stxn={id:'TX'+Date.now(),date:saDate,type:'income',category:'Tək giriş',
+      var stxn={id:'TX'+Date.now(),date:saDate||td(),type:'income',category:'Tək giriş',
         description:desc,amount:saPaid,account_id:saAcctId,
         subscription_id:null,customer_id:c.id};
       await dbPost('transactions',stxn);
       if(S.kassaData)S.kassaData.txns.unshift(stxn);
-      // 2% POS commission if Bank selected (non-partner)
-      if(!prog.is_partner&&saAcctId===BANK_ACCT_ID){
-        await createPosCommission(saPaid,saDate,desc);
+      // 2% POS commission — stxn.account_id Bank-dırsa (ACC003), non-partner
+      if(stxn.account_id===BANK_ACCT_ID&&!prog.is_partner){
+        await createPosCommission(stxn.amount,stxn.date,desc);
       }
       S.kassaData=null;
     }
