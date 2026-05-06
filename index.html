@@ -735,10 +735,13 @@ function rDetail(){
         var discountShown=subDiscountAmount(sub);
         var dnote=subDiscountNote(sub);
         var debtHtml=debt>0?'<span style="color:#C62828;font-weight:600"> | Borc: '+debt+' ₼</span>':'';
+        var hasNewPricing=sub.list_price_at_sale!==undefined&&sub.list_price_at_sale!==null&&sub.list_price_at_sale!=='';
         var finHtml='';
-        if(discountShown>0){
-          finHtml='Paket: '+listPrice+' ₼ | Endirim: '+discountShown+' ₼ | Ödənilməli: '+due+' ₼ | '+paid+' ₼ ödənilib'+debtHtml;
-          if(dnote)finHtml+='<div style="font-size:11px;color:#999;margin-top:2px">Endirim qeydi: '+escHtml(dnote)+'</div>';
+        if(hasNewPricing){
+          finHtml='Paket: '+listPrice+' ₼';
+          if(discountShown>0)finHtml+=' | <span style="color:#1D9E75;font-weight:600">Endirim: -'+discountShown+' ₼</span>';
+          finHtml+=' | Ödənilməli: '+due+' ₼ | '+paid+' ₼ ödənilib'+debtHtml;
+          if(discountShown>0&&dnote)finHtml+='<div style="font-size:11px;color:#999;margin-top:2px">Endirim qeydi: '+escHtml(dnote)+'</div>';
         }else{
           finHtml='Ödənilməli: '+due+' ₼ | '+paid+' ₼ ödənilib'+debtHtml;
         }
