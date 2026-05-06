@@ -268,11 +268,13 @@ function updateSubscriptionLocal(subId,patch){
 function activeSub(custId){
   var today=td();
   var pending=null;
+  // S.custDetail.atts varsa (müştəri profil görünüşü) daha tam davamiyyət siyahısından istifadə et
+  var attsForCalc=(S.custDetail&&S.selCust===custId&&S.custDetail.atts)?S.custDetail.atts:D.attendances;
   for(var i=0;i<D.subscriptions.length;i++){
     var s=D.subscriptions[i];
     if(s.customer_id!==custId||!s.is_active)continue;
     if(s.status==='pending'){if(!pending)pending=s;continue;}
-    var realRemaining=s.is_partner?null:calcSubRemaining(s);
+    var realRemaining=s.is_partner?null:calcSubRemaining(s,attsForCalc);
     if(s.end_date>=today&&(s.is_partner||realRemaining>0))return s;
   }
   return pending;
@@ -295,7 +297,7 @@ function subStatus(sub){
     if(left<=2)return{t:'warn',txt:'Bu ay '+left+' dərs qaldı'};
     return{t:'ok',txt:'Bu ay '+left+' dərs qaldı'};
   }
-  var rem=calcSubRemaining(sub);
+  var rem=calcSubRemaining(sub,(S.custDetail&&S.custDetail.atts)||D.attendances);
   if(rem<=0)return{t:'exp',txt:'Dərs sayı tamamlandı'};
   if(rem<=2)return{t:'warn',txt:rem+' dərs qaldı'};
   return{t:'ok',txt:rem+' dərs qaldı'};
@@ -321,7 +323,7 @@ async function loadAll(){
       dbGet('instructors','order=full_name'),
       dbGet('customers','order=name'),
       dbGet('subscriptions','order=start_date.desc'),
-      dbGet('attendances','order=class_date.desc'),
+      dbGet('attendances','order=class_date.desc&limit=10000'),
     ]);
     D.programs=res[0];D.accounts=res[1]||[];D._allInstructors=res[2];D.instructors=res[2].filter(function(x){return x.is_active!==false;});D.customers=res[3];
     D.subscriptions=res[4];D.attendances=res[5];
