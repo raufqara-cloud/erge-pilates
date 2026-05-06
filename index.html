@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — Discount/RTEST Fixed</title>
+<title>Erge Pilates — Discount/RTEST/SlotPOS Fixed</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -140,6 +140,21 @@ async function dbGet(t,p){
   if(!r.ok)throw new Error(await r.text());
   return r.json();
 }
+async function dbGetAll(t,p,chunk){
+  chunk=chunk||1000;
+  var out=[];
+  var offset=0;
+  while(true){
+    var query=(p?p+'&':'')+'limit='+chunk+'&offset='+offset;
+    var rows=await dbGet(t,query);
+    if(!rows||!rows.length)break;
+    out=out.concat(rows);
+    if(rows.length<chunk)break;
+    offset+=chunk;
+    if(offset>100000){console.warn('dbGetAll safety stop',t,out.length);break;}
+  }
+  return out;
+}
 async function dbPost(t,b){
   var r=await fetch(BASE+'/'+t,{method:'POST',headers:H,body:JSON.stringify(b)});
   if(!r.ok)throw new Error(await r.text());
@@ -151,7 +166,7 @@ async function dbPatch(t,f,b){
 }
 
 var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
-var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[],accounts:[]};
+var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[],accounts:[],attFull:false};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
   attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',attDate:null,singleAttDate:null,kassaTab:'txns',kassaData:null,kassaLoading:false,showAddTxn:false,editTxnId:null,selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null,bronSearch:'',showEditBronEx:false,editBronEx:null,
@@ -224,6 +239,18 @@ function calcSubRemaining(sub,attsArr){
   var total=parseInt(sub.sessions_total)||0;
   return Math.max(0,total-calcSubUsed(sub.id,attsArr));
 }
+function getAttsForCalc(custId){
+  if(custId&&S.custDetail&&S.selCust===custId&&S.custDetail.atts)return S.custDetail.atts;
+  if(D.attFull)return D.attendances||[];
+  return null;
+}
+function calcRemainingForDisplay(sub){
+  if(!sub)return 0;
+  if(sub.is_partner)return null;
+  var atts=getAttsForCalc(sub.customer_id);
+  if(atts)return calcSubRemaining(sub,atts);
+  return Math.max(0,(parseInt(sub.remaining)||0));
+}
 function calcDebt(sub){
   if(!sub)return 0;
   var due=(sub.price_due!==undefined&&sub.price_due!==null)?toNum(sub.price_due,0):0;
@@ -269,16 +296,14 @@ function updateSubscriptionLocal(subId,patch){
 function activeSub(custId){
   var today=td();
   var pending=null;
-  // custDetail yüklüdürsə real say, yoxdursa DB remaining-ə güvən
-  var attsForCalc=(S.custDetail&&S.selCust===custId&&S.custDetail.atts)?S.custDetail.atts:null;
   for(var i=0;i<D.subscriptions.length;i++){
     var s=D.subscriptions[i];
     if(s.customer_id!==custId||!s.is_active)continue;
-    if(s.status==='pending'){if(!pending)pending=s;continue;}
-    var rem;
-    if(s.is_partner){rem=null;}
-    else if(attsForCalc){rem=calcSubRemaining(s,attsForCalc);}
-    else{rem=Math.max(0,(s.remaining||0));} // DB dəyəri — repairAllSubscriptions ilə sinxronlaşır
+    if(s.status==='pending'){
+      if(!pending)pending=s;
+      continue;
+    }
+    var rem=s.is_partner?null:calcRemainingForDisplay(s);
     if(s.end_date>=today&&(s.is_partner||(rem!==null&&rem>0)))return s;
   }
   return pending;
@@ -301,7 +326,7 @@ function subStatus(sub){
     if(left<=2)return{t:'warn',txt:'Bu ay '+left+' dərs qaldı'};
     return{t:'ok',txt:'Bu ay '+left+' dərs qaldı'};
   }
-  var rem=(S.custDetail&&S.custDetail.atts)?calcSubRemaining(sub,S.custDetail.atts):Math.max(0,(sub.remaining||0));
+  var rem=calcRemainingForDisplay(sub);
   if(rem<=0)return{t:'exp',txt:'Dərs sayı tamamlandı'};
   if(rem<=2)return{t:'warn',txt:rem+' dərs qaldı'};
   return{t:'ok',txt:rem+' dərs qaldı'};
@@ -326,17 +351,17 @@ async function loadAll(){
       dbGet('accounts','order=sort_order&is_active=eq.true'),
       dbGet('instructors','order=full_name'),
       dbGet('customers','order=name'),
-      dbGet('subscriptions','order=start_date.desc'),
-      dbGet('attendances','order=class_date.desc&limit=10000'),
+      dbGet('subscriptions','order=start_date.desc')
     ]);
+    var allAtts=await dbGetAll('attendances','order=class_date.desc',1000);
     D.programs=res[0];D.accounts=res[1]||[];D._allInstructors=res[2];D.instructors=res[2].filter(function(x){return x.is_active!==false;});D.customers=res[3];
-    D.subscriptions=res[4];D.attendances=res[5];
+    D.subscriptions=res[4];D.attendances=allAtts||[];D.attFull=true;
     // Fetch today's attendances from DB directly
     try{
       var todayAtts=await dbGet('attendances','class_date=eq.'+td()+'&order=class_time');
       S.selDateAtts=todayAtts||[];
     }catch(e){S.selDateAtts=[];}
-  }catch(e){S.err='Verilənlər bazasına qoşulmaq olmadi: '+e.message;}
+  }catch(e){S.err='Verilənlər bazasına qoşulmaq olmadi: '+e.message;D.attFull=false;}
   S.loading=false;render();
 }
 
@@ -461,7 +486,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">v: discount+rtest</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">v: discount+rtest+slotpos+searchfix</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1475,8 +1500,9 @@ function getCustBronStatus(custId){
         if(left<=2)return{type:'warn',txt:left+' dərs qaldı',sub:s,isPartner:true};
         return{type:'ok',txt:'Aktiv',sub:s,isPartner:true};
       }
-      if(s.remaining<=0)return{type:'warn',txt:'Dərs qalmayıb',sub:s,isPartner:false};
-      if(s.remaining<=2)return{type:'warn',txt:s.remaining+' dərs qaldı',sub:s,isPartner:false};
+      var rem=calcRemainingForDisplay(s);
+      if(rem<=0)return{type:'warn',txt:'Dərs qalmayıb',sub:s,isPartner:false};
+      if(rem<=2)return{type:'warn',txt:rem+' dərs qaldı',sub:s,isPartner:false};
       return{type:'ok',txt:'Aktiv',sub:s,isPartner:false};
     }
     // 2. Pending — keep as fallback
@@ -2621,8 +2647,13 @@ async function confirmSlotSinglePay(custId){
         amount:amount,account_id:accountId,
         to_account_id:null,subscription_id:null,customer_id:key};
       await dbPost('transactions',txn);
+      // Slot payment: Bank/POS hesabı (ACC003) seçilərsə 2% komissiya yaransın.
+      // Partner alacaq hesabları və RTEST=0 bu qaydaya düşmür.
+      if(!isPartner&&txn.account_id===BANK_ACCT_ID&&txn.amount>0){
+        await createPosCommission(txn.amount,txn.date,txn.description);
+      }
     }
-    // Slot entry payment-lərdə POS commission yaranmır (biznes qaydası); RTEST=0 isə kassa əməliyyatı yaradılmır
+    // RTEST=0 isə kassa əməliyyatı yaradılmır
     var att={id:uid(),customer_id:key,customer_name:cust.name,
       subscription_id:null,program_id:prog.id,program_name:prog.name,
       class_date:sd.dateStr,class_time:sd.time,
