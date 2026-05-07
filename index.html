@@ -488,7 +488,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">v: discount+rtest+slotpos+searchfix</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: temp-add-source</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1946,6 +1946,13 @@ function rModalTempAdd(){
     +'<input type="hidden" id="ta-cust-id">'
     +'<div id="ta-sub-status" style="margin-top:6px"></div>'
     +'</div>'
+    +'<div class="fg"><label class="fl">Müştəri tipi *</label>'
+    +'<select class="fs" id="ta-source">'
+    +'<option value="auto">Avtomatik (abunəyə görə)</option>'
+    +'<option value="studio">Studio (abunəli)</option>'
+    +'<option value="partner">Partner giriş (ROF/RPP/RPS)</option>'
+    +'<option value="single">Tək giriş (ROTG/ROTI/RTEST)</option>'
+    +'</select></div>'
     +'<div class="fg"><label class="fl">Qeyd</label><input class="fi" id="ta-note" placeholder="İstəyə görə"></div>'
     +'<div class="mact">'
     +'<button class="btn btn-gray" onclick="S.showTempAdd=false;render()">Ləğv et</button>'
@@ -1992,18 +1999,24 @@ function selectTempAddCust(id,name){
     var colorMap={ok:'#1D9E75',warn:'#E65100',grace:'#E65100',pending:'#1565C0',none:'#C62828'};
     var col=colorMap[bst.type]||'#888';
     statusDiv.innerHTML='<div style="font-size:12px;padding:6px 10px;background:#f8f8f8;border-radius:6px">Abunə: <span style="font-weight:600;color:'+col+'">'+bst.txt+'</span></div>';
-    if(bst.type==='none')statusDiv.innerHTML+='<div class="al al-y" style="margin-top:6px;font-size:12px">⚠ Aktiv abunəsi yoxdur. Müvəqqəti əlavə üçün abunəlik yaradın.</div>';
+    if(bst.type==='none')statusDiv.innerHTML+='<div class="al al-b" style="margin-top:6px;font-size:12px">ℹ Aktiv abunəsi yoxdur. Yuxarıda <b>Partner giriş</b> və ya <b>Tək giriş</b> tipi seçin.</div>';
   }
 }
 
 async function submitTempAdd(){
   var custIdEl=document.getElementById('ta-cust-id');
   var noteEl=document.getElementById('ta-note');
+  var sourceEl=document.getElementById('ta-source');
   var custId=custIdEl?custIdEl.value:'';
-  var note=noteEl?noteEl.value:'';
+  var userNote=noteEl?noteEl.value:'';
+  var sourceVal=sourceEl?sourceEl.value:'auto';
   var slot=S.tempAddSlot;
   if(!custId)return alert('Müştəri seçin');
   if(!slot)return;
+  // Source inferenc
+  if(sourceVal==='auto')sourceVal=inferCustomerBronSource(custId);
+  var marker='[source:'+sourceVal+']';
+  var finalNote=userNote?marker+' '+userNote:marker;
   var cust=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
   S.saving=true;S.showTempAdd=false;render();
@@ -2013,7 +2026,7 @@ async function submitTempAdd(){
       type:'temp_add',temp_customer_id:custId,
       temp_customer_name:cust?cust.name:'',
       day_of_week:slot.dow,time_slot:slot.time,
-      note:note||null};
+      note:finalNote};
     await dbPost('booking_exceptions',ex);
     if(!S.bronExceptions)S.bronExceptions=[];
     S.bronExceptions.push(ex);
@@ -2281,11 +2294,22 @@ function openAttFromSlot(time, dateStr, dow){
     var sub=activeSub(t.temp_customer_id);
     var bst=getCustBronStatus(t.temp_customer_id);
     var noSub=!sub;
+    // Source-u exception note-dan oxu (sabit bron ilə eyni mexanizm)
+    var src=getBookingSource({note:t.note},t.temp_customer_id);
+    var needsEntryPayment=!already&&noSub&&(src==='single'||src==='partner');
     var already=!!alreadyRec[t.temp_customer_id];
-    var isDisabled=already||noSub;
+    var isDisabled=already;
+    if(!needsEntryPayment){
+      if(src==='studio')isDisabled=isDisabled||noSub;
+      if(src==='partner')isDisabled=isDisabled||(bst.type==='none'||bst.type==='grace');
+      if(src==='single')isDisabled=isDisabled||noSub;
+    }
     customers.push({custId:t.temp_customer_id,custName:t.temp_customer_name,sub:sub,bst:bst,
       type:'temp',absent:false,absentExId:null,bronId:null,
-      already:already,isDisabled:isDisabled,src:'studio',singleNeedsPay:false});
+      already:already,isDisabled:needsEntryPayment?true:isDisabled,src:src,
+      needsEntryPayment:needsEntryPayment,
+      entryPaymentType:(src==='partner')?'partner':'single',
+      singleNeedsPay:needsEntryPayment});
   }
   // Build selectedIds: default checked = not absent, not disabled, not already
   var selectedIds=[];
