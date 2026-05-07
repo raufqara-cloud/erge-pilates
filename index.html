@@ -181,6 +181,8 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showSubPayment:false,paySubId:null,
   singleAttProgId:null,
   singleAttAcctId:null,
+  singleAttDue:null,
+  singleAttPaid:null,
   slotSinglePayCustId:null,
   slotSinglePayData:{}};
 
@@ -3729,7 +3731,7 @@ async function toggleInst(id,val){
 }
 
 
-function openSingleAtt(custId){S.singleCust=custId;S.showSingleAtt=true;S.singleAttDate=null;S.singleAttProgId=null;S.singleAttAcctId=null;render();}
+function openSingleAtt(custId){S.singleCust=custId;S.showSingleAtt=true;S.singleAttDate=null;S.singleAttProgId=null;S.singleAttAcctId=null;S.singleAttDue=null;S.singleAttPaid=null;render();}
 
 function rModalSingleAtt(){
   var c=null;
@@ -3750,7 +3752,7 @@ function rModalSingleAtt(){
   var saDateVal=S.singleAttDate||td();
   var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
   var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
-  return '<div class="ov" onclick="S.showSingleAtt=false;S.singleAttProgId=null;S.singleAttDate=null;S.singleAttAcctId=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+  return '<div class="ov" onclick="S.showSingleAtt=false;S.singleAttProgId=null;S.singleAttDate=null;S.singleAttAcctId=null;S.singleAttDue=null;S.singleAttPaid=null;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Tək Giriş Qeydiyyatı</div>'
     +'<div style="background:#f8faf8;border-radius:9px;padding:10px 12px;margin-bottom:14px">'
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
@@ -3762,12 +3764,12 @@ function rModalSingleAtt(){
     +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="sa-inst">'+iOpts+'</select></div>'
     +'</div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Ödənilməli (AZN)</label><input class="fi" id="sa-due" type="number" value="0" readonly style="background:#f5f5f5"></div>'
-    +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="sa-paid" type="number" value="0"></div>'
+    +'<div class="fg"><label class="fl">Ödənilməli (AZN)</label><input class="fi" id="sa-due" type="number" value="'+(S.singleAttDue!==null?S.singleAttDue:0)+'" readonly style="background:#f5f5f5"></div>'
+    +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="sa-paid" type="number" value="'+(S.singleAttPaid!==null?S.singleAttPaid:0)+'" oninput="S.singleAttPaid=parseFloat(this.value)||0"></div>'
     +'</div>'
     +'<div class="fg" id="sa-acct-row"><label class="fl">Ödəniş hesabı</label><select class="fs" id="sa-account" onchange="S.singleAttAcctId=this.value">'+saAcctOpts+'</select></div>'
     +'<div id="sa-partner-hint" style="display:none;font-size:12px;color:#1D9E75;background:#E8F5EE;padding:7px 10px;border-radius:7px;margin-bottom:8px"></div>'
-    +'<div class="mact"><button class="btn btn-gray" onclick="S.showSingleAtt=false;S.singleAttProgId=null;S.singleAttDate=null;S.singleAttAcctId=null;render()">Legv et</button>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showSingleAtt=false;S.singleAttProgId=null;S.singleAttDate=null;S.singleAttAcctId=null;S.singleAttDue=null;S.singleAttPaid=null;render()">Legv et</button>'
     +'<button class="btn btn-g" onclick="submitSingleAtt()">Qeydə al</button></div>'
     +'</div></div>';
 }
@@ -3775,26 +3777,32 @@ function rModalSingleAtt(){
 function updateSingleProgram(){
   var sel=document.getElementById('sa-prog');
   if(!sel||!sel.value)return;
-  S.singleAttProgId=sel.value; // persist across re-renders
+  S.singleAttProgId=sel.value;
   var prog=null;
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sel.value){prog=D.programs[i];break;}}
   if(!prog)return;
+  var singlePrice=(prog.id==='RTEST')?0:prog.list_price;
+  // State-ə yaz — render() zamanı bərpa edilir
+  S.singleAttDue=singlePrice;
+  S.singleAttPaid=singlePrice;
   var due=document.getElementById('sa-due');
   var paid=document.getElementById('sa-paid');
-  var singlePrice=(prog.id==='RTEST')?0:prog.list_price;
   if(due)due.value=singlePrice;
   if(paid)paid.value=singlePrice;
   var acctSel=document.getElementById('sa-account');
   var hint=document.getElementById('sa-partner-hint');
   if(prog.is_partner){
     var acctId=partnerAcctId(prog.name);
+    S.singleAttAcctId=acctId; // state-ə yaz
     var acctName=acctId;
     for(var i=0;i<(D.accounts||[]).length;i++){if(D.accounts[i].id===acctId){acctName=D.accounts[i].name;break;}}
-    if(acctSel){acctSel.disabled=true;acctSel.value='';}
+    if(acctSel){acctSel.disabled=true;acctSel.value=acctId;}
     if(hint){hint.innerHTML='Partner proqramı — <b>'+acctName+'</b> hesabına avtomatik yazılır';hint.style.display='block';}
   } else {
+    if(prog.id!=='RTEST')S.singleAttAcctId=null; // manual seçim üçün sıfırla
     if(acctSel)acctSel.disabled=false;
     if(prog.id==='RTEST'){
+      S.singleAttAcctId=null;
       if(acctSel)acctSel.value='';
       if(hint){hint.innerHTML='RTEST sınaq dərsidir — 0 AZN ilə keçə bilər, hesab seçimi tələb olunmur.';hint.style.display='block';}
     }else{
@@ -3809,9 +3817,9 @@ async function submitSingleAtt(){
   var time=document.getElementById('sa-time').value;
   var instId=document.getElementById('sa-inst').value;
   var saAcctIdPre=S.singleAttAcctId||(document.getElementById('sa-account')?document.getElementById('sa-account').value:'');
-  var saPaidPre=parseFloat(document.getElementById('sa-paid')?document.getElementById('sa-paid').value:0)||0;
-  var due=parseFloat(document.getElementById('sa-due').value)||0;
-  var paid=parseFloat(document.getElementById('sa-paid').value)||0;
+  var saPaidPre=S.singleAttPaid!==null?S.singleAttPaid:(parseFloat(document.getElementById('sa-paid')?document.getElementById('sa-paid').value:0)||0);
+  var due=S.singleAttDue!==null?S.singleAttDue:(parseFloat(document.getElementById('sa-due')?document.getElementById('sa-due').value:0)||0);
+  var paid=saPaidPre;
   if(progId==='RTEST'){due=0;paid=0;}
   if(!progId||!time||!instId||!S.singleCust){alert('Proqram, saat və instruktor seçilməlidir');return;}
   if(progId!=='RTEST'&&paid<=0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
@@ -3856,6 +3864,8 @@ async function submitSingleAtt(){
     S.singleAttProgId=null;
     S.singleAttDate=null;
     S.singleAttAcctId=null;
+    S.singleAttDue=null;
+    S.singleAttPaid=null;
     S.showAlert={t:'ok',cust:c,st:{t:'ok',txt:'Tək giriş qeydə alindi'}};
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
