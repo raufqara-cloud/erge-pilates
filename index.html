@@ -187,7 +187,9 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   slotSinglePayCustId:null,
   slotSinglePayData:{},
   auditLoading:false,
-  auditResults:null};
+  auditResults:null,
+  adminOpenSections:{progs:false,insts:false,accts:false,excel:false,audit:false},
+  auditOpenChecks:{c1:false,c2:false,c3:false,c4:false}};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -595,7 +597,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-integrity-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-integrity-v1.1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -3613,56 +3615,176 @@ function rReport(){
   h+='</div>';
   return h;
 }
-function rAdmin(){
-  var h='<div class="ph"><div class="pt">Admin Panel</div></div>';
-  h+='<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:10px;padding:12px 14px;margin-bottom:16px">'
-    +'<div style="font-weight:700;font-size:13px;color:#E65100;margin-bottom:6px">🔧 Məlumat Bütövlüyü</div>'
-    +'<div style="font-size:12px;color:#555;margin-bottom:10px">Abunə qalıq sayları real davamiyyətlə uyğunlaşmırsa, aşağıdakı düymə ilə bütün müştərilər üçün yenidən hesablayın.</div>'
-    +'<button class="btn btn-g" style="background:#E65100" onclick="repairAllSubscriptions()">🔄 Bütün abunə qalıqlarını düzəlt</button>'
-  h+='<div class="slabel">PROQRAMLAR <button class="btn btn-g btn-sm" onclick="S.showAddProg=true;render()">+ Yeni</button></div>';
-  var allProgs=D.programs.slice();
-  for(var i=0;i<allProgs.length;i++){
-    var p=allProgs[i];
-    var act=p.is_active!==false;
-    h+='<div class="attitem">'
-      +'<div><div style="font-size:13px;font-weight:600">'+p.id+' <span style="font-size:11px;color:#aaa">'+p.sessions_total+' dərs | '+p.list_price+' ₼</span></div>'
-      +'<div style="font-size:12px;color:#888">'+p.name+'</div></div>'
-      +'<div style="display:flex;align-items:center;gap:6px">'
-      +'<span class="badge '+(act?'b-green':'b-gray')+'">'+(act?'Aktiv':'Deaktiv')+'</span>'
-      +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleProg(\''+p.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
-      +'<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteProg(\''+p.id+'\')">❌ Sil</button>'
-      +'</div></div>';
-  }
-  h+='<div class="slabel" style="margin-top:16px">INSTRUKTORLAR</div>';
-  var allInst=D._allInstructors||D.instructors;
-  for(var i=0;i<allInst.length;i++){
-    var ins=allInst[i];
-    var act=ins.is_active!==false;
-    var pct=ins.commission_pct||30;
-    h+='<div class="attitem">'
-      +'<div><div style="font-size:13px;font-weight:600">'+ins.full_name+'</div>'
-      +'<div style="font-size:11px;color:#888">Komissiya: '+pct+'%</div></div>'
-      +'<div style="display:flex;align-items:center;gap:6px">'
-      +'<input type="number" min="1" max="100" value="'+pct+'" id="pct-'+ins.id+'" style="width:60px;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-size:12px;text-align:center">'
-      +'<button class="btn btn-gray btn-sm" onclick="saveInstPct(\''+ins.id+'\')">Saxla</button>'
-      +'<span class="badge '+(act?'b-green':'b-gray')+'">'+(act?'Aktiv':'Deaktiv')+'</span>'
-      +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleInst(\''+ins.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
-      +'</div></div>';
-  }
-  h+='<div class="slabel" style="margin-top:24px">EXCEL KASSA İMPORT (bir dəfəlik tarixi məlumat)</div>';
-  h+=rKassaImport();
+// ==================== ADMIN ACCORDION HELPERS ====================
 
-  // ── DATA INTEGRITY AUDIT SECTION ──
-  h+='<div style="margin-top:24px">';
-  h+='<div class="slabel">MƏLUMAT YOXLAMASI</div>';
-  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;padding:15px 16px;margin-bottom:16px">';
-  h+='<div style="font-size:13px;color:#555;margin-bottom:10px">Dublikat davamiyyət, abunə qalıq uyğunsuzluğu və tarix aralığı pozuntularını yoxlayır. Yalnız oxuma rejimi — heç bir dəyişiklik edilmir.</div>';
-  if(!D.attFull){
-    h+='<div class="al al-y" style="margin-bottom:10px">⚠ Davamiyyət datası tam yüklənməyib, nəticə natamam ola bilər.</div>';
+function toggleAdminSection(key){
+  if(!S.adminOpenSections)S.adminOpenSections={progs:false,insts:false,accts:false,excel:false,audit:false};
+  S.adminOpenSections[key]=!S.adminOpenSections[key];
+  render();
+}
+function toggleAuditCheck(key){
+  if(!S.auditOpenChecks)S.auditOpenChecks={c1:false,c2:false,c3:false,c4:false};
+  S.auditOpenChecks[key]=!S.auditOpenChecks[key];
+  render();
+}
+function rAdminAccHdr(key,icon,title,badge,badgeClass){
+  var open=S.adminOpenSections&&S.adminOpenSections[key];
+  var bc=badgeClass||'b-gray';
+  return '<div onclick="toggleAdminSection(\''+key+'\')" style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:13px 16px;user-select:none;background:'+(open?'#f8fdf9':'#fff')+';'+(open?'border-bottom:1px solid #f0f0f0':'')+'">'
+    +'<span style="font-size:15px">'+icon+'</span>'
+    +'<span style="font-weight:700;font-size:14px;flex:1">'+title+'</span>'
+    +(badge!==null&&badge!==undefined?'<span class="badge '+bc+'" style="margin-right:6px">'+badge+'</span>':'')
+    +'<span style="color:#bbb;font-size:13px">'+(open?'▲':'▼')+'</span>'
+    +'</div>';
+}
+function rAuditCheckBlock(checkKey,title,issues,renderRow){
+  var open=S.auditOpenChecks&&S.auditOpenChecks[checkKey];
+  var cnt=issues.length;
+  var badgeClass=cnt===0?'b-green':(checkKey==='c2'?'b-red':'b-yellow');
+  var badgeTxt=cnt===0?'Problem yoxdur':''+cnt+' problem';
+  var h='<div style="border:1px solid #eaeaea;border-radius:10px;margin-bottom:8px;overflow:hidden">';
+  h+='<div onclick="toggleAuditCheck(\''+checkKey+'\')" style="display:flex;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;background:'+(open?'#fafafa':'#fff')+';user-select:none;'+(open?'border-bottom:1px solid #f0f0f0':'')+'">'
+    +'<span style="font-size:13px;font-weight:600;flex:1">'+title+'</span>'
+    +'<span class="badge '+badgeClass+'" style="margin-right:4px">'+badgeTxt+'</span>'
+    +'<span style="color:#bbb;font-size:12px">'+(open?'▲':'▼')+'</span>'
+    +'</div>';
+  if(open){
+    h+='<div style="padding:10px 14px">';
+    if(!cnt){
+      h+='<div class="al al-g">✓ Problem tapılmadı</div>';
+    }else{
+      var shown=Math.min(cnt,200);
+      var hidden=cnt-shown;
+      for(var ri=0;ri<shown;ri++){h+=renderRow(issues[ri]);}
+      if(hidden>0){
+        h+='<div style="font-size:12px;color:#888;text-align:center;padding:8px 0;border-top:1px solid #f0f0f0;margin-top:6px">İlk 200 nəticə göstərilir, qalan <b>'+hidden+'</b> nəticə gizlədildi.</div>';
+      }
+    }
+    h+='</div>';
   }
-  h+='<button class="btn btn-b" onclick="runDataIntegrityAudit()" '+(S.auditLoading?'disabled':'')+'>'+( S.auditLoading?'<span class="spin"></span> Yoxlanılır...':'🔍 Yoxlamanı başlat')+'</button>';
-  h+=rAuditResults();
-  h+='</div></div>';
+  h+='</div>';
+  return h;
+}
+
+function rAdmin(){
+  var sec=S.adminOpenSections||{};
+  var h='<div class="ph"><div class="pt">Admin Panel</div></div>';
+
+  // Repair strip — always visible, not in accordion
+  h+='<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:10px;padding:12px 14px;margin-bottom:14px">'
+    +'<div style="font-weight:700;font-size:13px;color:#E65100;margin-bottom:5px">🔧 Sürətli Düzəliş</div>'
+    +'<div style="font-size:12px;color:#555;margin-bottom:8px">Abunə qalıq sayları real davamiyyətlə uyğunlaşmırsa yenidən hesablayın.</div>'
+    +'<button class="btn btn-g" style="background:#E65100" onclick="repairAllSubscriptions()">🔄 Bütün abunə qalıqlarını düzəlt</button>'
+    +'</div>';
+
+  // ── PROQRAMLAR ──
+  var allProgs=D.programs||[];
+  var progBadge=allProgs.length+' proqram';
+  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+  h+=rAdminAccHdr('progs','📋','Proqramlar',progBadge,'b-gray');
+  if(sec.progs){
+    h+='<div style="padding:12px 16px">';
+    h+='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-g btn-sm" onclick="S.showAddProg=true;render()">+ Yeni</button></div>';
+    for(var i=0;i<allProgs.length;i++){
+      var p=allProgs[i];
+      var act=p.is_active!==false;
+      h+='<div class="attitem">'
+        +'<div><div style="font-size:13px;font-weight:600">'+p.id+' <span style="font-size:11px;color:#aaa">'+p.sessions_total+' dərs | '+p.list_price+' ₼</span></div>'
+        +'<div style="font-size:12px;color:#888">'+p.name+'</div></div>'
+        +'<div style="display:flex;align-items:center;gap:6px">'
+        +'<span class="badge '+(act?'b-green':'b-gray')+'">'+(act?'Aktiv':'Deaktiv')+'</span>'
+        +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleProg(\''+p.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
+        +'<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteProg(\''+p.id+'\')">❌ Sil</button>'
+        +'</div></div>';
+    }
+    h+='</div>';
+  }
+  h+='</div>';
+
+  // ── İNSTRUKTORLAR ──
+  var allInst=D._allInstructors||D.instructors||[];
+  var instBadge=allInst.length+' instruktor';
+  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+  h+=rAdminAccHdr('insts','👤','İnstruktorlar',instBadge,'b-gray');
+  if(sec.insts){
+    h+='<div style="padding:12px 16px">';
+    for(var i=0;i<allInst.length;i++){
+      var ins=allInst[i];
+      var iact=ins.is_active!==false;
+      var pct=ins.commission_pct||30;
+      h+='<div class="attitem">'
+        +'<div><div style="font-size:13px;font-weight:600">'+ins.full_name+'</div>'
+        +'<div style="font-size:11px;color:#888">Komissiya: '+pct+'%</div></div>'
+        +'<div style="display:flex;align-items:center;gap:6px">'
+        +'<input type="number" min="1" max="100" value="'+pct+'" id="pct-'+ins.id+'" style="width:60px;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-size:12px;text-align:center">'
+        +'<button class="btn btn-gray btn-sm" onclick="saveInstPct(\''+ins.id+'\')">Saxla</button>'
+        +'<span class="badge '+(iact?'b-green':'b-gray')+'">'+(iact?'Aktiv':'Deaktiv')+'</span>'
+        +'<button class="btn '+(iact?'btn-gray':'btn-g')+' btn-sm" onclick="toggleInst(\''+ins.id+'\','+(!iact)+')">'+(iact?'Deaktiv et':'Aktiv et')+'</button>'
+        +'</div></div>';
+    }
+    h+='</div>';
+  }
+  h+='</div>';
+
+  // ── HESABLAR ──
+  var allAccts=D.accounts||[];
+  var acctBadge=allAccts.length+' hesab';
+  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+  h+=rAdminAccHdr('accts','💳','Hesablar',acctBadge,'b-gray');
+  if(sec.accts){
+    h+='<div style="padding:12px 16px">';
+    if(!allAccts.length){
+      h+='<div class="empty">Hesab tapılmadı</div>';
+    }
+    for(var i=0;i<allAccts.length;i++){
+      var ac=allAccts[i];
+      var typeLabel={cash:'Nağd',bank:'Bank',card:'Kart'}[ac.type]||ac.type||'';
+      h+='<div class="attitem">'
+        +'<div><div style="font-size:13px;font-weight:600">'+ac.name+'</div>'
+        +'<div style="font-size:11px;color:#888">'+ac.id+' · '+typeLabel+'</div></div>'
+        +'<div style="font-size:14px;font-weight:700;color:#1D9E75">'+toNum(ac.balance,0).toFixed(2)+' ₼</div>'
+        +'</div>';
+    }
+    h+='</div>';
+  }
+  h+='</div>';
+
+  // ── EXCEL KASSA İMPORT ──
+  var imp=S.kassaImport||{};
+  var importBadge=imp.rows?imp.rows.length+' sətir':'Fayl seçilməyib';
+  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+  h+=rAdminAccHdr('excel','📥','Excel Kassa İmport',importBadge,'b-gray');
+  if(sec.excel){
+    h+=rKassaImport();
+  }
+  h+='</div>';
+
+  // ── MƏLUMAT YOXLAMASI ──
+  var auditBadge,auditBadgeClass;
+  if(S.auditLoading){
+    auditBadge='Yoxlanılır...';auditBadgeClass='b-blue';
+  }else if(!S.auditResults){
+    auditBadge='Yoxlanmayıb';auditBadgeClass='b-gray';
+  }else if(S.auditResults.error){
+    auditBadge='Xəta';auditBadgeClass='b-red';
+  }else{
+    var totalProbs=S.auditResults.c1.length+S.auditResults.c2.length+S.auditResults.c3.length+S.auditResults.c4.length;
+    auditBadge=totalProbs===0?'Təmiz':''+totalProbs+' problem';
+    auditBadgeClass=totalProbs===0?'b-green':'b-yellow';
+  }
+  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+  h+=rAdminAccHdr('audit','🔍','Məlumat Yoxlaması',auditBadge,auditBadgeClass);
+  if(sec.audit){
+    h+='<div style="padding:12px 16px">';
+    h+='<div style="font-size:13px;color:#555;margin-bottom:10px">Dublikat davamiyyət, abunə qalıq uyğunsuzluğu və tarix aralığı pozuntularını yoxlayır. Yalnız oxuma rejimi — heç bir dəyişiklik edilmir.</div>';
+    if(!D.attFull){
+      h+='<div class="al al-y" style="margin-bottom:10px">⚠ Davamiyyət datası tam yüklənməyib, nəticə natamam ola bilər.</div>';
+    }
+    h+='<button class="btn btn-b" onclick="runDataIntegrityAudit()" '+(S.auditLoading?'disabled':'')+'>'+( S.auditLoading?'<span class="spin"></span> Yoxlanılır...':'🔍 Yoxlamanı başlat')+'</button>';
+    h+=rAuditResults();
+    h+='</div>';
+  }
+  h+='</div>';
 
   return h;
 }
@@ -5544,6 +5666,7 @@ function runDataIntegrityAudit(){
   }
   S.auditLoading=true;
   S.auditResults=null;
+  S.auditOpenChecks={c1:false,c2:false,c3:false,c4:false};
   render();
   // All checks are synchronous (local D data only)
   try{
@@ -5569,102 +5692,74 @@ function rAuditResults(){
     return '<div class="errbox">⚠ '+res.error+'</div>';
   }
 
-  var h='<div style="font-size:11px;color:#aaa;margin-bottom:10px">Son yoxlama: '+res.ts+'</div>';
+  var total=res.c1.length+res.c2.length+res.c3.length+res.c4.length;
+  var checkCounts=[res.c1.length,res.c2.length,res.c3.length,res.c4.length];
+  var checkLabels=['Dublikat gün','Dublikat slot','Qalıq fərqi','Tarix aralığı'];
 
-  // --- Check 1 ---
-  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:10px;padding:13px 15px;margin-bottom:10px">';
-  h+='<div style="font-weight:700;font-size:13px;margin-bottom:6px">Yoxlama 1 — Eyni gündə dublikat davamiyyət</div>';
-  if(!res.c1.length){
-    h+='<div class="al al-g">✓ Problem tapılmadı</div>';
+  var h='<div style="margin-top:12px">';
+  h+='<div style="font-size:11px;color:#aaa;margin-bottom:8px">Son yoxlama: '+res.ts+'</div>';
+
+  // Summary card
+  h+='<div style="background:#f8faf8;border:1px solid #e0ebe0;border-radius:10px;padding:12px 14px;margin-bottom:12px">';
+  h+='<div style="font-weight:700;font-size:12px;color:#555;margin-bottom:8px;letter-spacing:.3px">YEKUN NƏTİCƏ</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">';
+  for(var ci=0;ci<4;ci++){
+    var cc=checkCounts[ci];
+    h+='<div style="background:#fff;border:1px solid #eee;border-radius:8px;padding:8px;text-align:center">'
+      +'<div style="font-size:18px;font-weight:700;color:'+(cc===0?'#1D9E75':'#E65100')+'">'+cc+'</div>'
+      +'<div style="font-size:10px;color:#999;margin-top:2px">'+checkLabels[ci]+'</div>'
+      +'</div>';
+  }
+  h+='</div>';
+  if(total===0){
+    h+='<div class="al al-g" style="margin:0">✓ Bütün yoxlamalar təmizdir</div>';
   }else{
-    h+='<div class="al al-y">⚠ '+res.c1.length+' problem tapıldı</div>';
-    for(var i=0;i<res.c1.length;i++){
-      var x=res.c1[i];
-      h+='<div style="background:#fff8f0;border:1px solid #ffe0b2;border-radius:8px;padding:9px 11px;margin-top:7px;font-size:12px">'
-        +'<b>'+x.customer_name+'</b> <span style="color:#aaa">('+x.customer_id+')</span><br>'
-        +'Tarix: <b>'+fmt(x.class_date)+'</b> — <b>'+x.ids.length+'</b> qeyd<br>'
-        +'Saatlar: '+x.times.join(', ')+'<br>'
-        +'<span style="color:#aaa;font-size:11px">ID-lər: '+x.ids.join(', ')+'</span>'
-        +'</div>';
-    }
+    h+='<div class="al al-y" style="margin:0">⚠ Cəmi <b>'+total+'</b> problem tapıldı. Bu problemlər əsasən tarixi Excel import datasından qaynaqlana bilər. Avtomatik düzəliş edilmədi.</div>';
   }
   h+='</div>';
 
-  // --- Check 2 ---
-  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:10px;padding:13px 15px;margin-bottom:10px">';
-  h+='<div style="font-weight:700;font-size:13px;margin-bottom:6px">Yoxlama 2 — Eyni slotda dublikat davamiyyət</div>';
-  if(!res.c2.length){
-    h+='<div class="al al-g">✓ Problem tapılmadı</div>';
-  }else{
-    h+='<div class="al al-r">🔴 '+res.c2.length+' problem tapıldı</div>';
-    for(var i=0;i<res.c2.length;i++){
-      var x=res.c2[i];
-      h+='<div style="background:#fff0f0;border:1px solid #ffcdd2;border-radius:8px;padding:9px 11px;margin-top:7px;font-size:12px">'
-        +'<b>'+x.customer_name+'</b> <span style="color:#aaa">('+x.customer_id+')</span><br>'
-        +'Tarix: <b>'+fmt(x.class_date)+'</b>, Saat: <b>'+x.class_time+'</b> — <b>'+x.ids.length+'</b> qeyd<br>'
-        +'<span style="color:#aaa;font-size:11px">ID-lər: '+x.ids.join(', ')+'</span>'
-        +'</div>';
-    }
-  }
-  h+='</div>';
+  // Check 1
+  h+=rAuditCheckBlock('c1','1 — Eyni gündə dublikat davamiyyət',res.c1,function(x){
+    return '<div style="background:#fff8f0;border:1px solid #ffe0b2;border-radius:8px;padding:9px 11px;margin-bottom:6px;font-size:12px">'
+      +'<b>'+x.customer_name+'</b> <span style="color:#aaa">('+x.customer_id+')</span><br>'
+      +'Tarix: <b>'+fmt(x.class_date)+'</b> — <b>'+x.ids.length+'</b> qeyd<br>'
+      +'Saatlar: '+x.times.join(', ')+'<br>'
+      +'<span style="color:#aaa;font-size:11px">ID-lər: '+x.ids.join(', ')+'</span>'
+      +'</div>';
+  });
 
-  // --- Check 3 ---
-  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:10px;padding:13px 15px;margin-bottom:10px">';
-  h+='<div style="font-weight:700;font-size:13px;margin-bottom:6px">Yoxlama 3 — Abunə qalıq uyğunsuzluğu (non-partner)</div>';
-  if(!D.attFull){
-    h+='<div class="al al-y">⚠ Davamiyyət datası tam yüklənməyib, nəticə natamam ola bilər.</div>';
-  }
-  if(!res.c3.length){
-    h+='<div class="al al-g">✓ Problem tapılmadı</div>';
-  }else{
-    h+='<div class="al al-y">⚠ '+res.c3.length+' uyğunsuzluq tapıldı</div>';
-    h+='<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:12px">'
-      +'<thead><tr style="background:#f8f8f8;text-align:left">'
-      +'<th style="padding:6px 8px;border-bottom:1px solid #eee">Müştəri</th>'
-      +'<th style="padding:6px 8px;border-bottom:1px solid #eee">Proqram</th>'
-      +'<th style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">Cəmi</th>'
-      +'<th style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">İstifadə</th>'
-      +'<th style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">DB</th>'
-      +'<th style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">Gözlənən</th>'
-      +'<th style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">Fərq</th>'
-      +'</tr></thead><tbody>';
-    for(var i=0;i<res.c3.length;i++){
-      var x=res.c3[i];
-      var diff=x.diff;
-      var diffColor=diff>0?'#C62828':'#1D9E75';
-      h+='<tr style="border-bottom:1px solid #f5f5f5">'
-        +'<td style="padding:6px 8px"><b>'+x.customer_name+'</b><br><span style="color:#aaa;font-size:10px">'+x.subscription_id+'</span></td>'
-        +'<td style="padding:6px 8px">'+x.program_name+'</td>'
-        +'<td style="padding:6px 8px;text-align:center">'+x.sessions_total+'</td>'
-        +'<td style="padding:6px 8px;text-align:center">'+x.used+'</td>'
-        +'<td style="padding:6px 8px;text-align:center">'+x.db_remaining+'</td>'
-        +'<td style="padding:6px 8px;text-align:center">'+x.expected_remaining+'</td>'
-        +'<td style="padding:6px 8px;text-align:center;font-weight:700;color:'+diffColor+'">'+(diff>0?'+':'')+diff+'</td>'
-        +'</tr>';
-    }
-    h+='</tbody></table></div>';
-  }
-  h+='</div>';
+  // Check 2
+  h+=rAuditCheckBlock('c2','2 — Eyni slotda dublikat davamiyyət',res.c2,function(x){
+    return '<div style="background:#fff0f0;border:1px solid #ffcdd2;border-radius:8px;padding:9px 11px;margin-bottom:6px;font-size:12px">'
+      +'<b>'+x.customer_name+'</b> <span style="color:#aaa">('+x.customer_id+')</span><br>'
+      +'Tarix: <b>'+fmt(x.class_date)+'</b>, Saat: <b>'+x.class_time+'</b> — <b>'+x.ids.length+'</b> qeyd<br>'
+      +'<span style="color:#aaa;font-size:11px">ID-lər: '+x.ids.join(', ')+'</span>'
+      +'</div>';
+  });
 
-  // --- Check 4 ---
-  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:10px;padding:13px 15px;margin-bottom:10px">';
-  h+='<div style="font-weight:700;font-size:13px;margin-bottom:6px">Yoxlama 4 — Abunə tarix aralığı xarici davamiyyət</div>';
-  if(!res.c4.length){
-    h+='<div class="al al-g">✓ Problem tapılmadı</div>';
-  }else{
-    h+='<div class="al al-y">⚠ '+res.c4.length+' problem tapıldı</div>';
-    for(var i=0;i<res.c4.length;i++){
-      var x=res.c4[i];
-      h+='<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:9px 11px;margin-top:7px;font-size:12px">'
-        +'<b>'+x.customer_name+'</b> — '+x.program_name+'<br>'
-        +'Davamiyyət: <b>'+fmt(x.class_date)+'</b> '+x.class_time+'<br>'
-        +'Abunə aralığı: '+fmt(x.sub_start)+' → '+fmt(x.sub_end)+'<br>'
-        +'<span style="color:#aaa;font-size:11px">Att: '+x.attendance_id+' | Sub: '+x.subscription_id+'</span>'
-        +'</div>';
-    }
-  }
-  h+='</div>';
+  // Check 3
+  h+=rAuditCheckBlock('c3','3 — Abunə qalıq uyğunsuzluğu (non-partner)',res.c3,function(x){
+    var d=x.diff;
+    var dc=d>0?'#C62828':'#1D9E75';
+    return '<div style="background:#fff8f0;border:1px solid #ffe0b2;border-radius:8px;padding:9px 11px;margin-bottom:6px;font-size:12px">'
+      +'<b>'+x.customer_name+'</b> — '+x.program_name+'<br>'
+      +'Cəmi: '+x.sessions_total+' | İstifadə: '+x.used+' | DB: '+x.db_remaining+' | Gözlənən: '+x.expected_remaining
+      +' | Fərq: <b style="color:'+dc+'">'+(d>0?'+':'')+d+'</b><br>'
+      +'<span style="color:#aaa;font-size:11px">Sub: '+x.subscription_id+'</span>'
+      +'</div>';
+  });
 
+  // Check 4
+  h+=rAuditCheckBlock('c4','4 — Abunə tarix aralığı xarici davamiyyət',res.c4,function(x){
+    return '<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:9px 11px;margin-bottom:6px;font-size:12px">'
+      +'<b>'+x.customer_name+'</b> — '+x.program_name+'<br>'
+      +'Davamiyyət: <b>'+fmt(x.class_date)+'</b> '+x.class_time+'<br>'
+      +'Abunə aralığı: '+fmt(x.sub_start)+' → '+fmt(x.sub_end)+'<br>'
+      +'<span style="color:#aaa;font-size:11px">Att: '+x.attendance_id+' | Sub: '+x.subscription_id+'</span>'
+      +'</div>';
+  });
+
+  h+='</div>';
   return h;
 }
 
