@@ -510,6 +510,22 @@ function assertCanCreateAttendance(customerId,dateStr){
   return true;
 }
 
+// Live DB check — başqa cihazdan edilən əməliyyatları da tutur
+async function dbAssertCanCreateAttendance(customerId,dateStr){
+  if(hasCustomerAttendanceOnDate(customerId,dateStr)){
+    alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
+    return false;
+  }
+  try{
+    var res=await dbGet('attendances','customer_id=eq.'+customerId+'&class_date=eq.'+dateStr+'&select=id&limit=1');
+    if(res&&res.length>0){
+      alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
+      return false;
+    }
+  }catch(e){}
+  return true;
+}
+
 function hasCustomerTempAddOnDate(customerId,dateStr){
   if(!S.bronExceptions)return false;
   for(var i=0;i<S.bronExceptions.length;i++){
@@ -525,7 +541,7 @@ function hasCustomerTempAddOnDate(customerId,dateStr){
 }
 
 async function doAtt(custId,subId,classTime,instId,attDate){
-  if(!assertCanCreateAttendance(custId,attDate||td()))return;
+  if(!await dbAssertCanCreateAttendance(custId,attDate||td()))return;
   S.saving=true;render();
   try{
     var cust=null,sub=null,inst=null;
@@ -577,7 +593,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-guards-v1.2</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-guards-v1.3</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -2158,6 +2174,13 @@ async function submitTempAdd(){
   var finalNote=userNote?marker+' '+userNote:marker;
   var cust=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  // Live DB check — başqa cihazdan edilmiş temp_add-ı tutur
+  try{
+    var _dbTmp=await dbGet('booking_exceptions','type=eq.temp_add&temp_customer_id=eq.'+custId+'&exception_date=eq.'+slot.date+'&select=id&limit=1');
+    if(_dbTmp&&_dbTmp.length>0){
+      return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var (başqa cihazdan yaradılmış ola bilər).');
+    }
+  }catch(e){}
   S.saving=true;S.showTempAdd=false;render();
   try{
     var eid='EX'+Date.now();
@@ -2297,6 +2320,17 @@ async function submitNewSabitBron(){
 
   var cust=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  // Live DB check — başqa cihazdan yaradılmış sabit bronu tutur
+  try{
+    var _dbBron=await dbGet('bookings','customer_id=eq.'+custId+'&day_of_week=eq.'+day+'&type=eq.permanent&select=id,is_active&limit=5');
+    if(_dbBron){
+      for(var i=0;i<_dbBron.length;i++){
+        if(_dbBron[i].is_active!==false){
+          return alert('Bu müştərinin '+DAYS_AZ[day-1]+' günü üçün artıq aktiv sabit bronu var (başqa cihazdan yaradılmış ola bilər).');
+        }
+      }
+    }
+  }catch(e){}
   S.saving=true;render();
   try{
     var bid='BK'+Date.now();
@@ -2803,6 +2837,14 @@ async function confirmSlotSinglePay(custId){
     alert(cust.name+' artıq bu tarixdə davamiyyətə qeyd edilib.');
     return;
   }
+  // Live DB check — başqa cihazdan edilmiş qeydləri tutur
+  try{
+    var _dbSlotAtt=await dbGet('attendances','customer_id=eq.'+key+'&class_date=eq.'+sd.dateStr+'&select=id&limit=1');
+    if(_dbSlotAtt&&_dbSlotAtt.length>0){
+      alert(cust.name+' artıq bu tarixdə davamiyyətə qeyd edilib.');
+      return;
+    }
+  }catch(e){}
   if(S.slotSinglePayData)delete S.slotSinglePayData[key];
   S.slotSinglePayCustId=null;
   S.saving=true;render();
@@ -2910,6 +2952,14 @@ async function createAttendance(custId, subId, classTime, instId, attDate){
     alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
     return null;
   }
+  // Live DB check — başqa cihazdan edilmiş qeydləri tutur
+  try{
+    var _dbAtt=await dbGet('attendances','customer_id=eq.'+custId+'&class_date=eq.'+attDate+'&select=id&limit=1');
+    if(_dbAtt&&_dbAtt.length>0){
+      alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
+      return null;
+    }
+  }catch(e){}
   // Activate pending sub
   if(sub.status==='pending'){
     var prog=null;
@@ -4004,7 +4054,7 @@ async function submitSingleAtt(){
     var _p=getProgramById(progId);
     if(!_p||!_p.is_partner){alert('Hesab seçin');return;}
   }
-  if(!assertCanCreateAttendance(S.singleCust,saDate||td()))return;
+  if(!await dbAssertCanCreateAttendance(S.singleCust,saDate||td()))return;
   S.saving=true;render();
   try{
     var c=null,inst=null,prog=null;
