@@ -510,6 +510,20 @@ function assertCanCreateAttendance(customerId,dateStr){
   return true;
 }
 
+function hasCustomerTempAddOnDate(customerId,dateStr){
+  if(!S.bronExceptions)return false;
+  for(var i=0;i<S.bronExceptions.length;i++){
+    var e=S.bronExceptions[i];
+    if(e.type==='temp_add'
+      &&e.temp_customer_id===customerId
+      &&e.exception_date===dateStr
+      &&e.is_active!==false){
+      return true;
+    }
+  }
+  return false;
+}
+
 async function doAtt(custId,subId,classTime,instId,attDate){
   if(!assertCanCreateAttendance(custId,attDate||td()))return;
   S.saving=true;render();
@@ -563,7 +577,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-guards-v1.1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-guards-v1.2</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -2130,6 +2144,10 @@ async function submitTempAdd(){
   var slot=S.tempAddSlot;
   if(!custId)return alert('Müştəri seçin');
   if(!slot)return;
+  // Müvəqqəti bron duplicate check — eyni müştəri + eyni tarix
+  if(hasCustomerTempAddOnDate(custId,slot.date)){
+    return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var.');
+  }
   // Sabit bron check — temp_add bloklanır əgər həmin tarixdə aktiv sabit bron varsa
   if(hasCustomerActiveBookingOnDate(custId,slot.date)){
     return alert('Bu müştərinin həmin tarixə aktiv sabit bronu var.\nMüvəqqəti bron əlavə etmək olmaz.\n(İstisna: əvvəlcə həmin tarix üçün "Gəlməyəcək" qeyd edin.)');
