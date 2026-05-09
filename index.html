@@ -437,7 +437,81 @@ async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNot
   S.saving=false;render();
 }
 
+// ── DAILY GUARDS v1 ──
+
+function isActiveBookingForDate(booking,dateStr){
+  if(booking.is_active===false)return false;
+  if(booking.valid_from&&dateStr<booking.valid_from)return false;
+  if(booking.valid_until&&dateStr>booking.valid_until)return false;
+  return true;
+}
+
+function hasActivePermanentBookingOnDow(customerId,dow,excludeBookingId){
+  if(!S.bronData)return false;
+  for(var i=0;i<S.bronData.length;i++){
+    var b=S.bronData[i];
+    if(b.customer_id!==customerId)continue;
+    if(b.type!=='permanent')continue;
+    if(excludeBookingId&&b.id===excludeBookingId)continue;
+    if(b.day_of_week!==dow)continue;
+    if(b.is_active===false)continue;
+    return true;
+  }
+  return false;
+}
+
+function hasAbsentForBookingOnDate(bookingId,dateStr){
+  if(!S.bronExceptions)return false;
+  for(var i=0;i<S.bronExceptions.length;i++){
+    var e=S.bronExceptions[i];
+    if(e.booking_id===bookingId&&e.exception_date===dateStr&&e.type==='absent')return true;
+  }
+  return false;
+}
+
+function hasCustomerActiveBookingOnDate(customerId,dateStr){
+  if(!S.bronData)return false;
+  var d=new Date(dateStr+'T00:00:00').getDay();
+  var dow=(d===0)?7:d; // Sun=7, Mon=1..Sat=6
+  for(var i=0;i<S.bronData.length;i++){
+    var b=S.bronData[i];
+    if(b.customer_id!==customerId)continue;
+    if(b.type!=='permanent')continue;
+    if(b.day_of_week!==dow)continue;
+    if(!isActiveBookingForDate(b,dateStr))continue;
+    if(hasAbsentForBookingOnDate(b.id,dateStr))continue;
+    return true;
+  }
+  return false;
+}
+
+function hasCustomerAttendanceOnDate(customerId,dateStr){
+  var lists=[D.attendances];
+  if(S.selDateAtts)lists.push(S.selDateAtts);
+  if(S.custDetail&&S.custDetail.atts)lists.push(S.custDetail.atts);
+  var seen={};
+  for(var li=0;li<lists.length;li++){
+    var arr=lists[li];if(!arr)continue;
+    for(var i=0;i<arr.length;i++){
+      var a=arr[i];
+      if(a.customer_id===customerId&&a.class_date===dateStr){
+        if(!seen[a.id]){seen[a.id]=true;return true;}
+      }
+    }
+  }
+  return false;
+}
+
+function assertCanCreateAttendance(customerId,dateStr){
+  if(hasCustomerAttendanceOnDate(customerId,dateStr)){
+    alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
+    return false;
+  }
+  return true;
+}
+
 async function doAtt(custId,subId,classTime,instId,attDate){
+  if(!assertCanCreateAttendance(custId,attDate||td()))return;
   S.saving=true;render();
   try{
     var cust=null,sub=null,inst=null;
@@ -489,7 +563,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: partner-month-limit</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-guards-v1.1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -2056,6 +2130,10 @@ async function submitTempAdd(){
   var slot=S.tempAddSlot;
   if(!custId)return alert('Müştəri seçin');
   if(!slot)return;
+  // Sabit bron check — temp_add bloklanır əgər həmin tarixdə aktiv sabit bron varsa
+  if(hasCustomerActiveBookingOnDate(custId,slot.date)){
+    return alert('Bu müştərinin həmin tarixə aktiv sabit bronu var.\nMüvəqqəti bron əlavə etmək olmaz.\n(İstisna: əvvəlcə həmin tarix üçün "Gəlməyəcək" qeyd edin.)');
+  }
   // Source inferenc
   if(sourceVal==='auto')sourceVal=inferCustomerBronSource(custId);
   var marker='[source:'+sourceVal+']';
@@ -2175,7 +2253,10 @@ async function submitNewSabitBron(){
   }
   // partner və single: abunə tələb yoxdur, limit yoxdur
 
-  // ── 3. Dublikat yoxlama ──
+  // ── 3. Dublikat yoxlama: eyni müştəriyə eyni gündə 2-ci sabit bron yaratmaq olmaz ──
+  if(hasActivePermanentBookingOnDow(custId,day)){
+    return alert('Bu müştərinin '+DAYS_AZ[day-1]+' günü üçün artıq aktiv sabit bronu var.\nEyni gündə ikinci sabit bron yaratmaq olmaz.');
+  }
   if(S.bronData){
     for(var i=0;i<S.bronData.length;i++){
       var eb=S.bronData[i];
@@ -2699,12 +2780,10 @@ async function confirmSlotSinglePay(custId){
   for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===programId){prog=D.programs[i];break;}}
   for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
   if(!cust||!prog){alert('Müştəri və ya proqram tapılmadı');return;}
-  for(var i=0;i<D.attendances.length;i++){
-    var a=D.attendances[i];
-    if(a.customer_id===key&&a.class_date===sd.dateStr&&a.class_time===sd.time){
-      alert(cust.name+' artıq bu slot üçün davamiyyətdə qeydlidir.');
-      return;
-    }
+  // Günlük duplicate: tarix+saat deyil, yalnız tarix yoxlanılır (transaction-dan əvvəl)
+  if(hasCustomerAttendanceOnDate(key,sd.dateStr)){
+    alert(cust.name+' artıq bu tarixdə davamiyyətə qeyd edilib.');
+    return;
   }
   if(S.slotSinglePayData)delete S.slotSinglePayData[key];
   S.slotSinglePayCustId=null;
@@ -2808,10 +2887,10 @@ async function createAttendance(custId, subId, classTime, instId, attDate){
   if(isPartnerProgId(sub.program_id)){
     if(!warnIfPartnerLimit(custId,cust.name))return null;
   }
-  // Check duplicate: customer_id + class_date + class_time
-  for(var i=0;i<D.attendances.length;i++){
-    var a=D.attendances[i];
-    if(a.customer_id===custId&&a.class_date===attDate&&a.class_time===classTime)return null;
+  // Check duplicate: customer_id + class_date (günlük 1 dəfə, saat fərqi nəzərə alınmır)
+  if(hasCustomerAttendanceOnDate(custId,attDate)){
+    alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
+    return null;
   }
   // Activate pending sub
   if(sub.status==='pending'){
@@ -3907,6 +3986,7 @@ async function submitSingleAtt(){
     var _p=getProgramById(progId);
     if(!_p||!_p.is_partner){alert('Hesab seçin');return;}
   }
+  if(!assertCanCreateAttendance(S.singleCust,saDate||td()))return;
   S.saving=true;render();
   try{
     var c=null,inst=null,prog=null;
