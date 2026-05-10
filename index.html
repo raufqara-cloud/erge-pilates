@@ -599,7 +599,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-auditlog-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-auditlog-v1.1.1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -4289,11 +4289,27 @@ async function deleteAtt(attId, subId, attDate){
   if(!confirm(attDate+' tarixli məşqi silmək istədiyinizdən əminsinizmi?'))return;
   var localAttId=attId;
   var localSubId=subId;
+  // Capture attendance object BEFORE any await — array will be filtered after delete
+  var _delAttObj=null;
+  var _attLists=[D.attendances];
+  if(S.selDateAtts)_attLists.push(S.selDateAtts);
+  if(S.custDetail&&S.custDetail.atts)_attLists.push(S.custDetail.atts);
+  for(var _li=0;_li<_attLists.length&&!_delAttObj;_li++){
+    var _lst=_attLists[_li];if(!_lst)continue;
+    for(var _ai=0;_ai<_lst.length;_ai++){if(_lst[_ai].id===localAttId){_delAttObj=_lst[_ai];break;}}
+  }
+  var _delCustLabel=_delAttObj?(_delAttObj.customer_name||_delAttObj.customer_id||'?'):'?';
+  var _delProgLabel=_delAttObj?(_delAttObj.program_name||_delAttObj.program_id||'?'):'?';
+  var _delTimeLabel=_delAttObj&&_delAttObj.class_time?(' '+_delAttObj.class_time):'';
   S.saving=true;render();
   try{
     var r=await fetch(BASE+'/attendances?id=eq.'+localAttId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(!r.ok)throw new Error(await r.text());
-    logAudit('attendance',localAttId,'delete','Davamiyyət silindi ('+attDate+')',{subscription_id:localSubId||null,date:attDate},null);
+    logAudit('attendance',localAttId,'delete',
+      'Davamiyyət silindi — '+_delCustLabel+' | '+attDate+_delTimeLabel+' | '+_delProgLabel,
+      _delAttObj?{id:_delAttObj.id,customer_id:_delAttObj.customer_id,customer_name:_delAttObj.customer_name,class_date:_delAttObj.class_date,class_time:_delAttObj.class_time,program_id:_delAttObj.program_id,program_name:_delAttObj.program_name,subscription_id:_delAttObj.subscription_id||null}:{date:attDate,subscription_id:localSubId||null},
+      null
+    );
     D.attendances=D.attendances.filter(function(a){return a.id!==localAttId;});
     if(S.selDateAtts)S.selDateAtts=S.selDateAtts.filter(function(a){return a.id!==localAttId;});
     if(S.custDetail&&S.custDetail.atts)S.custDetail.atts=S.custDetail.atts.filter(function(a){return a.id!==localAttId;});
@@ -4460,6 +4476,14 @@ async function submitEditSub(){
   var dnoteEl=document.getElementById('es-discount-note');
   var discountNote=dnoteEl?dnoteEl.value.trim():'';
   if(!start||!end||!S.editSub)return;
+  // Capture sub + customer BEFORE any await (DOM/state may change after render)
+  var _editSubObj=null;
+  for(var _i=0;_i<D.subscriptions.length;_i++){if(D.subscriptions[_i].id===S.editSub){_editSubObj=D.subscriptions[_i];break;}}
+  if(!_editSubObj&&S.custDetail&&S.custDetail.subs){for(var _i=0;_i<S.custDetail.subs.length;_i++){if(S.custDetail.subs[_i].id===S.editSub){_editSubObj=S.custDetail.subs[_i];break;}}}
+  var _editCust=null;
+  if(_editSubObj){for(var _i=0;_i<D.customers.length;_i++){if(D.customers[_i].id===_editSubObj.customer_id){_editCust=D.customers[_i];break;}}}
+  var _auditCustLabel=_editCust?_editCust.name:(_editSubObj?_editSubObj.customer_id:'?');
+  var _auditProgLabel=_editSubObj?(_editSubObj.program_name||_editSubObj.program_id||'?'):'?';
   S.saving=true;render();
   try{
     await dbPatch('subscriptions','id=eq.'+S.editSub,{
@@ -4469,9 +4493,13 @@ async function submitEditSub(){
       discount_note:discountNote,
       price_due:due,price_paid:paid,is_active:true
     });
-    logAudit('subscription',S.editSub,'edit','Abunəlik redaktə edildi',null,{start_date:start,end_date:end,price_due:due,price_paid:paid,discount_amount:discount});
     var rec=await recalcSubscriptionRemaining(S.editSub);
     var remaining=rec&&rec.remaining!==undefined?rec.remaining:0;
+    logAudit('subscription',S.editSub,'edit',
+      'Abunəlik redaktə edildi — '+_auditCustLabel+' | '+_auditProgLabel+' | '+start+' → '+end,
+      {customer_id:_editSubObj?_editSubObj.customer_id:'?',customer_name:_auditCustLabel,subscription_id:S.editSub,program_name:_auditProgLabel,start_date:_editSubObj?_editSubObj.start_date:'?',end_date:_editSubObj?_editSubObj.end_date:'?',price_due:_editSubObj?_editSubObj.price_due:null,price_paid:_editSubObj?_editSubObj.price_paid:null,discount_amount:_editSubObj?_editSubObj.discount_amount:null,remaining:_editSubObj?_editSubObj.remaining:null},
+      {customer_id:_editSubObj?_editSubObj.customer_id:'?',customer_name:_auditCustLabel,subscription_id:S.editSub,program_name:_auditProgLabel,start_date:start,end_date:end,price_due:due,price_paid:paid,discount_amount:discount,remaining:remaining}
+    );
     function _applyEdit(arr){
       if(!arr)return;
       for(var i=0;i<arr.length;i++){
