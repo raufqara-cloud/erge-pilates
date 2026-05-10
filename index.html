@@ -412,6 +412,7 @@ async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNot
       is_active:true,freeze_end:null,
       status:isPending?'pending':'active'};
     await dbPost('subscriptions',sub);
+    logAudit('subscription',sub.id,'create',sub.program_name+' — '+custId,null,{program_id:sub.program_id,price_due:sub.price_due,price_paid:sub.price_paid,status:sub.status});
     D.subscriptions.unshift(sub);
     // Create transaction if paid amount > 0 and account selected
     if(acctId&&paidNum>0){
@@ -422,6 +423,7 @@ async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNot
         amount:paidNum,account_id:acctId,
         subscription_id:sub.id,customer_id:custId};
       await dbPost('transactions',txn);
+      logAudit('transaction',txn.id,'create',txn.description+' ('+txn.amount+' AZN)',null,{type:txn.type,category:txn.category,amount:txn.amount,account_id:txn.account_id});
       // 2% POS commission if Bank selected
       if(acctId===BANK_ACCT_ID){
         await createPosCommission(paidNum,sd,(prog.name||progId)+' — '+((cust&&cust.name)||custId));
@@ -597,7 +599,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-integrity-v1.1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-auditlog-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -3618,8 +3620,12 @@ function rReport(){
 // ==================== ADMIN ACCORDION HELPERS ====================
 
 function toggleAdminSection(key){
-  if(!S.adminOpenSections)S.adminOpenSections={progs:false,insts:false,accts:false,excel:false,audit:false};
+  if(!S.adminOpenSections)S.adminOpenSections={progs:false,insts:false,accts:false,excel:false,audit:false,auditlog:false};
   S.adminOpenSections[key]=!S.adminOpenSections[key];
+  // Auto-load audit log rows when section is opened for the first time
+  if(key==='auditlog'&&S.adminOpenSections['auditlog']&&!S.auditLogData&&!S.auditLogLoading){
+    loadAuditLog();
+  }
   render();
 }
 function toggleAuditCheck(key){
@@ -3653,6 +3659,9 @@ function rAuditCheckBlock(checkKey,title,issues,renderRow){
     if(!cnt){
       h+='<div class="al al-g">✓ Problem tapılmadı</div>';
     }else{
+      h+='<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
+        +'<button class="btn btn-gray btn-sm" onclick="exportAuditCsv(\''+checkKey+'\')" style="font-size:11px">⬇ CSV yüklə</button>'
+        +'</div>';
       var shown=Math.min(cnt,200);
       var hidden=cnt-shown;
       for(var ri=0;ri<shown;ri++){h+=renderRow(issues[ri]);}
@@ -3786,10 +3795,50 @@ function rAdmin(){
   }
   h+='</div>';
 
+  // ── AUDİT LOG ──
+  h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+  h+=rAdminAccHdr('auditlog','🗒️','Audit Log','Aktiv','b-green');
+  if(sec.auditlog){
+    h+='<div style="padding:12px 16px">';
+    h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
+      +'<span style="font-size:13px;color:#1D9E75;font-weight:600">✓ Audit Log aktivdir</span>'
+      +'<button class="btn btn-gray btn-sm" onclick="loadAuditLog()" style="margin-left:auto">🔄 Yenilə</button>'
+      +'</div>';
+    h+='<div style="font-size:12px;color:#888;margin-bottom:10px">Abunəlik yaradılması/redaktəsi, davamiyyət silinməsi və manual əməliyyatlar qeyd olunur.</div>';
+    if(S.auditLogLoading){
+      h+='<div class="empty"><span class="spin"></span> Yüklənir...</div>';
+    }else if(!S.auditLogData){
+      h+='<div style="font-size:13px;color:#aaa">Açmaq üçün bölməni bağlayıb yenidən açın.</div>';
+    }else if(S.auditLogData.error){
+      h+='<div class="al al-y">⚠ Audit log cədvəli hələ yaradılmayıb və ya əlçatmazdır. Cədvəli Supabase-də yaradın.</div>';
+    }else if(!S.auditLogData.rows||!S.auditLogData.rows.length){
+      h+='<div class="al al-g">Hələ heç bir audit qeyd yoxdur.</div>';
+    }else{
+      h+='<div style="font-size:12px;color:#666;margin-bottom:8px">Son '+S.auditLogData.rows.length+' qeyd:</div>';
+      h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+      h+='<tr style="background:#f8f8f8"><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Tarix</th>';
+      h+='<th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Tip</th>';
+      h+='<th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Əməliyyat</th>';
+      h+='<th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Açıqlama</th></tr>';
+      for(var ali=0;ali<S.auditLogData.rows.length;ali++){
+        var alr=S.auditLogData.rows[ali];
+        var alDate=alr.created_at?(alr.created_at.slice(0,16).replace('T',' ')):'—';
+        var alTypeColor={'subscription':'#1565C0','attendance':'#C62828','transaction':'#1D9E75'}[alr.entity_type]||'#555';
+        h+='<tr style="border-bottom:1px solid #f5f5f5">';
+        h+='<td style="padding:5px 8px;color:#888;white-space:nowrap">'+alDate+'</td>';
+        h+='<td style="padding:5px 8px"><span style="color:'+alTypeColor+';font-weight:600">'+( alr.entity_type||'?')+'</span></td>';
+        h+='<td style="padding:5px 8px"><span style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:11px">'+(alr.action||'?')+'</span></td>';
+        h+='<td style="padding:5px 8px;color:#444">'+(alr.summary||'—')+'</td>';
+        h+='</tr>';
+      }
+      h+='</table></div>';
+    }
+    h+='</div>';
+  }
+  h+='</div>';
+
   return h;
 }
-
-// ==================== EXCEL KASSA IMPORT ====================
 function rKassaImport(){
   var imp=S.kassaImport||{};
   var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;padding:16px;margin-bottom:16px">';
@@ -4244,6 +4293,7 @@ async function deleteAtt(attId, subId, attDate){
   try{
     var r=await fetch(BASE+'/attendances?id=eq.'+localAttId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(!r.ok)throw new Error(await r.text());
+    logAudit('attendance',localAttId,'delete','Davamiyyət silindi ('+attDate+')',{subscription_id:localSubId||null,date:attDate},null);
     D.attendances=D.attendances.filter(function(a){return a.id!==localAttId;});
     if(S.selDateAtts)S.selDateAtts=S.selDateAtts.filter(function(a){return a.id!==localAttId;});
     if(S.custDetail&&S.custDetail.atts)S.custDetail.atts=S.custDetail.atts.filter(function(a){return a.id!==localAttId;});
@@ -4419,6 +4469,7 @@ async function submitEditSub(){
       discount_note:discountNote,
       price_due:due,price_paid:paid,is_active:true
     });
+    logAudit('subscription',S.editSub,'edit','Abunəlik redaktə edildi',null,{start_date:start,end_date:end,price_due:due,price_paid:paid,discount_amount:discount});
     var rec=await recalcSubscriptionRemaining(S.editSub);
     var remaining=rec&&rec.remaining!==undefined?rec.remaining:0;
     function _applyEdit(arr){
@@ -5214,6 +5265,45 @@ function updateCatPickerOpts(id,cats){
   if(hid)hid.value='';
 }
 
+// ==================== AUDIT LOG — daily-auditlog-v1 ====================
+// Fail-silent audit logger. Never blocks main operation.
+async function logAudit(entityType, entityId, action, summary, oldVal, newVal){
+  try{
+    var entry={
+      id:'AL'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
+      entity_type:entityType,
+      entity_id:String(entityId||''),
+      action:action,
+      summary:summary||'',
+      old_value:oldVal!==undefined?oldVal:null,
+      new_value:newVal!==undefined?newVal:null
+    };
+    var r=await fetch(BASE+'/audit_logs',{
+      method:'POST',
+      headers:Object.assign({},H,{'Prefer':'return=minimal'}),
+      body:JSON.stringify(entry)
+    });
+    if(!r.ok){
+      var errText='';try{errText=await r.text();}catch(te){}
+      console.warn('[audit] log failed ('+r.status+'):', errText);
+    }
+  }catch(e){
+    console.warn('[audit] logAudit error:', e.message);
+  }
+}
+
+async function loadAuditLog(){
+  S.auditLogLoading=true;S.auditLogData=null;render();
+  try{
+    var rows=await dbGet('audit_logs','order=created_at.desc&limit=10');
+    S.auditLogData={rows:rows||[]};
+  }catch(e){
+    S.auditLogData={error:e.message};
+    console.warn('[audit] loadAuditLog error:', e.message);
+  }
+  S.auditLogLoading=false;render();
+}
+
 // Create a 2% POS commission expense transaction
 async function createPosCommission(amount,date,desc){
   var commAmt=Math.round(amount*POS_COMMISSION_PCT)/100;
@@ -5281,6 +5371,7 @@ async function submitAddTxn(){
       to_account_id:toAcct||null,subscription_id:null,customer_id:null,
       status:isPending?'pending':'posted'};
     await dbPost('transactions',txn);
+    logAudit('transaction',txn.id,'create',(txn.description||txn.category)+' ('+txn.amount+' AZN)',null,{type:txn.type,category:txn.category,amount:txn.amount,account_id:txn.account_id,status:txn.status});
     S.kassaData.txns.unshift(txn);
     // 2% POS commission only if posted + income to Bank
     if(!isPending&&type==='income'&&acctId===BANK_ACCT_ID){
@@ -5682,6 +5773,91 @@ function runDataIntegrityAudit(){
   render();
 }
 
+// ==================== CSV EXPORT — daily-integrity-v1.2 ====================
+
+function csvCell(v){
+  if(v===null||v===undefined)v='';
+  v=String(v).replace(/\r?\n/g,' ').replace(/"/g,'""');
+  return '"'+v+'"';
+}
+
+function downloadCsv(filename,rows){
+  var lines=[];
+  for(var i=0;i<rows.length;i++){
+    lines.push(rows[i].map(csvCell).join(';'));
+  }
+  var content='\uFEFF'+lines.join('\r\n');
+  var blob=new Blob([content],{type:'text/csv;charset=utf-8;'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;
+  a.download=filename.endsWith('.csv')?filename:filename+'.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportAuditCsv(checkKey){
+  if(!S.auditResults||S.auditResults.error)return;
+  var res=S.auditResults;
+  var today=td();
+  var rows=[];
+
+  function addC1(items){
+    rows.push(['Yoxlama','Müştəri ID','Müştəri adı','Tarix','Say','Saatlar','Attendance ID-lər']);
+    for(var i=0;i<items.length;i++){
+      var x=items[i];
+      rows.push(['1 - Eyni gündə dublikat',x.customer_id,x.customer_name,fmt(x.class_date),x.ids.length,x.times.join(', '),x.ids.join(', ')]);
+    }
+  }
+  function addC2(items){
+    rows.push(['Yoxlama','Müştəri ID','Müştəri adı','Tarix','Saat','Say','Attendance ID-lər']);
+    for(var i=0;i<items.length;i++){
+      var x=items[i];
+      rows.push(['2 - Eyni slotda dublikat',x.customer_id,x.customer_name,fmt(x.class_date),x.class_time,x.ids.length,x.ids.join(', ')]);
+    }
+  }
+  function addC3(items){
+    rows.push(['Yoxlama','Subscription ID','Müştəri ID','Müştəri adı','Proqram','Sessions total','İstifadə sayı','DB qalıq','Gözlənilən qalıq','Fərq']);
+    for(var i=0;i<items.length;i++){
+      var x=items[i];
+      rows.push(['3 - Qalıq uyğunsuzluq',x.subscription_id,x.customer_id,x.customer_name,x.program_name,x.sessions_total,x.used,x.db_remaining,x.expected_remaining,x.diff]);
+    }
+  }
+  function addC4(items){
+    rows.push(['Yoxlama','Attendance ID','Müştəri ID','Müştəri adı','Tarix','Saat','Subscription ID','Proqram','Abunə başlanğıc tarixi','Abunə bitiş tarixi','Problem tipi']);
+    for(var i=0;i<items.length;i++){
+      var x=items[i];
+      var pt=x.class_date<x.sub_start?'Abunə başlanğıcından əvvəl':'Abunə bitdikdən sonra';
+      rows.push(['4 - Tarix aralığı xarici',x.attendance_id,x.customer_id,x.customer_name,fmt(x.class_date),x.class_time,x.subscription_id,x.program_name,fmt(x.sub_start),fmt(x.sub_end),pt]);
+    }
+  }
+
+  var filename;
+  if(checkKey==='all'){
+    filename='erge_audit_all_'+today+'.csv';
+    addC1(res.c1);
+    if(res.c2.length){rows.push([]);addC2(res.c2);}
+    if(res.c3.length){rows.push([]);addC3(res.c3);}
+    if(res.c4.length){rows.push([]);addC4(res.c4);}
+  }else if(checkKey==='c1'){
+    filename='erge_audit_duplicate_day_'+today+'.csv';
+    addC1(res.c1);
+  }else if(checkKey==='c2'){
+    filename='erge_audit_duplicate_slot_'+today+'.csv';
+    addC2(res.c2);
+  }else if(checkKey==='c3'){
+    filename='erge_audit_remaining_mismatch_'+today+'.csv';
+    addC3(res.c3);
+  }else if(checkKey==='c4'){
+    filename='erge_audit_date_range_'+today+'.csv';
+    addC4(res.c4);
+  }else return;
+
+  downloadCsv(filename,rows);
+}
+
 function rAuditResults(){
   if(S.auditLoading){
     return '<div class="lscreen"><span class="spin"></span> Yoxlanılır...</div>';
@@ -5716,6 +5892,9 @@ function rAuditResults(){
   }else{
     h+='<div class="al al-y" style="margin:0">⚠ Cəmi <b>'+total+'</b> problem tapıldı. Bu problemlər əsasən tarixi Excel import datasından qaynaqlana bilər. Avtomatik düzəliş edilmədi.</div>';
   }
+  h+='<div style="margin-top:10px;display:flex;justify-content:flex-end">'
+    +'<button class="btn btn-gray btn-sm" onclick="exportAuditCsv(\'all\')" '+(total===0?'disabled':'')+' style="font-size:12px">⬇ Bütün audit nəticələrini CSV yüklə</button>'
+    +'</div>';
   h+='</div>';
 
   // Check 1
