@@ -188,6 +188,8 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   slotSinglePayData:{},
   auditLoading:false,
   auditResults:null,
+  auditLogDate:null,
+  auditLogLimit:50,
   adminOpenSections:{progs:false,insts:false,accts:false,excel:false,audit:false},
   auditOpenChecks:{c1:false,c2:false,c3:false,c4:false}};
 
@@ -414,6 +416,13 @@ async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNot
     await dbPost('subscriptions',sub);
     logAudit('subscription',sub.id,'create',sub.program_name+' — '+custId,null,{program_id:sub.program_id,price_due:sub.price_due,price_paid:sub.price_paid,status:sub.status});
     D.subscriptions.unshift(sub);
+    // Müştəri profili açıqsa dərhal görünsün — full reload yoxdur
+    if(S.custDetail&&S.selCust===custId){
+      if(!S.custDetail.subs)S.custDetail.subs=[];
+      S.custDetail.subs.unshift(sub);
+      S.custDetail.subs.sort(function(a,b){return(b.start_date||'').localeCompare(a.start_date||'');});
+      S.custSection='subs';
+    }
     // Create transaction if paid amount > 0 and account selected
     if(acctId&&paidNum>0){
       var cust=null;
@@ -599,7 +608,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-auditlog-v1.1.1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-auditlog-v1.2.1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -3800,21 +3809,35 @@ function rAdmin(){
   h+=rAdminAccHdr('auditlog','🗒️','Audit Log','Aktiv','b-green');
   if(sec.auditlog){
     h+='<div style="padding:12px 16px">';
-    h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
-      +'<span style="font-size:13px;color:#1D9E75;font-weight:600">✓ Audit Log aktivdir</span>'
-      +'<button class="btn btn-gray btn-sm" onclick="loadAuditLog()" style="margin-left:auto">🔄 Yenilə</button>'
-      +'</div>';
-    h+='<div style="font-size:12px;color:#888;margin-bottom:10px">Abunəlik yaradılması/redaktəsi, davamiyyət silinməsi və manual əməliyyatlar qeyd olunur.</div>';
+    h+='<div style="font-size:12px;color:#888;margin-bottom:10px">Abunəlik yaradılması/redaktəsi, davamiyyət silinməsi, ödəniş və manual əməliyyatlar qeyd olunur.</div>';
+    // Filter row
+    h+='<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px">';
+    h+='<input class="fi" type="date" id="al-date" value="'+(S.auditLogDate||'')+'" style="width:auto;font-size:13px;padding:6px 10px" '
+      +'onchange="S.auditLogDate=this.value||null;S.auditLogData=null;render()">';
+    h+='<select class="fs" id="al-limit" style="width:auto;font-size:13px;padding:6px 10px" '
+      +'onchange="S.auditLogLimit=parseInt(this.value)||50;S.auditLogData=null;render()">';
+    var _limits=[50,100,200];
+    for(var _li=0;_li<_limits.length;_li++){
+      h+='<option value="'+_limits[_li]+'"'+( (S.auditLogLimit||50)===_limits[_li]?' selected':'')+'>'+_limits[_li]+'</option>';
+    }
+    h+='</select>';
+    h+='<button class="btn btn-gray btn-sm" onclick="S.auditLogDate=td();S.auditLogData=null;render();loadAuditLog()">📅 Bugün</button>';
+    h+='<button class="btn btn-gray btn-sm" onclick="S.auditLogDate=null;document.getElementById(\'al-date\')&&(document.getElementById(\'al-date\').value=\'\');S.auditLogData=null;render();loadAuditLog()">📋 Son qeydlər</button>';
+    h+='<button class="btn btn-gray btn-sm" onclick="loadAuditLog()" style="margin-left:auto">🔄 Yenilə</button>';
+    h+='</div>';
     if(S.auditLogLoading){
       h+='<div class="empty"><span class="spin"></span> Yüklənir...</div>';
     }else if(!S.auditLogData){
-      h+='<div style="font-size:13px;color:#aaa">Açmaq üçün bölməni bağlayıb yenidən açın.</div>';
+      h+='<div style="font-size:13px;color:#aaa">Yükləmək üçün "Yenilə" düyməsini basın.</div>';
     }else if(S.auditLogData.error){
       h+='<div class="al al-y">⚠ Audit log cədvəli hələ yaradılmayıb və ya əlçatmazdır. Cədvəli Supabase-də yaradın.</div>';
     }else if(!S.auditLogData.rows||!S.auditLogData.rows.length){
-      h+='<div class="al al-g">Hələ heç bir audit qeyd yoxdur.</div>';
+      h+='<div class="al al-g">'+(S.auditLogData.date?fmt(S.auditLogData.date)+' tarixinə aid':'Hələ heç')+' qeyd yoxdur.</div>';
     }else{
-      h+='<div style="font-size:12px;color:#666;margin-bottom:8px">Son '+S.auditLogData.rows.length+' qeyd:</div>';
+      var _alLabel=S.auditLogData.date
+        ?'Tarix: '+fmt(S.auditLogData.date)+' — göstərilən qeyd sayı: '+S.auditLogData.rows.length
+        :'Son '+S.auditLogData.rows.length+' qeyd';
+      h+='<div style="font-size:12px;color:#666;margin-bottom:8px">'+_alLabel+'</div>';
       h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
       h+='<tr style="background:#f8f8f8"><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Tarix</th>';
       h+='<th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Tip</th>';
@@ -3826,7 +3849,7 @@ function rAdmin(){
         var alTypeColor={'subscription':'#1565C0','attendance':'#C62828','transaction':'#1D9E75'}[alr.entity_type]||'#555';
         h+='<tr style="border-bottom:1px solid #f5f5f5">';
         h+='<td style="padding:5px 8px;color:#888;white-space:nowrap">'+alDate+'</td>';
-        h+='<td style="padding:5px 8px"><span style="color:'+alTypeColor+';font-weight:600">'+( alr.entity_type||'?')+'</span></td>';
+        h+='<td style="padding:5px 8px"><span style="color:'+alTypeColor+';font-weight:600">'+(alr.entity_type||'?')+'</span></td>';
         h+='<td style="padding:5px 8px"><span style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:11px">'+(alr.action||'?')+'</span></td>';
         h+='<td style="padding:5px 8px;color:#444">'+(alr.summary||'—')+'</td>';
         h+='</tr>';
@@ -5323,8 +5346,15 @@ async function logAudit(entityType, entityId, action, summary, oldVal, newVal){
 async function loadAuditLog(){
   S.auditLogLoading=true;S.auditLogData=null;render();
   try{
-    var rows=await dbGet('audit_logs','order=created_at.desc&limit=10');
-    S.auditLogData={rows:rows||[]};
+    var limit=S.auditLogLimit||50;
+    var params='order=created_at.desc&limit='+limit;
+    if(S.auditLogDate){
+      var dStart=S.auditLogDate+'T00:00:00+04:00';
+      var dEnd=addDays(S.auditLogDate,1)+'T00:00:00+04:00';
+      params+='&created_at=gte.'+encodeURIComponent(dStart)+'&created_at=lt.'+encodeURIComponent(dEnd);
+    }
+    var rows=await dbGet('audit_logs',params);
+    S.auditLogData={rows:rows||[],date:S.auditLogDate,limit:limit};
   }catch(e){
     S.auditLogData={error:e.message};
     console.warn('[audit] loadAuditLog error:', e.message);
@@ -5491,10 +5521,11 @@ async function executePending(id){
 }
 
 async function deleteTxn(id){
-  // subId və tarixi əvvəlcədən saxla
+  // subId, tarix və tam snapshot-u əvvəlcədən saxla
   var subId=null;
   var txnDate=null;
-  if(S.kassaData){for(var i=0;i<S.kassaData.txns.length;i++){if(S.kassaData.txns[i].id===id){subId=S.kassaData.txns[i].subscription_id||null;txnDate=S.kassaData.txns[i].date||null;break;}}}
+  var oldTxn=null;
+  if(S.kassaData){for(var i=0;i<S.kassaData.txns.length;i++){if(S.kassaData.txns[i].id===id){oldTxn=S.kassaData.txns[i];subId=oldTxn.subscription_id||null;txnDate=oldTxn.date||null;break;}}}
   // Keçmiş tarix xəbərdarlığı
   if(txnDate&&txnDate<td()){
     if(!confirm('Bu əməliyyat keçmiş tarixə aiddir. Əgər həmin günün kassa bağlanışı aparılıbsa, yekunlarda fərq yarana bilər. Silinsin?'))return;
@@ -5503,7 +5534,13 @@ async function deleteTxn(id){
   }
   S.saving=true;render();
   try{
-    await fetch(BASE+'/transactions?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    var r=await fetch(BASE+'/transactions?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(!r.ok)throw new Error(await r.text());
+    logAudit('transaction',id,'delete',
+      'Əməliyyat silindi — '+(oldTxn?((oldTxn.description||oldTxn.category||'?')+' | '+oldTxn.amount+' AZN | '+(oldTxn.date||'?')):(id)),
+      oldTxn?{id:oldTxn.id,type:oldTxn.type,category:oldTxn.category,description:oldTxn.description,amount:oldTxn.amount,account_id:oldTxn.account_id,date:oldTxn.date,subscription_id:oldTxn.subscription_id||null,customer_id:oldTxn.customer_id||null}:{id:id,subscription_id:subId,date:txnDate},
+      null
+    );
     if(S.kassaData)S.kassaData.txns=S.kassaData.txns.filter(function(t){return t.id!==id;});
     if(subId)await recalcSubscriptionPaid(subId);
     // custDetail yenilə — transaction silindikdən sonra profil anında düzəlsin
@@ -5588,6 +5625,11 @@ async function submitSubPayment(){
       description:desc,amount:amount,account_id:acctId,
       to_account_id:null,subscription_id:sub.id,customer_id:sub.customer_id};
     await dbPost('transactions',txn);
+    logAudit('transaction',txn.id,'create',
+      'Borc ödənişi — '+(cust?cust.name:sub.customer_id)+' | '+sub.program_name+' | '+amount+' AZN | '+payDate,
+      null,
+      {type:txn.type,category:txn.category,amount:txn.amount,account_id:txn.account_id,date:txn.date,subscription_id:txn.subscription_id,customer_id:txn.customer_id,description:txn.description}
+    );
     // price_paid-i bütün linked income-ların cəminə görə yenilə
     await recalcSubscriptionPaid(sub.id);
     // POS commission if bank account
