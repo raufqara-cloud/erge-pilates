@@ -676,7 +676,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: auditlog-export-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: csv-comma-standard-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -6187,7 +6187,7 @@ function csvCell(v){
 function downloadCsv(filename,rows){
   var lines=[];
   for(var i=0;i<rows.length;i++){
-    lines.push(rows[i].map(csvCell).join(';'));
+    lines.push(rows[i].map(csvCell).join(','));
   }
   var content='\uFEFF'+lines.join('\r\n');
   var blob=new Blob([content],{type:'text/csv;charset=utf-8;'});
