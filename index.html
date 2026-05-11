@@ -191,7 +191,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   auditLogDate:null,
   auditLogLimit:50,
   adminOpenSections:{progs:false,insts:false,accts:false,excel:false,audit:false},
-  auditOpenChecks:{c1:false,c2:false,c3:false,c4:false}};
+  auditOpenChecks:{c1:false,c2:false,c3:false,c4:false,c5:false,c6:false}};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -674,7 +674,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: auditlog-kassa-search-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-integrity-checks-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -3704,7 +3704,7 @@ function toggleAdminSection(key){
   render();
 }
 function toggleAuditCheck(key){
-  if(!S.auditOpenChecks)S.auditOpenChecks={c1:false,c2:false,c3:false,c4:false};
+  if(!S.auditOpenChecks)S.auditOpenChecks={c1:false,c2:false,c3:false,c4:false,c5:false,c6:false};
   S.auditOpenChecks[key]=!S.auditOpenChecks[key];
   render();
 }
@@ -5945,22 +5945,161 @@ function auditAttendanceOutsideSubscriptionRange(){
   return issues;
 }
 
-function runDataIntegrityAudit(){
+function auditPaymentDrift(txnsArg){
+  // Check 5: non-partner subscriptions with payment anomalies
+  var issues=[];
+  var subs=D.subscriptions||[];
+  var txns=txnsArg||(S.kassaData&&S.kassaData.txns)||[];
+  var custMap={};
+  var customers=D.customers||[];
+  for(var i=0;i<customers.length;i++)custMap[customers[i].id]=customers[i].name;
+
+  // Build txn map keyed by subscription_id
+  var txnBySubId={};
+  for(var i=0;i<txns.length;i++){
+    var t=txns[i];
+    if(!t.subscription_id||t.subscription_id==='null')continue;
+    if(t.type!=='income')continue;
+    if(!txnBySubId[t.subscription_id])txnBySubId[t.subscription_id]=[];
+    txnBySubId[t.subscription_id].push(t);
+  }
+
+  for(var i=0;i<subs.length;i++){
+    var sub=subs[i];
+    if(sub.is_partner)continue;
+    var pDue=parseFloat(sub.price_due)||0;
+    var pPaid=parseFloat(sub.price_paid)||0;
+    var reasons=[];
+
+    if(pPaid>pDue)reasons.push('Ödənilən məbləğ borcdan böyükdür');
+    if(pDue<0)reasons.push('Borc (price_due) mənfidir');
+    if(pPaid<0)reasons.push('Ödəniş (price_paid) mənfidir');
+
+    var linkedTxns=txnBySubId[sub.id]||[];
+    var linkedSum=0;
+    for(var j=0;j<linkedTxns.length;j++)linkedSum+=parseFloat(linkedTxns[j].amount)||0;
+    var hasLinkedTxns=linkedTxns.length>0;
+    var diff=hasLinkedTxns?Math.abs(linkedSum-pPaid):null;
+
+    if(hasLinkedTxns&&diff>0.01)reasons.push('Əlaqəli txn cəmi ('+linkedSum.toFixed(2)+') ≠ price_paid ('+pPaid.toFixed(2)+')');
+
+    if(reasons.length>0){
+      issues.push({
+        customer_id:sub.customer_id,
+        customer_name:custMap[sub.customer_id]||sub.customer_id,
+        subscription_id:sub.id,
+        program_name:sub.program_name||sub.program_id,
+        price_due:pDue,
+        price_paid:pPaid,
+        linked_txn_sum:hasLinkedTxns?linkedSum:null,
+        diff:diff,
+        reason:reasons.join('; ')
+      });
+    }
+  }
+  return issues;
+}
+
+function auditBronRisks(bookingsArg){
+  // Check 6: active permanent booking risks
+  var issues=[];
+  var brons=bookingsArg||S.bronData||[];
+  var customers=D.customers||[];
+  var subs=D.subscriptions||[];
+  var custMap={};
+  for(var i=0;i<customers.length;i++)custMap[customers[i].id]=customers[i];
+
+  // Valid studio sub: pending (not inactive) OR active non-partner, not expired, remaining>0
+  var today=td();
+  var validStudioSubs={};
+  for(var i=0;i<subs.length;i++){
+    var s=subs[i];
+    if(s.is_partner)continue;
+    if(s.is_active===false||s.is_active==='false')continue;
+    var valid=false;
+    if(s.status==='pending'){
+      valid=true;
+    }else{
+      if(s.end_date&&s.end_date>=today&&(parseInt(s.remaining)||0)>0)valid=true;
+    }
+    if(valid){
+      if(!validStudioSubs[s.customer_id])validStudioSubs[s.customer_id]=[];
+      validStudioSubs[s.customer_id].push(s);
+    }
+  }
+
+  var slotMap={};
+  for(var i=0;i<brons.length;i++){
+    var b=brons[i];
+    if(!b.is_active)continue;
+    if(b.type!=='permanent')continue;
+    if(b.valid_until&&b.valid_until<today)continue;
+
+    var slotKey=b.day_of_week+'|'+(b.time_slot||'');
+    if(!slotMap[slotKey])slotMap[slotKey]=[];
+    slotMap[slotKey].push(b);
+
+    // Source detection: explicit note marker only; default studio for audit purposes
+    var src='studio';
+    if(b.note){var mn=b.note.match(/\[source:(\w+)\]/);if(mn)src=mn[1];}
+
+    // Risk 1: customer not found
+    if(!custMap[b.customer_id]){
+      issues.push({customer_id:b.customer_id,customer_name:b.customer_name||b.customer_id,
+        day_of_week:b.day_of_week,time_slot:b.time_slot||'--',source:src,count:null,
+        reason:'Müştəri sistemdə tapılmadı'});
+      continue;
+    }
+
+    // Risk 2: studio source but no valid non-partner subscription
+    if(src==='studio'){
+      var hasSub=(validStudioSubs[b.customer_id]&&validStudioSubs[b.customer_id].length>0);
+      if(!hasSub){
+        issues.push({customer_id:b.customer_id,
+          customer_name:b.customer_name||(custMap[b.customer_id]&&custMap[b.customer_id].name)||b.customer_id,
+          day_of_week:b.day_of_week,time_slot:b.time_slot||'--',source:src,count:null,
+          reason:'Studio bronu var, aktiv/gözləyən abunəlik tapılmadı (bitmiş və ya qalıqsız abunələr nəzərə alınmır)'});
+      }
+    }
+  }
+
+  // Risk 3: slot count > 8
+  var dayNames=['','Bazar ertəsi','Çərşənbə axşamı','Çərşənbə','Cümə axşamı','Cümə','Şənbə'];
+  for(var sk in slotMap){
+    var list=slotMap[sk];
+    if(list.length>8){
+      var parts=sk.split('|');
+      var dow=parseInt(parts[0]);
+      var ts=parts[1]||'--';
+      issues.push({customer_id:null,customer_name:null,day_of_week:dow,time_slot:ts,source:'slot',
+        count:list.length,
+        reason:'Slotda '+(dayNames[dow]||'Gün '+dow)+' '+ts+' üçün '+list.length+' aktiv sabit bron var (limit 8)'});
+    }
+  }
+  return issues;
+}
+async function runDataIntegrityAudit(){
   if(!D.attFull){
     alert('Davamiyyət datası tam yüklənməyib. Zəhmət olmasa səhifəni yeniləyin və bir az gözləyin.');
     return;
   }
   S.auditLoading=true;
   S.auditResults=null;
-  S.auditOpenChecks={c1:false,c2:false,c3:false,c4:false};
+  S.auditOpenChecks={c1:false,c2:false,c3:false,c4:false,c5:false,c6:false};
   render();
-  // All checks are synchronous (local D data only)
   try{
     var r1=auditDuplicateAttendanceByDay();
     var r2=auditDuplicateAttendanceBySlot();
     var r3=auditSubscriptionRemainingMismatch();
     var r4=auditAttendanceOutsideSubscriptionRange();
-    S.auditResults={c1:r1,c2:r2,c3:r3,c4:r4,ts:new Date().toLocaleTimeString('az-AZ')};
+    // Fetch fresh read-only data for c5/c6 — not stored globally
+    var auditTxns=[];
+    var auditBookings=[];
+    try{auditTxns=await dbGetAll('transactions','order=date.desc,created_at.desc',1000);}catch(e){console.warn('audit txns fetch failed',e);}
+    try{auditBookings=await dbGetAll('bookings','is_active=eq.true&type=eq.permanent&order=day_of_week,time_slot',1000);}catch(e){console.warn('audit bookings fetch failed',e);}
+    var r5=auditPaymentDrift(auditTxns.length?auditTxns:null);
+    var r6=auditBronRisks(auditBookings.length?auditBookings:null);
+    S.auditResults={c1:r1,c2:r2,c3:r3,c4:r4,c5:r5,c6:r6,ts:new Date().toLocaleTimeString('az-AZ')};
   }catch(e){
     S.auditResults={error:'Yoxlama zamanı xəta: '+e.message};
   }
@@ -6029,6 +6168,21 @@ function exportAuditCsv(checkKey){
     }
   }
 
+  function addC5(items){
+    rows.push(['Yoxlama','Müştəri ID','Müştəri adı','Subscription ID','Proqram','Borc (due)','Ödənilən (paid)','Txn cəmi','Fərq','Səbəb']);
+    for(var i=0;i<items.length;i++){
+      var x=items[i];
+      rows.push(['5 - Ödəniş uyğunsuzluğu',x.customer_id,x.customer_name,x.subscription_id,x.program_name,x.price_due,x.price_paid,x.linked_txn_sum!==null?x.linked_txn_sum:'',x.diff!==null?x.diff:'',x.reason]);
+    }
+  }
+  function addC6(items){
+    rows.push(['Yoxlama','Müştəri ID','Müştəri adı','Həftənin günü','Saat','Mənbə','Say','Səbəb']);
+    for(var i=0;i<items.length;i++){
+      var x=items[i];
+      rows.push(['6 - Bron riski',x.customer_id||'',x.customer_name||'',x.day_of_week,x.time_slot,x.source,x.count!==null?x.count:'',x.reason]);
+    }
+  }
+
   var filename;
   if(checkKey==='all'){
     filename='erge_audit_all_'+today+'.csv';
@@ -6036,6 +6190,8 @@ function exportAuditCsv(checkKey){
     if(res.c2.length){rows.push([]);addC2(res.c2);}
     if(res.c3.length){rows.push([]);addC3(res.c3);}
     if(res.c4.length){rows.push([]);addC4(res.c4);}
+    if((res.c5||[]).length){rows.push([]);addC5(res.c5);}
+    if((res.c6||[]).length){rows.push([]);addC6(res.c6);}
   }else if(checkKey==='c1'){
     filename='erge_audit_duplicate_day_'+today+'.csv';
     addC1(res.c1);
@@ -6048,6 +6204,12 @@ function exportAuditCsv(checkKey){
   }else if(checkKey==='c4'){
     filename='erge_audit_date_range_'+today+'.csv';
     addC4(res.c4);
+  }else if(checkKey==='c5'){
+    filename='erge_audit_payment_drift_'+today+'.csv';
+    addC5(res.c5||[]);
+  }else if(checkKey==='c6'){
+    filename='erge_audit_bron_risks_'+today+'.csv';
+    addC6(res.c6||[]);
   }else return;
 
   downloadCsv(filename,rows);
@@ -6063,9 +6225,9 @@ function rAuditResults(){
     return '<div class="errbox">⚠ '+res.error+'</div>';
   }
 
-  var total=res.c1.length+res.c2.length+res.c3.length+res.c4.length;
-  var checkCounts=[res.c1.length,res.c2.length,res.c3.length,res.c4.length];
-  var checkLabels=['Dublikat gün','Dublikat slot','Qalıq fərqi','Tarix aralığı'];
+  var total=res.c1.length+res.c2.length+res.c3.length+res.c4.length+(res.c5||[]).length+(res.c6||[]).length;
+  var checkCounts=[res.c1.length,res.c2.length,res.c3.length,res.c4.length,(res.c5||[]).length,(res.c6||[]).length];
+  var checkLabels=['Dublikat gün','Dublikat slot','Qalıq fərqi','Tarix aralığı','Ödəniş fərqi','Bron riski'];
 
   var h='<div style="margin-top:12px">';
   h+='<div style="font-size:11px;color:#aaa;margin-bottom:8px">Son yoxlama: '+res.ts+'</div>';
@@ -6073,8 +6235,8 @@ function rAuditResults(){
   // Summary card
   h+='<div style="background:#f8faf8;border:1px solid #e0ebe0;border-radius:10px;padding:12px 14px;margin-bottom:12px">';
   h+='<div style="font-weight:700;font-size:12px;color:#555;margin-bottom:8px;letter-spacing:.3px">YEKUN NƏTİCƏ</div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px">';
-  for(var ci=0;ci<4;ci++){
+  h+='<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px">';
+  for(var ci=0;ci<6;ci++){
     var cc=checkCounts[ci];
     h+='<div style="background:#fff;border:1px solid #eee;border-radius:8px;padding:8px;text-align:center">'
       +'<div style="font-size:18px;font-weight:700;color:'+(cc===0?'#1D9E75':'#E65100')+'">'+cc+'</div>'
@@ -6130,6 +6292,29 @@ function rAuditResults(){
       +'Davamiyyət: <b>'+fmt(x.class_date)+'</b> '+x.class_time+'<br>'
       +'Abunə aralığı: '+fmt(x.sub_start)+' → '+fmt(x.sub_end)+'<br>'
       +'<span style="color:#aaa;font-size:11px">Att: '+x.attendance_id+' | Sub: '+x.subscription_id+'</span>'
+      +'</div>';
+  });
+
+  // Check 5
+  h+=rAuditCheckBlock('c5','5 — Ödəniş uyğunsuzluğu (non-partner)',res.c5||[],function(x){
+    return '<div style="background:#fce4ec;border:1px solid #f48fb1;border-radius:8px;padding:9px 11px;margin-bottom:6px;font-size:12px">'
+      +'<b>'+x.customer_name+'</b> <span style="color:#aaa">('+x.customer_id+')</span> — '+x.program_name+'<br>'
+      +'Borc: <b>'+x.price_due.toFixed(2)+'</b> ₼ | Ödənilən: <b>'+x.price_paid.toFixed(2)+'</b> ₼'
+      +(x.linked_txn_sum!==null?' | Txn cəmi: <b>'+x.linked_txn_sum.toFixed(2)+'</b> ₼'+(x.diff!==null?' | Fərq: <b style="color:#C62828">'+x.diff.toFixed(2)+'</b> ₼':''):'')+'<br>'
+      +'<span style="color:#C62828;font-size:11px">⚠ '+x.reason+'</span><br>'
+      +'<span style="color:#aaa;font-size:11px">Sub: '+x.subscription_id+'</span>'
+      +'</div>';
+  });
+
+  // Check 6
+  var dayNames2=['','Bazar ertəsi','Çərşənbə axşamı','Çərşənbə','Cümə axşamı','Cümə','Şənbə'];
+  h+=rAuditCheckBlock('c6','6 — Bron riskləri',res.c6||[],function(x){
+    var dayLabel=x.day_of_week?dayNames2[x.day_of_week]||('Gün '+x.day_of_week):'--';
+    return '<div style="background:#ede7f6;border:1px solid #ce93d8;border-radius:8px;padding:9px 11px;margin-bottom:6px;font-size:12px">'
+      +(x.customer_name?'<b>'+x.customer_name+'</b> <span style="color:#aaa">('+x.customer_id+')</span><br>':'')
+      +'Gün: <b>'+dayLabel+'</b> | Saat: <b>'+x.time_slot+'</b> | Mənbə: '+x.source
+      +(x.count!==null?' | Say: <b style="color:#C62828">'+x.count+'</b>':'')+'<br>'
+      +'<span style="color:#6A1B9A;font-size:11px">⚠ '+x.reason+'</span>'
       +'</div>';
   });
 
