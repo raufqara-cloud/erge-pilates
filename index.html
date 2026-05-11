@@ -676,7 +676,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: csv-comma-standard-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-payment-microfix-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -2555,8 +2555,8 @@ function openAttFromSlot(time, dateStr, dow){
     var noSub=!sub;
     // Source-u exception note-dan oxu (sabit bron ilə eyni mexanizm)
     var src=getBookingSource({note:t.note},t.temp_customer_id);
-    var needsEntryPayment=!already&&noSub&&(src==='single'||src==='partner');
     var already=!!alreadyRec[t.temp_customer_id];
+    var needsEntryPayment=!already&&noSub&&(src==='single'||src==='partner');
     var isDisabled=already;
     if(!needsEntryPayment){
       if(src==='studio')isDisabled=isDisabled||noSub;
@@ -2887,7 +2887,9 @@ async function confirmSlotSinglePay(custId){
   if(!instId){alert('Əvvəl instruktor seçin.');return;}
   // Partner ay limit xəbərdarlığı
   if(isPartnerEntryProgram(programId)){
-    if(!warnIfPartnerLimit(custId,cust?cust.name:custId))return;
+    var _warnName=key;
+    for(var _wi=0;_wi<D.customers.length;_wi++){if(D.customers[_wi].id===key){_warnName=D.customers[_wi].name;break;}}
+    if(!warnIfPartnerLimit(custId,_warnName))return;
   }
   var entryItem=getSlotPayCustomer(key);
   var entryType=entryItem?entryItem.entryPaymentType:'single';
