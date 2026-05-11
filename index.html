@@ -176,7 +176,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   bronSabitSearch:'',bronSabitDay:0,
   _bronNewCustId:null,_bronNewCustName:null,
   zCloseHistory:null,zCloseLoading:false,showZClose:false,zCloseDate:null,
-  kassaFilter:{preset:'all',dateFrom:'',dateTo:'',account:'',category:'',txnType:''},
+  kassaFilter:{preset:'all',dateFrom:'',dateTo:'',account:'',category:'',txnType:'',search:'',custSearch:'',subOnly:false},
   showPlanAbsent:false,planAbsentBooking:null,
   showSlotAttModal:false,slotAttData:null,
   showSubPayment:false,paySubId:null,
@@ -217,6 +217,72 @@ function norm(s){
     result+=c;
   }
   return result;
+}
+
+// Baku time formatter — does NOT affect DB storage
+function formatBakuDateTime(ts){
+  if(!ts)return'—';
+  try{
+    return new Intl.DateTimeFormat('az-AZ',{
+      timeZone:'Asia/Baku',
+      year:'numeric',month:'2-digit',day:'2-digit',
+      hour:'2-digit',minute:'2-digit',hour12:false
+    }).format(new Date(ts)).replace(',','');
+  }catch(e){
+    return ts.slice(0,16).replace('T',' ');
+  }
+}
+
+// Audit diff renderer — shows changed fields for subscription/edit rows
+var AUDIT_FIELD_LABELS={
+  start_date:'Başlama tarixi',end_date:'Bitmə tarixi',
+  sessions_total:'Dərs sayı',remaining:'Qalıq',
+  price_due:'Ödənilməli',price_paid:'Ödənilən',
+  status:'Status',freeze_end:'Donma bitmə tarixi',
+  discount_amount:'Endirim',discount_note:'Endirim qeydi'
+};
+function renderAuditDiff(oldVal, newVal, entityType, action){
+  if(!oldVal&&!newVal)return'';
+  try{
+    var old_=typeof oldVal==='string'?JSON.parse(oldVal):oldVal;
+    var new_=typeof newVal==='string'?JSON.parse(newVal):newVal;
+    if(!old_&&!new_)return'';
+    // For subscription edit rows, show changed fields
+    if(entityType==='subscription'&&action==='edit'&&old_&&new_){
+      var WATCH=['start_date','end_date','price_due','price_paid','discount_amount','discount_note','sessions_total','remaining','status','freeze_end'];
+      var rows=[];
+      for(var i=0;i<WATCH.length;i++){
+        var k=WATCH[i];
+        var ov=old_[k],nv=new_[k];
+        // Coerce nulls and empty strings for comparison
+        var ovs=(ov===null||ov===undefined)?'':String(ov);
+        var nvs=(nv===null||nv===undefined)?'':String(nv);
+        if(ovs===nvs)continue;
+        var lbl=AUDIT_FIELD_LABELS[k]||k;
+        rows.push('<tr>'
+          +'<td style="padding:2px 6px;color:#888;font-size:11px;white-space:nowrap">'+lbl+'</td>'
+          +'<td style="padding:2px 6px;color:#C62828;font-size:11px;text-decoration:line-through;white-space:nowrap">'+(ovs||'—')+'</td>'
+          +'<td style="padding:2px 4px;color:#aaa;font-size:10px">→</td>'
+          +'<td style="padding:2px 6px;color:#1D9E75;font-size:11px;white-space:nowrap">'+(nvs||'—')+'</td>'
+          +'</tr>');
+      }
+      if(!rows.length)return'';
+      return'<table style="border-collapse:collapse;margin-top:4px">'+rows.join('')+'</table>';
+    }
+    // For other types — show minimal snapshot if new_value exists
+    if(new_&&typeof new_==='object'){
+      var parts=[];
+      var GENERIC=['amount','category','type','account_id','date','description'];
+      for(var i=0;i<GENERIC.length;i++){
+        var k=GENERIC[i];
+        if(new_[k]!==undefined&&new_[k]!==null&&new_[k]!==''){
+          parts.push('<span style="font-size:11px;color:#555">'+k+': <b>'+new_[k]+'</b></span>');
+        }
+      }
+      return parts.length?'<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:6px">'+parts.join('')+'</div>':'';
+    }
+    return'';
+  }catch(e){return'';}
 }
 
 function toNum(v,def){
@@ -608,7 +674,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-auditlog-v1.2.1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: auditlog-kassa-search-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -3839,19 +3905,20 @@ function rAdmin(){
         :'Son '+S.auditLogData.rows.length+' qeyd';
       h+='<div style="font-size:12px;color:#666;margin-bottom:8px">'+_alLabel+'</div>';
       h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">';
-      h+='<tr style="background:#f8f8f8"><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Tarix</th>';
+      h+='<tr style="background:#f8f8f8"><th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Bakı vaxtı</th>';
       h+='<th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Tip</th>';
       h+='<th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Əməliyyat</th>';
       h+='<th style="text-align:left;padding:6px 8px;border-bottom:1px solid #eee">Açıqlama</th></tr>';
       for(var ali=0;ali<S.auditLogData.rows.length;ali++){
         var alr=S.auditLogData.rows[ali];
-        var alDate=alr.created_at?(alr.created_at.slice(0,16).replace('T',' ')):'—';
+        var alDate=formatBakuDateTime(alr.created_at);
         var alTypeColor={'subscription':'#1565C0','attendance':'#C62828','transaction':'#1D9E75'}[alr.entity_type]||'#555';
+        var alDiff=renderAuditDiff(alr.old_value,alr.new_value,alr.entity_type,alr.action);
         h+='<tr style="border-bottom:1px solid #f5f5f5">';
         h+='<td style="padding:5px 8px;color:#888;white-space:nowrap">'+alDate+'</td>';
         h+='<td style="padding:5px 8px"><span style="color:'+alTypeColor+';font-weight:600">'+(alr.entity_type||'?')+'</span></td>';
         h+='<td style="padding:5px 8px"><span style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:11px">'+(alr.action||'?')+'</span></td>';
-        h+='<td style="padding:5px 8px;color:#444">'+(alr.summary||'—')+'</td>';
+        h+='<td style="padding:5px 8px;color:#444">'+(alr.summary||'—')+(alDiff?'<div style="margin-top:4px">'+alDiff+'</div>':'')+'</td>';
         h+='</tr>';
       }
       h+='</table></div>';
@@ -4701,6 +4768,15 @@ function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoad
 
 
 // ===== KASSA =====
+function updateKassaFilterInput(field,value,inputId){
+  S.kassaFilter[field]=value;
+  render();
+  setTimeout(function(){
+    var el=document.getElementById(inputId);
+    if(el){el.focus();var len=el.value.length;try{el.setSelectionRange(len,len);}catch(e){}}
+  },0);
+}
+
 async function fetchKassa(){
   S.kassaLoading=true;render();
   try{
@@ -4819,7 +4895,7 @@ function rKassaTxns(txns, accounts){
   var acctMap={};
   for(var i=0;i<accounts.length;i++)acctMap[accounts[i].id]=accounts[i].name;
 
-  var f=S.kassaFilter||{preset:'all',dateFrom:'',dateTo:'',account:'',category:'',txnType:''};
+  var f=S.kassaFilter||{preset:'all',dateFrom:'',dateTo:'',account:'',category:'',txnType:'',search:'',custSearch:'',subOnly:false};
   var today=td();
   // Date range for presets
   var fFrom=f.dateFrom,fTo=f.dateTo;
@@ -4832,12 +4908,26 @@ function rKassaTxns(txns, accounts){
     fFrom=y+'-'+mo+'-01';fTo=y+'-'+mo+'-'+String(ld).padStart(2,'0');
   }
 
+  // Resolve customer filter: match D.customers by name/id using custSearch
+  var matchedCustIds=null;
+  if(f.custSearch&&f.custSearch.trim()){
+    var cq=norm(f.custSearch.trim());
+    matchedCustIds={};
+    var custs=D.customers||[];
+    for(var i=0;i<custs.length;i++){
+      var c=custs[i];
+      if(norm(c.name||'').indexOf(cq)>=0||( c.id||'').toLowerCase().indexOf(cq.toLowerCase())>=0){
+        matchedCustIds[c.id]=1;
+      }
+    }
+  }
+
   // Category list
   var cats={};
   for(var i=0;i<txns.length;i++){if(txns[i].category)cats[txns[i].category]=1;}
   var catList=Object.keys(cats).sort();
 
-  var anyFilter=(f.preset!=='all'||f.account||f.category||f.txnType);
+  var anyFilter=(f.preset!=='all'||f.account||f.category||f.txnType||f.search||f.custSearch||f.subOnly);
 
   // Filter panel
   var h='<div style="background:#fff;border:1px solid #e8e8e8;border-radius:12px;padding:12px 14px;margin-bottom:14px">';
@@ -4856,7 +4946,7 @@ function rKassaTxns(txns, accounts){
       +'<input class="fi" type="date" style="flex:1" value="'+f.dateTo+'" onchange="S.kassaFilter.dateTo=this.value;render()">'
       +'</div>';
   }
-  h+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
   h+='<select class="fs" style="flex:1;min-width:120px" onchange="S.kassaFilter.account=this.value;render()"><option value="">Bütün hesablar</option>';
   for(var i=0;i<accounts.length;i++){var a=accounts[i];h+='<option value="'+a.id+'"'+(f.account===a.id?' selected':'')+'>'+a.name+'</option>';}
   h+='</select>';
@@ -4868,10 +4958,22 @@ function rKassaTxns(txns, accounts){
   h+='<select class="fs" style="flex:1;min-width:130px" onchange="S.kassaFilter.category=this.value;render()"><option value="">Bütün kateqoriyalar</option>';
   for(var i=0;i<catList.length;i++)h+='<option value="'+catList[i]+'"'+(f.category===catList[i]?' selected':'')+'>'+catList[i]+'</option>';
   h+='</select>';
-  if(anyFilter)h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="S.kassaFilter={preset:\'all\',dateFrom:\'\',dateTo:\'\',account:\'\',category:\'\',txnType:\'\'};render()">✕ Sıfırla</button>';
-  h+='</div></div>';
+  h+='</div>';
+  // Text search + customer search row
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
+  h+='<input id="kassa-search-input" class="fi" type="search" placeholder="🔎 Açıqlama, kateqoriya axtar..." style="flex:2;min-width:160px" value="'+((f.search||'').replace(/"/g,'&quot;'))+'" oninput="updateKassaFilterInput(\'search\',this.value,\'kassa-search-input\')">';
+  h+='<input id="kassa-cust-search-input" class="fi" type="search" placeholder="👤 Müştəri adı / ID..." style="flex:2;min-width:140px" value="'+((f.custSearch||'').replace(/"/g,'&quot;'))+'" oninput="updateKassaFilterInput(\'custSearch\',this.value,\'kassa-cust-search-input\')">';
+  h+='</div>';
+  // Subscription-only toggle
+  h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+  h+='<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#555">'
+    +'<input type="checkbox"'+(f.subOnly?' checked':'')+' onchange="S.kassaFilter.subOnly=this.checked;render()"> Yalnız abunə ödənişləri</label>';
+  if(anyFilter)h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828;margin-left:auto" onclick="S.kassaFilter={preset:\'all\',dateFrom:\'\',dateTo:\'\',account:\'\',category:\'\',txnType:\'\',search:\'\',custSearch:\'\',subOnly:false};render()">✕ Sıfırla</button>';
+  h+='</div>';
+  h+='</div>';
 
   // Apply filters
+  var nq=norm(f.search||'');
   var pendingTxns=txns.filter(function(t){return t.status==='pending';});
   var filtered=txns.filter(function(t){
     if(t.status==='pending')return false;
@@ -4881,6 +4983,29 @@ function rKassaTxns(txns, accounts){
     if(f.account&&t.account_id!==f.account)return false;
     if(f.txnType&&t.type!==f.txnType)return false;
     if(f.category&&t.category!==f.category)return false;
+    // Text search: description + category + account name
+    if(nq){
+      var descMatch=norm(t.description||'').indexOf(nq)>=0;
+      var catMatch=norm(t.category||'').indexOf(nq)>=0;
+      var acctMatch=norm(acctMap[t.account_id]||'').indexOf(nq)>=0;
+      // Customer name lookup
+      var custNameMatch=false;
+      if(t.customer_id&&D.customers){
+        for(var ci=0;ci<D.customers.length;ci++){
+          if(D.customers[ci].id===t.customer_id&&norm(D.customers[ci].name||'').indexOf(nq)>=0){custNameMatch=true;break;}
+        }
+      }
+      if(!descMatch&&!catMatch&&!acctMatch&&!custNameMatch)return false;
+    }
+    // Customer filter
+    if(matchedCustIds!==null){
+      if(!t.customer_id||!matchedCustIds[t.customer_id])return false;
+    }
+    // Subscription-only filter
+    if(f.subOnly){
+      var isSubTxn=(t.subscription_id&&t.subscription_id!==''&&t.subscription_id!=='null')||(t.category==='Abunə haqqı')||(t.category==='Abunə borcu');
+      if(!isSubTxn)return false;
+    }
     return true;
   });
   var impTxns=!anyFilter?txns.filter(function(t){return t.id.indexOf('IMP')===0;}):[];
