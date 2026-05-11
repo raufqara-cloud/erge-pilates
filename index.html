@@ -623,6 +623,19 @@ function hasCustomerTempAddOnDate(customerId,dateStr){
   return false;
 }
 
+// Combined local-state check: any active booking (permanent or temp_add) on a calendar date
+// Pass excludeExId to skip one exception record (used when editing an existing temp_add)
+function hasCustomerAnyBookingOnDate(customerId,dateStr,excludeExId){
+  if(hasCustomerActiveBookingOnDate(customerId,dateStr))return true;
+  if(!S.bronExceptions)return false;
+  for(var i=0;i<S.bronExceptions.length;i++){
+    var e=S.bronExceptions[i];
+    if(excludeExId&&e.id===excludeExId)continue;
+    if(e.type==='temp_add'&&e.temp_customer_id===customerId&&e.exception_date===dateStr&&e.is_active!==false)return true;
+  }
+  return false;
+}
+
 async function doAtt(custId,subId,classTime,instId,attDate){
   if(!await dbAssertCanCreateAttendance(custId,attDate||td()))return;
   S.saving=true;render();
@@ -676,7 +689,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-payment-microfix-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: booking-same-day-guard-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1541,6 +1554,36 @@ async function submitEditBronEx(){
   var time=document.getElementById('ebe-time').value;
   var date=document.getElementById('ebe-date').value;
   if(!day||!time||!date)return;
+
+  // ── Same-day guard: eyni müştərinin həmin tarixdə başqa bronu olmasın ──
+  var _ebCustId=ex.temp_customer_id;
+  if(_ebCustId){
+    // Local state check — exclude current exception itself
+    if(hasCustomerAnyBookingOnDate(_ebCustId,date,ex.id)){
+      return alert('Bu müştərinin həmin tarixdə artıq bronu var. Eyni günə ikinci slot yaratmaq olmaz.');
+    }
+    // Live DB check — başqa cihazdan yaradılmış ola bilər
+    try{
+      var _ebDow=new Date(date+'T00:00:00').getDay();
+      var _ebSlotDow=(_ebDow===0)?7:_ebDow;
+      var _dbTmpEb=await dbGet('booking_exceptions','type=eq.temp_add&temp_customer_id=eq.'+_ebCustId+'&exception_date=eq.'+date+'&select=id&limit=5');
+      if(_dbTmpEb){
+        for(var _ti=0;_ti<_dbTmpEb.length;_ti++){
+          if(_dbTmpEb[_ti].id!==ex.id)return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var (başqa cihazdan yaradılmış ola bilər).');
+        }
+      }
+      var _dbPermEb=await dbGet('bookings','customer_id=eq.'+_ebCustId+'&day_of_week=eq.'+_ebSlotDow+'&type=eq.permanent&is_active=eq.true&select=id,valid_from,valid_until&limit=5');
+      if(_dbPermEb&&_dbPermEb.length>0){
+        for(var _pi=0;_pi<_dbPermEb.length;_pi++){
+          var _pb=_dbPermEb[_pi];
+          if(_pb.valid_from&&date<_pb.valid_from)continue;
+          if(_pb.valid_until&&date>_pb.valid_until)continue;
+          return alert('Bu müştərinin həmin tarixdə artıq aktiv sabit bronu var (başqa cihazdan yaradılmış ola bilər). Eyni günə ikinci slot yaratmaq olmaz.');
+        }
+      }
+    }catch(e){}
+  }
+
   S.saving=true;render();
   try{
     await dbPatch('booking_exceptions','id=eq.'+ex.id,{exception_date:date,time_slot:time,day_of_week:day});
@@ -2263,6 +2306,18 @@ async function submitTempAdd(){
     if(_dbTmp&&_dbTmp.length>0){
       return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var (başqa cihazdan yaradılmış ola bilər).');
     }
+    // Live DB: sabit bron — başqa cihazdan yaradılmış ola bilər
+    var _tDow=new Date(slot.date+'T00:00:00').getDay();
+    var _tSlotDow=(_tDow===0)?7:_tDow;
+    var _dbPermT=await dbGet('bookings','customer_id=eq.'+custId+'&day_of_week=eq.'+_tSlotDow+'&type=eq.permanent&is_active=eq.true&select=id,valid_from,valid_until&limit=5');
+    if(_dbPermT&&_dbPermT.length>0){
+      for(var _pi=0;_pi<_dbPermT.length;_pi++){
+        var _pb=_dbPermT[_pi];
+        if(_pb.valid_from&&slot.date<_pb.valid_from)continue;
+        if(_pb.valid_until&&slot.date>_pb.valid_until)continue;
+        return alert('Bu müştərinin həmin tarixdə artıq aktiv sabit bronu var (başqa cihazdan yaradılmış ola bilər). Eyni günə ikinci slot yaratmaq olmaz.');
+      }
+    }
   }catch(e){}
   S.saving=true;S.showTempAdd=false;render();
   try{
@@ -2390,6 +2445,22 @@ async function submitNewSabitBron(){
     }
   }
 
+  // ── 3b. Eyni gün üzrə gələcək müvəqqəti bron var? (bütün həftəlik təkrarlar üçün) ──
+  var _firstBronDate=getNextDateForDow(from||td(),day);
+  if(S.bronExceptions){
+    for(var _bxi=0;_bxi<S.bronExceptions.length;_bxi++){
+      var _bxe=S.bronExceptions[_bxi];
+      if(_bxe.type!=='temp_add')continue;
+      if(_bxe.temp_customer_id!==custId)continue;
+      if(_bxe.is_active===false)continue;
+      if(_bxe.exception_date<_firstBronDate)continue;
+      var _bxd=new Date(_bxe.exception_date+'T00:00:00').getDay();
+      var _bxDow=(_bxd===0)?7:_bxd;
+      if(_bxDow!==day)continue;
+      return alert('Bu müştərinin həmin gün üzrə gələcək tarixdə artıq müvəqqəti bronu var. Eyni günə ikinci slot yaratmaq olmaz.');
+    }
+  }
+
   // ── 4. Slot tutumu hard limit ──
   var checkDate=getNextDateForDow(S.bronSelDate||td(),day);
   var slotCount=getSlotCount(day,time,checkDate);
@@ -2410,6 +2481,17 @@ async function submitNewSabitBron(){
       for(var i=0;i<_dbBron.length;i++){
         if(_dbBron[i].is_active!==false){
           return alert('Bu müştərinin '+DAYS_AZ[day-1]+' günü üçün artıq aktiv sabit bronu var (başqa cihazdan yaradılmış ola bilər).');
+        }
+      }
+    }
+    // temp_add on same day_of_week on or after first date — başqa cihazdan yaradılmış ola bilər
+    var _dbTmpFirst=await dbGet('booking_exceptions','type=eq.temp_add&temp_customer_id=eq.'+custId+'&exception_date=gte.'+_firstBronDate+'&select=id,exception_date&limit=50');
+    if(_dbTmpFirst&&_dbTmpFirst.length>0){
+      for(var _dti=0;_dti<_dbTmpFirst.length;_dti++){
+        var _dtd=new Date(_dbTmpFirst[_dti].exception_date+'T00:00:00').getDay();
+        var _dtDow=(_dtd===0)?7:_dtd;
+        if(_dtDow===day){
+          return alert('Bu müştərinin həmin gün üzrə gələcək tarixdə artıq müvəqqəti bronu var (başqa cihazdan yaradılmış ola bilər). Eyni günə ikinci slot yaratmaq olmaz.');
         }
       }
     }
@@ -2555,8 +2637,8 @@ function openAttFromSlot(time, dateStr, dow){
     var noSub=!sub;
     // Source-u exception note-dan oxu (sabit bron ilə eyni mexanizm)
     var src=getBookingSource({note:t.note},t.temp_customer_id);
-    var already=!!alreadyRec[t.temp_customer_id];
     var needsEntryPayment=!already&&noSub&&(src==='single'||src==='partner');
+    var already=!!alreadyRec[t.temp_customer_id];
     var isDisabled=already;
     if(!needsEntryPayment){
       if(src==='studio')isDisabled=isDisabled||noSub;
@@ -2887,9 +2969,7 @@ async function confirmSlotSinglePay(custId){
   if(!instId){alert('Əvvəl instruktor seçin.');return;}
   // Partner ay limit xəbərdarlığı
   if(isPartnerEntryProgram(programId)){
-    var _warnName=key;
-    for(var _wi=0;_wi<D.customers.length;_wi++){if(D.customers[_wi].id===key){_warnName=D.customers[_wi].name;break;}}
-    if(!warnIfPartnerLimit(custId,_warnName))return;
+    if(!warnIfPartnerLimit(custId,cust?cust.name:custId))return;
   }
   var entryItem=getSlotPayCustomer(key);
   var entryType=entryItem?entryItem.entryPaymentType:'single';
