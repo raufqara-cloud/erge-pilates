@@ -9,7 +9,7 @@
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
 .topbar{background:#fff;border-bottom:1px solid #e0e8e0;padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:54px;position:sticky;top:0;z-index:50}
 .logo{font-size:15px;font-weight:700;letter-spacing:.8px}.logo span{color:#1D9E75}
-.nav{display:flex;gap:3px}
+.nav{display:flex;gap:3px;overflow-x:auto}
 .nav button{background:none;border:none;padding:7px 12px;border-radius:8px;font-size:13px;color:#666;cursor:pointer;font-family:inherit}
 .nav button.active{background:#E8F5EF;color:#0F6E56;font-weight:600}
 .nav button:hover:not(.active){background:#f0f0f0}
@@ -193,7 +193,10 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   auditLogEntityType:'',
   auditLogAction:'',
   adminOpenSections:{progs:false,insts:false,accts:false,excel:false,audit:false},
-  auditOpenChecks:{c1:false,c2:false,c3:false,c4:false,c5:false,c6:false}};
+  auditOpenChecks:{c1:false,c2:false,c3:false,c4:false,c5:false,c6:false},
+  leadsData:null,leadsLoading:false,leadsLoaded:false,
+  leadsFilter:{status:'active',assigned:'all',overdue:false,search:''},
+  selLead:null,showAddLead:false};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -692,13 +695,14 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: auditlog-coverage-bron-attendance-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-leads-foundation-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
     +'<button class="'+(S.view==='admin'?'active':'')+'" onclick="sv(\'admin\')">Admin</button>'
     +'<button class="'+(S.view==='report'?'active':'')+'" onclick="sv(\'report\')">Hesabat</button>'
     +'<button class="'+(S.view==='kassa'?'active':'')+'" onclick="sv(\'kassa\')">Kassa</button>'
+    +'<button class="'+(S.view==='leads'?'active':'')+'" onclick="sv(\'leads\')">Leads</button>'
     +'<button class="'+(S.view==='bron'?'active':'')+'" onclick="sv(\'bron\')">Qrup Yerləri</button>'
     +'</div></div><div class="content">';
   if(S.err)h+='<div class="errbox">'+S.err+'<br><button onclick="loadAll()" style="margin-top:6px;background:#c62828;color:#fff;border:none;padding:4px 10px;border-radius:5px;cursor:pointer;font-size:12px">Yeniden cehd et</button></div>';
@@ -709,6 +713,7 @@ function render(){
   else if(S.view==='admin')h+=rAdmin();
   else if(S.view==='report')h+=rReport();
   else if(S.view==='kassa')h+=rKassa();
+  else if(S.view==='leads')h+=rLeads();
   else if(S.view==='bron')h+=rBron();
   h+='</div>';
   if(S.showAddCust)h+=rModalAddCust();
@@ -723,6 +728,8 @@ function render(){
   if(S.showPlanAbsent)h+=rModalPlanAbsent();
   if(S.showSlotAttModal)h+=rModalSlotAttendance();
   if(S.showSubPayment)h+=rModalSubPayment();
+  if(S.showAddLead)h+=rModalAddLead();
+  if(S.selLead)h+=rModalLeadDetail();
   root.innerHTML=h;
 }
 
@@ -4896,7 +4903,7 @@ function submitFreeze(){
   doFreeze(S.freezeSub,days,note);
 }
 
-function sv(v){S.view=v;S.search='';S.selCust=null;render();}
+function sv(v){S.view=v;S.search='';S.selCust=null;S.selLead=null;render();}
 function ss(v){
   S.search=v;
   // Don't re-render, just filter the visible cards
@@ -6520,6 +6527,508 @@ function rAuditResults(){
   h+='</div>';
   return h;
 }
+
+// =============================================
+// CRM-0: Leads Foundation
+// Build: crm-leads-foundation-v1
+// Touches: S state, sv(), render() nav+dispatcher+modals only
+// Does NOT touch: loadAll, D.*, attendance, kassa, bron, audit flows
+// =============================================
+
+// --- Helpers ---
+
+function leadPhoneNorm(phone){
+  if(!phone)return'';
+  return(phone+'').replace(/\D/g,'').slice(-9);
+}
+
+function leadWaPhone(phone){
+  if(!phone)return'';
+  var d=(phone+'').replace(/\D/g,'');
+  if(d.length===9)d='994'+d;
+  else if(d.length===10&&d[0]==='0')d='994'+d.slice(1);
+  else if(d.length===12&&d.slice(0,3)==='994'){}
+  // already ok
+  return d;
+}
+
+function getLeadStatusLabel(s){
+  var m={new:'Yeni',contacted:'Əlaqə quruldu',trial_scheduled:'Sınaq planlandı',
+    trial_done:'Sınaq keçdi',converted:'Müştəri oldu',lost:'İtirildi'};
+  return m[s]||s;
+}
+
+function getLeadStatusBadgeClass(s){
+  var m={new:'b-blue',contacted:'b-yellow',trial_scheduled:'b-orange',
+    trial_done:'b-purple',converted:'b-green',lost:'b-red'};
+  return m[s]||'b-gray';
+}
+
+function getLeadSourceLabel(s){
+  if(!s)return'';
+  var m={Instagram:'📸 Instagram',Referans:'👥 Referans',
+    'Zəng':'📞 Zəng',WhatsApp:'💬 WhatsApp','Digər':'📌 Digər'};
+  return m[s]||s;
+}
+
+function getLead(id){
+  var all=S.leadsData||[];
+  for(var i=0;i<all.length;i++){if(all[i].id===id)return all[i];}
+  return null;
+}
+
+// --- ID Generation ---
+
+async function generateLeadId(){
+  try{
+    var rows=await dbGet('leads','select=id&order=id.desc&limit=1');
+    if(!rows||!rows.length)return'L000001';
+    var num=parseInt((rows[0].id||'').slice(1),10);
+    if(isNaN(num))return'L'+Date.now().toString().slice(-6);
+    return'L'+String(num+1).padStart(6,'0');
+  }catch(e){
+    return'L'+Date.now().toString().slice(-6);
+  }
+}
+
+// --- Fetch ---
+
+async function fetchLeads(){
+  if(S.leadsLoading)return;
+  S.leadsLoading=true;render();
+  try{
+    var rows=await dbGet('leads','select=*&order=created_at.desc&limit=500');
+    S.leadsData=rows||[];
+    S.leadsLoaded=true;
+  }catch(e){
+    S.leadsData=[];
+    S.leadsLoaded=true;
+    console.error('fetchLeads error',e);
+  }
+  S.leadsLoading=false;render();
+}
+
+function leadsInvalidate(){
+  S.leadsData=null;S.leadsLoaded=false;
+}
+
+// --- Render: Leads Tab ---
+
+function rLeads(){
+  if(S.loading)return'<div class="al al-b"><span class="spin"></span>Yüklənir...</div>';
+  if(S.leadsLoading)return'<div class="al al-b"><span class="spin"></span>Leads yüklənir...</div>';
+  if(!S.leadsLoaded){fetchLeads();return'<div class="al al-b"><span class="spin"></span>Leads yüklənir...</div>';}
+
+  var all=S.leadsData||[];
+  var today=td();
+
+  // Status counts
+  var cnt={new:0,contacted:0,trial_scheduled:0,trial_done:0,converted:0,lost:0};
+  for(var i=0;i<all.length;i++){var st=all[i].status;if(cnt.hasOwnProperty(st))cnt[st]++;}
+  var activeCount=cnt.new+cnt.contacted+cnt.trial_scheduled+cnt.trial_done;
+
+  var h='<div class="ph">'
+    +'<div class="pt">Leads</div>'
+    +'<button class="btn btn-g" onclick="S.showAddLead=true;render()">+ Yeni Lead</button>'
+    +'</div>';
+
+  // Stats row
+  h+='<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:14px">';
+  var statCards=[
+    ['active',activeCount,'Aktiv'],
+    ['new',cnt.new,'Yeni'],
+    ['contacted',cnt.contacted,'Əlaqə'],
+    ['trial_scheduled|trial_done',cnt.trial_scheduled+cnt.trial_done,'Sınaq'],
+    ['converted',cnt.converted,'Konvert'],
+    ['lost',cnt.lost,'İtirildi']
+  ];
+  for(var i=0;i<statCards.length;i++){
+    var sc=statCards[i];
+    var isActive=(S.leadsFilter.status===sc[0])||
+      (sc[0]==='trial_scheduled|trial_done'&&(S.leadsFilter.status==='trial_scheduled'||S.leadsFilter.status==='trial_done'));
+    var filterVal=sc[0]==='trial_scheduled|trial_done'?'trial_scheduled':sc[0];
+    h+='<div class="scard" style="cursor:pointer;'+(isActive?'border:2px solid #1D9E75':'')+'" onclick="S.leadsFilter.status=\''+filterVal+'\';render()">'
+      +'<div class="snum">'+sc[1]+'</div>'
+      +'<div class="slbl">'+sc[2]+'</div>'
+      +'</div>';
+  }
+  h+='</div>';
+
+  // Filter row
+  var fStatus=S.leadsFilter.status||'active';
+  var fAssigned=S.leadsFilter.assigned||'all';
+  var fOverdue=S.leadsFilter.overdue||false;
+  var fSearch=S.leadsFilter.search||'';
+
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">';
+
+  // Status filter
+  var statOpts='';
+  var statList=[['active','Aktiv (hamısı)'],['new','Yeni'],['contacted','Əlaqə quruldu'],
+    ['trial_scheduled','Sınaq planlandı'],['trial_done','Sınaq keçdi'],
+    ['converted','Müştəri oldu'],['lost','İtirildi'],['all','Hamısı']];
+  for(var i=0;i<statList.length;i++){
+    statOpts+='<option value="'+statList[i][0]+'"'+(fStatus===statList[i][0]?' selected':'')+'>'+statList[i][1]+'</option>';
+  }
+  h+='<select class="fi" style="width:auto;padding:7px 10px" onchange="S.leadsFilter.status=this.value;render()">'+statOpts+'</select>';
+
+  // Assigned filter
+  var insts=D._allInstructors||D.instructors||[];
+  var instOpts2='<option value="all"'+(fAssigned==='all'?' selected':'')+'>Hamı</option>';
+  for(var i=0;i<insts.length;i++){
+    instOpts2+='<option value="'+insts[i].id+'"'+(fAssigned===insts[i].id?' selected':'')+'>'+escHtml(insts[i].full_name)+'</option>';
+  }
+  h+='<select class="fi" style="width:auto;padding:7px 10px" onchange="S.leadsFilter.assigned=this.value;render()">'+instOpts2+'</select>';
+
+  // Overdue toggle
+  h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap">'
+    +'<input type="checkbox"'+(fOverdue?' checked':'')+' onchange="S.leadsFilter.overdue=this.checked;render()"> Gecikmiş</label>';
+
+  // Search
+  h+='<input class="fi" style="max-width:180px;padding:7px 10px" placeholder="Ad / telefon..." value="'+escHtml(fSearch)+'" oninput="S.leadsFilter.search=this.value;render()">';
+
+  // Reset
+  h+='<button class="btn btn-gray btn-sm" onclick="S.leadsFilter={status:\'active\',assigned:\'all\',overdue:false,search:\'\'};render()">✕ Sıfırla</button>';
+  h+='</div>';
+
+  // Apply filters
+  var filtered=[];
+  for(var i=0;i<all.length;i++){
+    var lead=all[i];
+    if(fStatus==='active'){
+      if(['new','contacted','trial_scheduled','trial_done'].indexOf(lead.status)<0)continue;
+    }else if(fStatus!=='all'){
+      if(lead.status!==fStatus)continue;
+    }
+    if(fAssigned!=='all'&&(lead.assigned_to||'')!==fAssigned)continue;
+    if(fOverdue){
+      if(!lead.follow_up_date||lead.follow_up_date>=today)continue;
+      if(['new','contacted','trial_scheduled','trial_done'].indexOf(lead.status)<0)continue;
+    }
+    if(fSearch){
+      var q=norm(fSearch);
+      if(norm(lead.name||'').indexOf(q)<0&&(lead.phone||'').indexOf(fSearch)<0)continue;
+    }
+    filtered.push(lead);
+  }
+
+  if(!filtered.length){
+    h+='<div style="text-align:center;padding:40px;color:#aaa;font-size:14px">Heç bir lead tapılmadı</div>';
+    return h;
+  }
+
+  // Lead cards
+  for(var i=0;i<filtered.length;i++){
+    var lead=filtered[i];
+    var isOverdue2=lead.follow_up_date&&lead.follow_up_date<today
+      &&['new','contacted','trial_scheduled','trial_done'].indexOf(lead.status)>=0;
+    var waDigits=leadWaPhone(lead.phone||'');
+    var assignedName='';
+    for(var j=0;j<insts.length;j++){if(insts[j].id===lead.assigned_to){assignedName=insts[j].full_name;break;}}
+
+    h+='<div class="card" style="flex-direction:column;align-items:stretch;cursor:default;padding:12px 14px;'
+      +(isOverdue2?'border-left:4px solid #C62828':'border-left:4px solid transparent')+'">';
+
+    // Row 1: name + badges
+    h+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="font-weight:600;font-size:14px">'+escHtml(lead.name||'')+'</div>'
+      +'<div style="font-size:12px;color:#666;margin-top:2px">'+escHtml(lead.phone||'')+'</div>'
+      +'</div>'
+      +'<div style="display:flex;gap:4px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end">'
+      +(lead.source?'<span class="badge b-gray" style="font-size:10px">'+escHtml(getLeadSourceLabel(lead.source))+'</span>':'')
+      +'<span class="badge '+getLeadStatusBadgeClass(lead.status)+'">'+getLeadStatusLabel(lead.status)+'</span>'
+      +(isOverdue2?'<span class="badge b-red" style="font-size:10px">⏰ Gecikib</span>':'')
+      +'</div></div>';
+
+    // Row 2: meta + action buttons
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;flex-wrap:wrap;gap:6px">'
+      +'<div style="font-size:11px;color:#888;display:flex;gap:10px;flex-wrap:wrap">'
+      +(lead.follow_up_date
+        ?'<span style="'+(isOverdue2?'color:#C62828;font-weight:600':'')+'">'+'📅 '+fmt(lead.follow_up_date)+'</span>'
+        :'')
+      +(assignedName?'<span>👤 '+escHtml(assignedName)+'</span>':'')
+      +'<span style="color:#ccc;font-size:10px">'+escHtml(lead.id||'')+'</span>'
+      +'</div>'
+      +'<div style="display:flex;gap:6px">';
+
+    if(waDigits.length>=11){
+      h+='<a href="https://wa.me/'+waDigits+'" target="_blank" class="btn btn-gray btn-sm" style="text-decoration:none">💬 WA</a>';
+    }
+    h+='<button class="btn btn-b btn-sm" onclick="S.selLead=\''+escHtml(lead.id||'')+'\';render()">Bax / Düzəlt</button>'
+      +'</div></div></div>';
+  }
+
+  return h;
+}
+
+// --- Render: Add Lead Modal ---
+
+function rModalAddLead(){
+  var insts=D._allInstructors||D.instructors||[];
+  var instOpts='<option value="">— Seçilməmiş —</option>';
+  for(var i=0;i<insts.length;i++){
+    instOpts+='<option value="'+insts[i].id+'">'+escHtml(insts[i].full_name)+'</option>';
+  }
+  var sources=['Instagram','Referans','Zəng','WhatsApp','Digər'];
+  var srcOpts='<option value="">— Seçin —</option>';
+  for(var i=0;i<sources.length;i++) srcOpts+='<option value="'+sources[i]+'">'+sources[i]+'</option>';
+
+  return '<div class="ov" onclick="S.showAddLead=false;render()"><div class="modal" onclick="event.stopPropagation()" style="width:460px;max-width:100%">'
+    +'<div class="mtitle">Yeni Lead</div>'
+    +'<div id="lead-dup-warn" style="display:none;margin-bottom:10px;padding:8px 10px;background:#FFEBEE;color:#C62828;border-radius:8px;font-size:12px"></div>'
+    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="nl-name" placeholder="Leyla Əliyeva" autocomplete="off"></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Telefon *</label><input class="fi" id="nl-phone" placeholder="+994 50 XXX XX XX" oninput="checkLeadDupPhone(this.value)"></div>'
+    +'<div class="fg"><label class="fl">Mənbə</label><select class="fi" id="nl-source">'+srcOpts+'</select></div>'
+    +'</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Növbəti əlaqə tarixi</label><input class="fi" id="nl-followup" type="date"></div>'
+    +'<div class="fg"><label class="fl">Cavabdeh</label><select class="fi" id="nl-assigned">'+instOpts+'</select></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Qeydlər</label><textarea class="fi" id="nl-notes" rows="3" placeholder="Qısa qeyd..."></textarea></div>'
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showAddLead=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitAddLead()">Əlavə et</button>'
+    +'</div></div></div>';
+}
+
+// --- Render: Lead Detail Modal ---
+
+function rModalLeadDetail(){
+  var lead=getLead(S.selLead);
+  if(!lead)return'';
+
+  var insts=D._allInstructors||D.instructors||[];
+  var instOpts='<option value="">— Seçilməmiş —</option>';
+  for(var i=0;i<insts.length;i++){
+    instOpts+='<option value="'+insts[i].id+'"'+(lead.assigned_to===insts[i].id?' selected':'')+'>'+escHtml(insts[i].full_name)+'</option>';
+  }
+  var sources=['Instagram','Referans','Zəng','WhatsApp','Digər'];
+  var srcOpts='<option value="">— Seçin —</option>';
+  for(var i=0;i<sources.length;i++){
+    srcOpts+='<option value="'+sources[i]+'"'+(lead.source===sources[i]?' selected':'')+'>'+sources[i]+'</option>';
+  }
+  var isConverted=lead.status==='converted';
+  var editStatuses=[['new','Yeni'],['contacted','Əlaqə quruldu'],
+    ['trial_scheduled','Sınaq planlandı'],['trial_done','Sınaq keçdi'],['lost','İtirildi']];
+  if(isConverted)editStatuses=[['converted','Müştəri oldu']];
+  var statOpts='';
+  for(var i=0;i<editStatuses.length;i++){
+    statOpts+='<option value="'+editStatuses[i][0]+'"'+(lead.status===editStatuses[i][0]?' selected':'')+'>'+editStatuses[i][1]+'</option>';
+  }
+  var waDigits=leadWaPhone(lead.phone||'');
+
+  var h='<div class="ov" onclick="S.selLead=null;render()"><div class="modal" onclick="event.stopPropagation()" style="width:460px;max-width:100%">'
+    +'<div class="mtitle">Lead — '+escHtml(lead.name||'')+'</div>'
+    +'<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;align-items:center">'
+    +'<span class="badge b-gray" style="font-size:10px">'+escHtml(lead.id||'')+'</span>'
+    +'<span class="badge '+getLeadStatusBadgeClass(lead.status)+'">'+getLeadStatusLabel(lead.status)+'</span>'
+    +(lead.source?'<span class="badge b-gray" style="font-size:10px">'+escHtml(getLeadSourceLabel(lead.source))+'</span>':'')
+    +(waDigits.length>=11?'<a href="https://wa.me/'+waDigits+'" target="_blank" class="badge b-green" style="font-size:11px;text-decoration:none;padding:4px 9px">💬 WhatsApp</a>':'')
+    +'</div>';
+
+  if(isConverted){
+    h+='<div class="al al-g" style="margin-bottom:12px">Bu lead artıq müştəriyə çevrilib.'
+      +(lead.converted_customer_id?' Müştəri ID: <b>'+escHtml(lead.converted_customer_id)+'</b>':'')+'</div>';
+  }
+
+  var dis=isConverted?' disabled':'';
+  h+='<div class="fg"><label class="fl">Ad Soyad</label><input class="fi" id="ld-name" value="'+escHtml(lead.name||'')+('"'+dis+' >')+'</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="ld-phone" value="'+escHtml(lead.phone||'')+('"'+dis+' >')+'</div>'
+    +'<div class="fg"><label class="fl">Mənbə</label><select class="fi" id="ld-source"'+dis+'>'+srcOpts+'</select></div>'
+    +'</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Status</label><select class="fi" id="ld-status"'+dis+'>'+statOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Növbəti əlaqə tarixi</label><input class="fi" id="ld-followup" type="date" value="'+(lead.follow_up_date||'')+('"'+dis+' >')+'</div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Cavabdeh</label><select class="fi" id="ld-assigned"'+dis+'>'+instOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Qeydlər</label><textarea class="fi" id="ld-notes" rows="3"'+dis+'>'+escHtml(lead.notes||'')+'</textarea></div>';
+
+  if(!isConverted){
+    h+='<div style="background:#E8F5EE;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
+      +'<div style="font-size:12px;color:#0F6E56;margin-bottom:8px"><b>Müştəriyə çevir:</b> Bu lead-i müştəri kimi sistemə əlavə edəcək.</div>'
+      +'<button class="btn btn-g btn-sm" onclick="doConvertLead(\''+escHtml(lead.id||'')+'\')">🔄 Müştəriyə çevir</button>'
+      +'</div>';
+  }
+
+  h+='<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.selLead=null;render()">Bağla</button>'
+    +(!isConverted?'<button class="btn btn-b" onclick="submitLeadDetail(\''+escHtml(lead.id||'')+'\')">Yadda saxla</button>':'')
+    +'</div></div></div>';
+  return h;
+}
+
+// --- Duplicate Phone Check ---
+
+function checkLeadDupPhone(phone){
+  var warn=document.getElementById('lead-dup-warn');
+  if(!warn)return;
+  var pn=leadPhoneNorm(phone);
+  if(!pn||pn.length<7){warn.style.display='none';return;}
+  var msgs=[];
+  // Check D.customers (local cache)
+  var custs=D.customers||[];
+  for(var i=0;i<custs.length;i++){
+    if(leadPhoneNorm(custs[i].phone)===pn){
+      msgs.push('⚠ Bu telefon mövcud müştəridə var: <b>'+escHtml(custs[i].name)+'</b>');break;
+    }
+  }
+  // Check S.leadsData (already loaded)
+  var leads2=S.leadsData||[];
+  for(var i=0;i<leads2.length;i++){
+    var ld=leads2[i];
+    if(ld.status!=='converted'&&leadPhoneNorm(ld.phone)===pn){
+      msgs.push('⚠ Bu telefon mövcud leaddə var: <b>'+escHtml(ld.name)+'</b> ('+getLeadStatusLabel(ld.status)+')');break;
+    }
+  }
+  if(msgs.length){
+    warn.style.display='block';
+    warn.innerHTML=msgs.join('<br>');
+  }else{
+    warn.style.display='none';
+  }
+}
+
+// --- Create Lead ---
+
+async function submitAddLead(){
+  var nameEl=document.getElementById('nl-name');
+  var phoneEl=document.getElementById('nl-phone');
+  var sourceEl=document.getElementById('nl-source');
+  var followupEl=document.getElementById('nl-followup');
+  var assignedEl=document.getElementById('nl-assigned');
+  var notesEl=document.getElementById('nl-notes');
+  var name=(nameEl?nameEl.value:'').trim();
+  var phone=(phoneEl?phoneEl.value:'').trim();
+  var source=sourceEl?sourceEl.value:'';
+  var followup=followupEl?followupEl.value:'';
+  var assigned=assignedEl?assignedEl.value:'';
+  var notes=(notesEl?notesEl.value:'').trim();
+  if(!name){alert('Ad daxil edin');return;}
+  if(!phone){alert('Telefon daxil edin');return;}
+  S.saving=true;render();
+  try{
+    var newId=await generateLeadId();
+    var body={id:newId,name:name,phone:phone,status:'new'};
+    if(source)body.source=source;
+    if(followup)body.follow_up_date=followup;
+    if(assigned)body.assigned_to=assigned;
+    if(notes)body.notes=notes;
+    await dbPost('leads',body);
+    S.showAddLead=false;
+    leadsInvalidate();
+    await fetchLeads();
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+// --- Edit Lead ---
+
+async function submitLeadDetail(leadId){
+  var nameEl=document.getElementById('ld-name');
+  var phoneEl=document.getElementById('ld-phone');
+  var sourceEl=document.getElementById('ld-source');
+  var statusEl=document.getElementById('ld-status');
+  var followupEl=document.getElementById('ld-followup');
+  var assignedEl=document.getElementById('ld-assigned');
+  var notesEl=document.getElementById('ld-notes');
+  var name=(nameEl?nameEl.value:'').trim();
+  var phone=(phoneEl?phoneEl.value:'').trim();
+  if(!name){alert('Ad daxil edin');return;}
+  S.saving=true;render();
+  try{
+    var body={
+      name:name,
+      phone:phone,
+      source:(sourceEl?sourceEl.value:'')||null,
+      status:statusEl?statusEl.value:'new',
+      follow_up_date:(followupEl?followupEl.value:'')||null,
+      assigned_to:(assignedEl?assignedEl.value:'')||null,
+      notes:(notesEl?notesEl.value.trim():'')||null,
+      last_contact_at:new Date().toISOString()
+    };
+    await dbPatch('leads','id=eq.'+leadId,body);
+    S.selLead=null;
+    leadsInvalidate();
+    await fetchLeads();
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+// --- Convert to Customer ---
+
+// createCustomerFromLead: standalone helper, does NOT modify doAddCust()
+async function createCustomerFromLead(lead){
+  var rows=await dbPost('customers',{name:lead.name,phone:lead.phone||'',birth_date:''});
+  var row=Array.isArray(rows)?rows[0]:rows;
+  if(row)D.customers.unshift(row);
+  return row;
+}
+
+function findExistingCustByPhone(phone){
+  var pn=leadPhoneNorm(phone);
+  if(!pn||pn.length<7)return null;
+  var custs=D.customers||[];
+  for(var i=0;i<custs.length;i++){
+    if(leadPhoneNorm(custs[i].phone)===pn)return custs[i];
+  }
+  return null;
+}
+
+async function doConvertLead(leadId){
+  var lead=getLead(leadId);
+  if(!lead){alert('Lead tapılmadı');return;}
+  if(lead.status==='converted'){alert('Bu lead artıq müştəriyə çevrilib');return;}
+
+  // Duplicate customer phone check — must happen before any DB write
+  var existingCust=findExistingCustByPhone(lead.phone);
+  if(existingCust){
+    if(!confirm('Bu telefon artıq mövcud müştəridə var: '+existingCust.name+' ('+existingCust.id+')\nBu lead-i həmin müştəriyə bağlamaq istəyirsiniz?'))return;
+    // Link lead to existing customer — no new customer created
+    S.saving=true;render();
+    try{
+      await dbPatch('leads','id=eq.'+leadId,{status:'converted',converted_customer_id:existingCust.id});
+      S.selLead=null;
+      leadsInvalidate();
+      await fetchLeads();
+      S.saving=false;render();
+      if(confirm('Lead mövcud müştəriyə bağlandı: '+existingCust.name+' ('+existingCust.id+')\n\nMüştəri prefinə keçmək istəyirsiniz?')){
+        S.view='cust';S.selCust=existingCust.id;render();
+      }
+    }catch(e){alert('Xəta: '+e.message);S.saving=false;render();}
+    return;
+  }
+
+  if(!confirm('Bu lead-i müştəriyə çevirmək istəyirsiniz?\nAd: '+lead.name+'\nTelefon: '+(lead.phone||'')))return;
+  S.saving=true;render();
+  try{
+    var newCust=await createCustomerFromLead(lead);
+    if(!newCust||!newCust.id)throw new Error('Müştəri yaradıla bilmədi — DB cavab vermədi');
+    // Update lead — if this fails, customer exists but lead stays active (tolerable, show warning)
+    try{
+      await dbPatch('leads','id=eq.'+leadId,{status:'converted',converted_customer_id:newCust.id});
+    }catch(e2){
+      S.saving=false;
+      S.selLead=null;
+      leadsInvalidate();
+      await fetchLeads();
+      alert('Müştəri yaradıldı ('+newCust.id+'), lakin lead statusu yenilənərkən xəta baş verdi.\nLeadi manual "Müştəri oldu" statusuna çevirin.\nXəta: '+e2.message);
+      return;
+    }
+    S.selLead=null;
+    leadsInvalidate();
+    await fetchLeads();
+    S.saving=false;render();
+    if(confirm('Müştəri yaradıldı: '+escHtml(newCust.name)+' ('+newCust.id+')\n\nMüştəri prefinə keçmək istəyirsiniz?')){
+      S.view='cust';S.selCust=newCust.id;render();
+    }
+    return;
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
 
 loadAll();
 </script>
