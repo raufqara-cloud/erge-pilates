@@ -190,6 +190,8 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   auditResults:null,
   auditLogDate:null,
   auditLogLimit:50,
+  auditLogEntityType:'',
+  auditLogAction:'',
   adminOpenSections:{progs:false,insts:false,accts:false,excel:false,audit:false},
   auditOpenChecks:{c1:false,c2:false,c3:false,c4:false,c5:false,c6:false}};
 
@@ -674,7 +676,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: daily-integrity-checks-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: singlepay-audit-filter-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -2940,6 +2942,10 @@ async function confirmSlotSinglePay(custId){
         amount:amount,account_id:accountId,
         to_account_id:null,subscription_id:null,customer_id:key};
       await dbPost('transactions',txn);
+      logAudit('transaction',txn.id,'create',
+        cust.name+' — '+prog.name+' ('+amount+' AZN, '+accountId+')',
+        null,{type:txn.type,category:txn.category,amount:amount,account_id:accountId,
+          subscription_id:null,customer_id:key,date:txnDate,description:txn.description,source_flow:'confirmSlotSinglePay'});
       // Slot payment: Bank/POS hesabı (ACC003) seçilərsə 2% komissiya yaransın.
       // Partner alacaq hesabları və RTEST=0 bu qaydaya düşmür.
       if(!isPartner&&txn.account_id===BANK_ACCT_ID&&txn.amount>0){
@@ -3889,6 +3895,21 @@ function rAdmin(){
     h+='</select>';
     h+='<button class="btn btn-gray btn-sm" onclick="S.auditLogDate=td();S.auditLogData=null;render();loadAuditLog()">📅 Bugün</button>';
     h+='<button class="btn btn-gray btn-sm" onclick="S.auditLogDate=null;document.getElementById(\'al-date\')&&(document.getElementById(\'al-date\').value=\'\');S.auditLogData=null;render();loadAuditLog()">📋 Son qeydlər</button>';
+    // Entity type filter
+    h+='<select class="fs" style="width:auto;font-size:13px;padding:6px 10px" onchange="S.auditLogEntityType=this.value;S.auditLogData=null;render()">';
+    var _etypes=["","subscription","attendance","transaction","customer","booking","account","program","instructor","freeze"];
+    var _etlabels=["Obyekt tipi","subscription","attendance","transaction","customer","booking","account","program","instructor","freeze"];
+    for(var _ei=0;_ei<_etypes.length;_ei++){h+='<option value="'+_etypes[_ei]+'"'+(S.auditLogEntityType===_etypes[_ei]?' selected':'')+'>'+_etlabels[_ei]+'</option>';}
+    h+='</select>';
+    // Action type filter
+    h+='<select class="fs" style="width:auto;font-size:13px;padding:6px 10px" onchange="S.auditLogAction=this.value;S.auditLogData=null;render()">';
+    var _actypes=["","create","edit","delete"];
+    var _aclabels=["Əməliyyat tipi","create","edit","delete"];
+    for(var _aci=0;_aci<_actypes.length;_aci++){h+='<option value="'+_actypes[_aci]+'"'+(S.auditLogAction===_actypes[_aci]?' selected':'')+'>'+_aclabels[_aci]+'</option>';}
+    h+='</select>';
+    if(S.auditLogDate||S.auditLogEntityType||S.auditLogAction){
+      h+='<button class="btn btn-gray btn-sm" onclick="S.auditLogDate=null;S.auditLogEntityType=\'\';S.auditLogAction=\'\';S.auditLogData=null;render();loadAuditLog()">✕ Sıfırla</button>';
+    }
     h+='<button class="btn btn-gray btn-sm" onclick="loadAuditLog()" style="margin-left:auto">🔄 Yenilə</button>';
     h+='</div>';
     if(S.auditLogLoading){
@@ -4357,6 +4378,10 @@ async function submitSingleAtt(){
         description:desc,amount:saPaid,account_id:saAcctId,
         subscription_id:null,customer_id:c.id};
       await dbPost('transactions',stxn);
+      logAudit('transaction',stxn.id,'create',
+        c.name+' — '+(prog?prog.name:'Tək giriş')+' ('+saPaid+' AZN, '+saAcctId+')',
+        null,{type:stxn.type,category:stxn.category,amount:saPaid,account_id:saAcctId,
+          subscription_id:null,customer_id:c.id,date:stxn.date,description:desc,source_flow:'submitSingleAtt'});
       if(S.kassaData)S.kassaData.txns.unshift(stxn);
       // 2% POS commission — stxn.account_id Bank-dırsa (ACC003), non-partner
       if(stxn.account_id===BANK_ACCT_ID&&!prog.is_partner){
@@ -5478,6 +5503,8 @@ async function loadAuditLog(){
       var dEnd=addDays(S.auditLogDate,1)+'T00:00:00+04:00';
       params+='&created_at=gte.'+encodeURIComponent(dStart)+'&created_at=lt.'+encodeURIComponent(dEnd);
     }
+    if(S.auditLogEntityType)params+='&entity_type=eq.'+encodeURIComponent(S.auditLogEntityType);
+    if(S.auditLogAction)params+='&action=eq.'+encodeURIComponent(S.auditLogAction);
     var rows=await dbGet('audit_logs',params);
     S.auditLogData={rows:rows||[],date:S.auditLogDate,limit:limit};
   }catch(e){
