@@ -658,6 +658,9 @@ async function doAtt(custId,subId,classTime,instId,attDate){
       class_date:attDate||td(),class_time:classTime,
       instructor_id:instId,instructor_name:inst?inst.full_name:''};
     await dbPost('attendances',att);
+    logAudit('attendance',att.id,'create',
+      (cust?cust.name:custId)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
+      null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'doAtt'});
     D.attendances.unshift(att);
      if(att.class_date===td()&&S.selDateAtts!==null){S.selDateAtts.unshift(att);}
     // Remaining: real attendance count əsasında yenidən hesabla
@@ -689,7 +692,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: booking-same-day-guard-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: auditlog-coverage-bron-attendance-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1509,9 +1512,7 @@ async function deleteBronSearchItem(id, type){
   if(type==='temp'){
     await cancelAbsent(id);
   } else {
-    if(!confirm('Daimi bronu tamamilə silmək istədiyinizdən əminsinizmi?'))return;
-    await fetch(BASE+'/bookings?id=eq.'+id,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
-    S.bronData=S.bronData.filter(function(b){return b.id!==id;});
+    await deleteBron(id);
   }
   var rd=document.getElementById('bron-search-results');
   if(rd)rd.innerHTML=getBronSearchHTML(S.bronSearch);
@@ -1584,9 +1585,14 @@ async function submitEditBronEx(){
     }catch(e){}
   }
 
+  var _ebOldDate=ex.exception_date;var _ebOldTime=ex.time_slot;var _ebOldDow=ex.day_of_week;
   S.saving=true;render();
   try{
     await dbPatch('booking_exceptions','id=eq.'+ex.id,{exception_date:date,time_slot:time,day_of_week:day});
+    logAudit('booking',ex.id,'edit',
+      'Müvəqqəti bron dəyişdirildi — '+(ex.temp_customer_name||ex.temp_customer_id||'')+' — '+date+(time?' '+time:''),
+      {exception_date:_ebOldDate,time_slot:_ebOldTime,day_of_week:_ebOldDow},
+      {exception_date:date,time_slot:time,day_of_week:day,source_flow:'submitEditBronEx'});
     ex.exception_date=date;ex.time_slot=time;ex.day_of_week=day;
     S.showEditBronEx=false;
     S.bronExceptions=null;
@@ -1656,6 +1662,9 @@ async function submitAddBron(){
         day_of_week:S.selBronDay,time_slot:S.selBronTime,type:'permanent',
         valid_from:from||null,note:note||null,is_active:true};
       await dbPost('bookings',bron);
+      logAudit('booking',bron.id,'create',
+        'Sabit bron yaradıldı — '+(cust?cust.name:custId)+' — '+(DAYS_AZ[S.selBronDay-1]||'')+' '+(S.selBronTime||''),
+        null,{type:'permanent',customer_id:bron.customer_id,customer_name:bron.customer_name,day_of_week:bron.day_of_week,time_slot:bron.time_slot,valid_from:bron.valid_from||null,source_flow:'submitAddBron'});
       S.bronData.push(bron);
     } else {
       // Temp - add as exception
@@ -1666,6 +1675,9 @@ async function submitAddBron(){
         day_of_week:S.selBronDay,time_slot:S.selBronTime,
         note:note||null};
       await dbPost('booking_exceptions',ex);
+      logAudit('booking',ex.id,'create',
+        'Müvəqqəti bron yaradıldı — '+(cust?cust.name:custId)+' — '+ex.exception_date+(ex.time_slot?' '+ex.time_slot:''),
+        null,{type:'temp_add',booking_id:null,temp_customer_id:ex.temp_customer_id,temp_customer_name:ex.temp_customer_name,exception_date:ex.exception_date,day_of_week:ex.day_of_week,time_slot:ex.time_slot,source_flow:'submitAddBron'});
       if(!S.bronExceptions)S.bronExceptions=[];
       S.bronExceptions.push(ex);
     }
@@ -1679,7 +1691,12 @@ async function markAbsent(bronId, date){
   try{
     var eid='EX'+Date.now();
     var ex={id:eid,booking_id:bronId,exception_date:date,type:'absent',note:null};
+    var _maBron=null;
+    if(S.bronData){for(var _mai=0;_mai<S.bronData.length;_mai++){if(S.bronData[_mai].id===bronId){_maBron=S.bronData[_mai];break;}}}
     await dbPost('booking_exceptions',ex);
+    logAudit('booking',ex.id,'create',
+      'Gəlməyəcək qeyd edildi — '+(_maBron?_maBron.customer_name||_maBron.customer_id:bronId)+' — '+date,
+      null,{type:'absent',booking_id:bronId,exception_date:date,customer_name:_maBron?_maBron.customer_name:'',day_of_week:_maBron?_maBron.day_of_week:null,time_slot:_maBron?_maBron.time_slot:'',source_flow:'markAbsent'});
     if(!S.bronExceptions)S.bronExceptions=[];
     S.bronExceptions.push(ex);
   }catch(e){alert('Xeta: '+e.message);}
@@ -1689,7 +1706,14 @@ async function markAbsent(bronId, date){
 async function cancelAbsent(exId){
   S.saving=true;render();
   try{
-    await fetch(BASE+'/booking_exceptions?id=eq.'+exId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    var _caEx=null;
+    if(S.bronExceptions){for(var _cai=0;_cai<S.bronExceptions.length;_cai++){if(S.bronExceptions[_cai].id===exId){_caEx=S.bronExceptions[_cai];break;}}}
+    var r=await fetch(BASE+'/booking_exceptions?id=eq.'+exId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(!r.ok)throw new Error(await r.text());
+    logAudit('booking',exId,'delete',
+      'Bron istisna silindi — '+(_caEx?(_caEx.temp_customer_name||_caEx.customer_name||_caEx.booking_id||exId)+' — '+(_caEx.exception_date||''):exId),
+      _caEx?{type:_caEx.type,booking_id:_caEx.booking_id||null,exception_date:_caEx.exception_date,temp_customer_id:_caEx.temp_customer_id||null,temp_customer_name:_caEx.temp_customer_name||null,time_slot:_caEx.time_slot||null}:null,
+      null);
     S.bronExceptions=S.bronExceptions.filter(function(e){return e.id!==exId;});
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -1702,9 +1726,15 @@ async function deleteException(exId){
 
 async function deleteBron(id){
   if(!confirm('Bu daimi bronu bağlamaq istədiyinizdən əminsinizmi?\n(Keçmiş tarixçə saxlanılır, bugündən etibarən aktiv olmayacaq)'))return;
+  var _delBron=null;
+  if(S.bronData){for(var _dbi=0;_dbi<S.bronData.length;_dbi++){if(S.bronData[_dbi].id===id){_delBron=S.bronData[_dbi];break;}}}
   S.saving=true;render();
   try{
     await dbPatch('bookings','id=eq.'+id,{is_active:false,valid_until:addDays(td(),-1)});
+    logAudit('booking',id,'delete',
+      'Bron silindi/deaktiv edildi — '+(_delBron?_delBron.customer_name||_delBron.customer_id:id)+' — '+(_delBron?(DAYS_AZ[_delBron.day_of_week-1]||'')+' '+(_delBron.time_slot||''):''),
+      _delBron?{customer_id:_delBron.customer_id,customer_name:_delBron.customer_name,day_of_week:_delBron.day_of_week,time_slot:_delBron.time_slot,type:'permanent',is_active:true}:null,
+      {is_active:false,valid_until:addDays(td(),-1),source_flow:'deleteBron'});
     if(S.bronData)S.bronData=S.bronData.filter(function(b){return b.id!==id;});
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -2328,6 +2358,9 @@ async function submitTempAdd(){
       day_of_week:slot.dow,time_slot:slot.time,
       note:finalNote};
     await dbPost('booking_exceptions',ex);
+    logAudit('booking',ex.id,'create',
+      'Müvəqqəti bron yaradıldı — '+(cust?cust.name:custId)+' — '+ex.exception_date+(ex.time_slot?' '+ex.time_slot:''),
+      null,{type:'temp_add',booking_id:null,temp_customer_id:ex.temp_customer_id,temp_customer_name:ex.temp_customer_name,exception_date:ex.exception_date,day_of_week:ex.day_of_week,time_slot:ex.time_slot,note:ex.note,source_flow:'submitTempAdd'});
     if(!S.bronExceptions)S.bronExceptions=[];
     S.bronExceptions.push(ex);
   }catch(e){alert('Xəta: '+e.message);}
@@ -2503,6 +2536,9 @@ async function submitNewSabitBron(){
       day_of_week:day,time_slot:time,type:'permanent',
       valid_from:from||null,note:finalNote,is_active:true};
     await dbPost('bookings',bron);
+    logAudit('booking',bron.id,'create',
+      'Sabit bron yaradıldı — '+(cust?cust.name:custId)+' — '+DAYS_AZ[day-1]+' '+time,
+      null,{type:'permanent',customer_id:bron.customer_id,customer_name:bron.customer_name,day_of_week:bron.day_of_week,time_slot:bron.time_slot,valid_from:bron.valid_from||null,note:bron.note,source_flow:'submitNewSabitBron'});
     S.bronData.push(bron);
     S.showAddBron=false;S._bronNewCustId=null;S._bronNewCustName=null;
   }catch(e){alert('Xəta: '+e.message);}
@@ -3040,6 +3076,9 @@ async function confirmSlotSinglePay(custId){
       class_date:sd.dateStr,class_time:sd.time,
       instructor_id:instId,instructor_name:inst?inst.full_name:''};
     await dbPost('attendances',att);
+    logAudit('attendance',att.id,'create',
+      (cust?cust.name:key)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
+      null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'confirmSlotSinglePay'});
     D.attendances.unshift(att);
     if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date)S.selDateAtts.unshift(att);
     S.kassaData=null;S.reportData=null;S.izlemeData=null;
@@ -3150,6 +3189,9 @@ async function createAttendance(custId, subId, classTime, instId, attDate){
     class_date:attDate,class_time:classTime,
     instructor_id:instId,instructor_name:inst?inst.full_name:''};
   await dbPost('attendances',att);
+  logAudit('attendance',att.id,'create',
+    (cust?cust.name:custId)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
+    null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'createAttendance'});
   D.attendances.unshift(att);
   if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date)S.selDateAtts.unshift(att);
   // Remaining: real attendance count əsasında yenidən hesabla
@@ -3233,6 +3275,9 @@ async function submitPlanAbsent(){
     var eid='EX'+Date.now();
     var exRec={id:eid,booking_id:pb.bronId,exception_date:selDate,type:'absent',note:note||null};
     await dbPost('booking_exceptions',exRec);
+    logAudit('booking',exRec.id,'create',
+      'Gəlməyəcək qeyd edildi — '+escHtml(pb.custName)+' — '+selDate,
+      null,{type:'absent',booking_id:pb.bronId,exception_date:selDate,customer_name:pb.custName,day_of_week:bk.day_of_week,time_slot:bk.time_slot,note:note||null,source_flow:'submitPlanAbsent'});
     if(!S.bronExceptions)S.bronExceptions=[];
     S.bronExceptions.push(exRec);
     S.showPlanAbsent=false;
@@ -4448,6 +4493,9 @@ async function submitSingleAtt(){
       instructor_id:instId,instructor_name:inst?inst.full_name:'',
       price_due:due,price_paid:paid};
     await dbPost('attendances',att);
+    logAudit('attendance',att.id,'create',
+      (c?c.name:S.singleCust)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
+      null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'submitSingleAtt'});
     D.attendances.unshift(att);
     if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date){
       S.selDateAtts.unshift(att);
