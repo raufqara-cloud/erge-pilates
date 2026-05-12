@@ -695,7 +695,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch3c-limitfix-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch3d-slotfix-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1712,11 +1712,54 @@ async function markAbsent(bronId, date){
   S.saving=false;render();
 }
 
+function hasStudioSubscriptionForBooking(custId){
+  var today=td();
+  var PARTNER_IDS=['ROF','RPP','RPS'];
+  var SINGLE_IDS=['ROTG','ROTI','RTEST'];
+  for(var i=0;i<D.subscriptions.length;i++){
+    var s=D.subscriptions[i];
+    if(s.customer_id!==custId||!s.is_active)continue;
+    if(s.is_partner)continue;
+    if(PARTNER_IDS.indexOf(s.program_id)>=0)continue;
+    if(SINGLE_IDS.indexOf(s.program_id)>=0)continue;
+    if((parseInt(s.sessions_total)||0)<=1)continue;
+    if(s.status==='pending')return true;
+    if(s.end_date>=today)return true;
+  }
+  return false;
+}
+
+function getCustomerBronMaxWeeklySlots(custId){
+  var bst=getCustBronStatus(custId);
+  var sub=bst.sub;
+  if(sub&&(bst.type==='ok'||bst.type==='warn'||bst.type==='pending')){
+    if(!sub.is_partner&&['ROTG','ROTI','RTEST'].indexOf(sub.program_id)<0&&(parseInt(sub.sessions_total)||0)>1){
+      var t=parseInt(sub.sessions_total)||0;
+      return t>=12?3:t>=8?2:2;
+    }
+  }
+  return 3; // partner / single / no-subscription
+}
+
 async function cancelAbsent(exId){
   S.saving=true;render();
   try{
     var _caEx=null;
     if(S.bronExceptions){for(var _cai=0;_cai<S.bronExceptions.length;_cai++){if(S.bronExceptions[_cai].id===exId){_caEx=S.bronExceptions[_cai];break;}}}
+    // Bug-1 guard: restoring an absent slot must not cause over-limit
+    if(_caEx&&_caEx.type==='absent'&&_caEx.booking_id){
+      var _abBron=null;
+      if(S.bronData){for(var _abi=0;_abi<S.bronData.length;_abi++){if(S.bronData[_abi].id===_caEx.booking_id){_abBron=S.bronData[_abi];break;}}}
+      var _abCustId=_abBron?_abBron.customer_id:null;
+      if(_abCustId){
+        var _abMaxW=getCustomerBronMaxWeeklySlots(_abCustId);
+        var _abCurW=getCustomerWeeklySlotCount(_abCustId,_caEx.exception_date);
+        if(_abCurW+1>_abMaxW){
+          S.saving=false;render();
+          return alert('Bu əməliyyat həftəlik slot limitini aşır ('+(_abCurW+1)+'/'+_abMaxW+'). Əvvəl müvəqqəti bronu və ya başqa slotu silin.');
+        }
+      }
+    }
     var r=await fetch(BASE+'/booking_exceptions?id=eq.'+exId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(!r.ok)throw new Error(await r.text());
     logAudit('booking',exId,'delete',
@@ -1731,6 +1774,45 @@ async function cancelAbsent(exId){
 async function deleteException(exId){
   if(!confirm('Silinsin?'))return;
   await cancelAbsent(exId);
+}
+
+async function cancelTrialSlot(exId,leadId){
+  if(!confirm('Sınaq slotunu silmək istədiyinizdən əminsinizmi?'))return;
+  var _ex=null;
+  if(S.bronExceptions){for(var _i=0;_i<S.bronExceptions.length;_i++){if(S.bronExceptions[_i].id===exId){_ex=S.bronExceptions[_i];break;}}}
+  var lead=getLead(leadId);
+  S.saving=true;render();
+  try{
+    var r=await fetch(BASE+'/booking_exceptions?id=eq.'+exId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    if(!r.ok)throw new Error(await r.text());
+    if(S.bronExceptions)S.bronExceptions=S.bronExceptions.filter(function(e){return e.id!==exId;});
+  }catch(e){
+    S.saving=false;render();
+    return alert('Slot silinərkən xəta: '+e.message);
+  }
+  // Update lead
+  try{
+    await dbPatch('leads','id=eq.'+leadId,{status:'contacted',trial_booking_ex_id:null,trial_class_date:null,trial_class_time:null});
+    var _leads=S.leadsData||[];
+    for(var i=0;i<_leads.length;i++){
+      if(_leads[i].id===leadId){
+        _leads[i].status='contacted';
+        _leads[i].trial_booking_ex_id=null;
+        _leads[i].trial_class_date=null;
+        _leads[i].trial_class_time=null;
+        break;
+      }
+    }
+    logAudit('lead',leadId,'trial_slot_cancelled',
+      'Sınaq slotu silindi — '+(lead?escHtml(lead.name||leadId):leadId)+(_ex?' — '+(_ex.exception_date||''):''),
+      {status:'trial_scheduled',trial_booking_ex_id:exId},
+      {status:'contacted',trial_booking_ex_id:null,source_flow:'cancelTrialSlot'});
+  }catch(e2){
+    alert('Slot silindi, lakin lead statusu yenilənmədi. Leadi manual \'Əlaqə quruldu\' statusuna çevirin.\nXəta: '+e2.message);
+  }
+  leadsInvalidate();
+  fetchLeads();
+  S.saving=false;render();
 }
 
 async function deleteBron(id){
@@ -2037,7 +2119,7 @@ function rSlotDetail(time,dateStr,dow,brons,excs,count){
         +'<div class="bron-row-badges">'
         +'<span class="badge b-purple" style="font-size:10px">Sınaq</span>'
         +'</div></div>'
-        +'<span style="font-size:11px;color:#aaa;padding:0 8px">Patch 4-də idarə ediləcək</span>'
+        +'<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828;flex-shrink:0" onclick="cancelTrialSlot(\''+escQ(tr.id)+'\',\''+escQ(tr.temp_lead_id||'')+'\')" >Sil</button>'
         +'</div>';
     }
   }
@@ -2583,6 +2665,10 @@ async function submitTempAdd(){
   var custIdEl=document.getElementById('ta-cust-id');
   var custId=custIdEl?custIdEl.value:'';
   if(!custId)return alert('Müştəri seçin');
+  // Studio source requires a real studio subscription
+  if(sourceVal==='studio'&&!hasStudioSubscriptionForBooking(custId)){
+    return alert('Bu müştərinin studio abunəliyi yoxdur. Studio bron üçün əvvəl abunəlik yaradın. Əks halda Tək giriş və ya Partner seçin.');
+  }
   if(hasCustomerTempAddOnDate(custId,slot.date)){
     return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var.');
   }
@@ -2744,12 +2830,12 @@ async function submitNewSabitBron(){
   // ── 2. Source-a görə abunə yoxlama + weekly limit (bütün sources) ──
   var _nsbMaxW;
   if(source==='studio'){
-    var bst=getCustBronStatus(custId);
-    if(bst.type==='none'||bst.type==='grace'){
-      return alert('Studio bron üçün aktiv və ya pending abunəlik lazımdır.');
+    if(!hasStudioSubscriptionForBooking(custId)){
+      return alert('Bu müştərinin studio abunəliyi yoxdur. Studio bron üçün əvvəl abunəlik yaradın. Əks halda Tək giriş və ya Partner seçin.');
     }
+    var bst=getCustBronStatus(custId);
     var activSubForLimit=bst.sub;
-    if(activSubForLimit&&bst.type!=='pending'){
+    if(activSubForLimit&&(bst.type==='ok'||bst.type==='warn')){
       var maxD=activSubForLimit.sessions_total>=12?3:activSubForLimit.sessions_total>=8?2:activSubForLimit.sessions_total>1?2:0;
       if(maxD===0){return alert('Tək giriş proqramı üçün Studio bron yaratmaq olmaz. Partner və ya Tək giriş seçin.');}
       _nsbMaxW=maxD;
