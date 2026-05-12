@@ -1347,8 +1347,8 @@ function getSlotBookings(day, time, dateStr){
 }
 
 function getSlotExceptions(day, time, dateStr){
-  if(!S.bronExceptions)return{absents:[],temps:[]};
-  var absents=[], temps=[];
+  if(!S.bronExceptions)return{absents:[],temps:[],trials:[]};
+  var absents=[], temps=[], trials=[];
   var slotBrons=getSlotBookings(day,time,dateStr);
   var bids=slotBrons.map(function(b){return b.id;});
   for(var i=0;i<S.bronExceptions.length;i++){
@@ -1356,14 +1356,15 @@ function getSlotExceptions(day, time, dateStr){
     if(ex.exception_date!==dateStr)continue;
     if(ex.type==='absent'&&bids.indexOf(ex.booking_id)>=0)absents.push(ex);
     if(ex.type==='temp_add'&&ex.day_of_week===day&&ex.time_slot===time)temps.push(ex);
+    if(ex.type==='trial_add'&&ex.day_of_week===day&&ex.time_slot===time)trials.push(ex);
   }
-  return{absents:absents,temps:temps};
+  return{absents:absents,temps:temps,trials:trials};
 }
 
 function getSlotCount(day, time, dateStr){
   var brons=getSlotBookings(day,time,dateStr);
   var excs=getSlotExceptions(day,time,dateStr);
-  return brons.length - excs.absents.length + excs.temps.length;
+  return brons.length - excs.absents.length + excs.temps.length + excs.trials.length;
 }
 
 function rBron(){
@@ -1919,7 +1920,7 @@ function rBronToday(){
 function rSlotCard(time,dateStr,dow){
   var brons=getSlotBookings(dow,time,dateStr);
   var excs=getSlotExceptions(dow,time,dateStr);
-  var count=brons.length-excs.absents.length+excs.temps.length;
+  var count=getSlotCount(dow,time,dateStr);
   var slotSt=getSlotStatusLabel(count);
   var free=Math.max(0,MAX_PER_SLOT-count);
   var isOpen=S.bronSelTime===time;
