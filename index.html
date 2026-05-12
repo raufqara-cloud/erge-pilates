@@ -201,6 +201,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
 function fmt(d){if(!d)return'--';var p=d.split('-');return p[2]+'.'+p[1]+'.'+p[0];}
+function fmtWeekdayAz(d){if(!d)return'';var days=['Bazar','Bazar ertəsi','Çərşənbə axşamı','Çərşənbə','Cümə axşamı','Cümə','Şənbə'];return days[new Date(d+'T00:00:00').getDay()]||'';}
 function curMonth(){return new Date().toISOString().slice(0,7);}
 function addDays(d,n){var dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().slice(0,10);}
 function uid(){return 'X'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
@@ -695,7 +696,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch3d-slotfix-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4a-hotfix1-lead-actions-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -7140,6 +7141,16 @@ function rLeads(){
     h+='<button class="btn btn-b btn-sm" onclick="S.selLead=\''+escHtml(lead.id||'')+'\';render()">Bax / Düzəlt</button>'
       +'</div></div>';
 
+    // Trial info row (trial_scheduled only)
+    if(lead.status==='trial_scheduled'&&lead.trial_booking_ex_id){
+      var _exId2=escHtml(lead.trial_booking_ex_id||'');
+      var _ldId2=escHtml(lead.id||'');
+      h+='<div style="font-size:11px;color:#5E35B1;background:#EDE7F6;border-radius:6px;padding:5px 10px;margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">'
+        +'<span>&#128467; Sınaq: '+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')+'</span>'
+        +'<button class="btn btn-sm" style="font-size:10px;padding:3px 8px;background:#fff;color:#C62828;border:1px solid #ef9a9a" onclick="cancelTrialSlot(\''+_exId2+'\',\''+_ldId2+'\')">&#128465; Slotu sil</button>'
+        +'</div>';
+    }
+
     // Row 3: quick actions (active leads only)
     if(isActive2){
       h+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0">';
@@ -7207,16 +7218,15 @@ function rLeadCardQuickActions(lead){
   var id=escHtml(lead.id||'');
   var s=lead.status;
   var h='';
+  // Active trial slot: suppress all quick status buttons — Slotu sil in trial info row is the only valid action
+  if(s==='trial_scheduled'&&lead.trial_booking_ex_id){return h;}
   if(s==='new'||s==='contacted'){
-    h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#0F6E56" onclick="quickLeadStatus(\''+id+'\',\'contacted\')">✓ Əlaqə</button>';
-  }
-  if(s==='trial_scheduled'){
     h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#0F6E56" onclick="quickLeadStatus(\''+id+'\',\'contacted\')">✓ Əlaqə</button>';
   }
   if(s==='trial_done'){
     h+='<button class="btn btn-g btn-sm" style="font-size:11px" onclick="doConvertLead(\''+id+'\')">🔄 Çevir</button>';
   }
-  if(['new','contacted','trial_scheduled','trial_done'].indexOf(s)>=0){
+  if(['new','contacted','trial_done'].indexOf(s)>=0){
     h+='<button class="btn btn-sm" style="font-size:11px;background:#fff0f0;color:#c62828;border:1px solid #ffcdd2;padding:5px 8px" onclick="quickLeadStatus(\''+id+'\',\'lost\')">✕ İtirildi</button>';
   }
   return h;
@@ -7394,6 +7404,24 @@ function rModalLeadDetail(){
     +'</div>'
     +'<div class="fg"><label class="fl">Cavabdeh</label><select class="fi" id="ld-assigned"'+dis+'>'+instOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Qeydlər</label><textarea class="fi" id="ld-notes" rows="3"'+dis+'>'+escHtml(lead.notes||'')+'</textarea></div>';
+
+  // Trial panel in lead detail modal
+  if(lead.status==='trial_scheduled'&&lead.trial_booking_ex_id){
+    var _mdExId=escHtml(lead.trial_booking_ex_id||'');
+    var _mdLdId=escHtml(lead.id||'');
+    var _mdWd=fmtWeekdayAz(lead.trial_class_date);
+    h+='<div style="background:#EDE7F6;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
+      +'<div style="font-size:12px;color:#5E35B1;margin-bottom:8px"><b>Sınaq slotu:</b></div>'
+      +'<div style="font-size:13px;font-weight:600;color:#311B92;margin-bottom:8px">'+fmt(lead.trial_class_date)+(_mdWd?' · '+_mdWd:'')+(lead.trial_class_time?' · '+lead.trial_class_time:'')+'</div>'
+      +'<button class="btn btn-sm" style="font-size:11px;padding:5px 10px;background:#fff;color:#C62828;border:1px solid #ef9a9a" onclick="cancelTrialSlot(\''+_mdExId+'\',\''+_mdLdId+'\')">&#128465; Slotu sil</button>'
+      +'</div>';
+  }
+  if(lead.status==='trial_done'&&lead.trial_class_date){
+    h+='<div style="background:#F3E5F5;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
+      +'<div style="font-size:12px;color:#6A1B9A;margin-bottom:8px"><b>Sınaq keçdi:</b></div>'
+      +'<div style="font-size:13px;font-weight:600;color:#4A148C">'+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')+(lead.trial_done_instructor_name?' · '+escHtml(lead.trial_done_instructor_name):'')+'</div>'
+      +'</div>';
+  }
 
   if(!isConverted){
     h+='<div style="background:#E8F5EE;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
