@@ -695,7 +695,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch3a-guardfix-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch3c-limitfix-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1097,7 +1097,7 @@ function rDetail(){
             +'</div>'
             +'<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;margin-left:8px">'
             +'<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FFF3E0;color:#E65100" '
-            +'onclick="openMarkAbsent(\''+escQ(cbron.id)+'\',\''+escQ(c.name)+'\',\''+td()+'\')">Bugün gəlməyəcək</button>'
+            +'onclick="openMarkAbsent(\''+escQ(cbron.id)+'\',\''+escQ(c.name)+'\',\''+dateAddDays(getWeekMonday(td()),cbron.day_of_week-1)+'\')" title="Bu həftə həmin günə gəlməyəcək">Gəlməyəcək</button>'
             +'<button class="btn btn-gray btn-sm" style="font-size:11px;background:#F3E5F5;color:#7B1FA2" '
             +'onclick="openPlanAbsent(\''+escQ(cbron.id)+'\',\''+escQ(c.name)+'\')">📅 Tarix planla</button>'
             +'<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="deleteBron(\''+escQ(cbron.id)+'\')">Sil</button>'
@@ -2424,13 +2424,17 @@ function hasLeadTrialOnDate(leadId,dateStr){
 function getCustomerWeeklySlotCount(custId,dateStr){
   var mon=getWeekMonday(dateStr);
   var weekSat=dateAddDays(mon,5);
-  var absentBronIds={};
+  // Build map: booking_id -> set of absent exception_dates in this week
+  // We must match per-booking class date, not just any absent in the week.
+  var absentDateByBronId={};
   if(S.bronExceptions){
     for(var i=0;i<S.bronExceptions.length;i++){
       var _ae=S.bronExceptions[i];
-      if(_ae.type==='absent'&&_ae.exception_date>=mon&&_ae.exception_date<=weekSat){
-        absentBronIds[_ae.booking_id]=true;
-      }
+      if(_ae.type!=='absent')continue;
+      if(!_ae.booking_id)continue;
+      if(_ae.exception_date<mon||_ae.exception_date>weekSat)continue;
+      if(!absentDateByBronId[_ae.booking_id])absentDateByBronId[_ae.booking_id]=[];
+      absentDateByBronId[_ae.booking_id].push(_ae.exception_date);
     }
   }
   var count=0;
@@ -2444,8 +2448,42 @@ function getCustomerWeeklySlotCount(custId,dateStr){
       var bDate=dateAddDays(mon,dow-1);
       if(b.valid_from&&bDate<b.valid_from)continue;
       if(b.valid_until&&bDate>b.valid_until)continue;
-      if(absentBronIds[b.id])continue;
+      // Only free this booking if there is an absent whose exception_date exactly equals this booking's class date in the week
+      if(absentDateByBronId[b.id]&&absentDateByBronId[b.id].indexOf(bDate)>=0)continue;
       count++;
+    }
+  }
+  if(S.bronExceptions){
+    for(var i=0;i<S.bronExceptions.length;i++){
+      var _te=S.bronExceptions[i];
+      if(_te.type!=='temp_add')continue;
+      if(_te.temp_customer_id!==custId)continue;
+      if(_te.is_active===false)continue;
+      if(_te.exception_date<mon||_te.exception_date>weekSat)continue;
+      count++;
+    }
+  }
+  return count;
+}
+
+// Helper for new permanent booking limit:
+// Counts active permanent bookings in target week (NO absent subtraction)
+// + temp_add exceptions in target week. Does NOT count trial_add.
+function getCustomerWeeklySlotCountForPermanentLimit(custId,dateStr){
+  var mon=getWeekMonday(dateStr);
+  var weekSat=dateAddDays(mon,5);
+  var count=0;
+  if(S.bronData){
+    for(var i=0;i<S.bronData.length;i++){
+      var b=S.bronData[i];
+      if(b.customer_id!==custId)continue;
+      if(b.is_active===false)continue;
+      var dow=b.day_of_week;
+      if(dow<1||dow>6)continue;
+      var bDate=dateAddDays(mon,dow-1);
+      if(b.valid_from&&bDate<b.valid_from)continue;
+      if(b.valid_until&&bDate>b.valid_until)continue;
+      count++; // absent NOT subtracted — one-week absent cannot allow a new recurring booking
     }
   }
   if(S.bronExceptions){
@@ -2551,16 +2589,18 @@ async function submitTempAdd(){
   if(hasCustomerActiveBookingOnDate(custId,slot.date)){
     return alert('Bu müştərinin həmin tarixə aktiv sabit bronu var.\nMüvəqqəti bron əlavə etmək olmaz.\n(İstisna: əvvəlcə həmin tarix üçün "Gəlməyəcək" qeyd edin.)');
   }
-  // --- Weekly slot limit guard ---
+  // --- Weekly slot limit guard (all sources: studio, partner, single, no-sub) ---
   var _bstW=getCustBronStatus(custId);
   var _subW=_bstW.sub;
-  var _maxW=0;
-  if(_subW){_maxW=_subW.sessions_total>=12?3:_subW.sessions_total>=8?2:_subW.sessions_total>1?2:0;}
-  if(_maxW>0){
-    var _weekCount=getCustomerWeeklySlotCount(custId,slot.date);
-    if(_weekCount>=_maxW){
-      return alert('Bu müştərinin bu həftə üçün slot limiti dolub: '+_weekCount+'/'+_maxW+'. Yeni müvəqqəti bron üçün əvvəlcə mövcüd bronu silin/deaktiv edin və ya həmin tarix üçün \'Gəlməyəcək\' qeyd edin.');
-    }
+  var _maxW;
+  if(_subW&&_bstW.type!=='pending'&&_bstW.type!=='none'&&_bstW.type!=='grace'){
+    _maxW=_subW.sessions_total>=12?3:_subW.sessions_total>=8?2:_subW.sessions_total>1?2:3;
+  } else {
+    _maxW=3; // partner, single, no subscription → max 3 slots/week
+  }
+  var _weekCount=getCustomerWeeklySlotCount(custId,slot.date);
+  if(_weekCount>=_maxW){
+    return alert('Bu müştərinin bu həftə üçün slot limiti dolub: '+_weekCount+'/'+_maxW+'. Yeni müvəqqəti bron üçün əvvəlcə mövcüd bronu silin/deaktiv edin və ya həmin tarix üçün \'Gəlməyəcək\' qeyd edin.');
   }
   if(!sourceVal||sourceVal==='auto')sourceVal='studio';
   var marker='[source:'+sourceVal+']';
@@ -2580,21 +2620,25 @@ async function submitTempAdd(){
         var _pb=_dbPermT[_pi];
         if(_pb.valid_from&&slot.date<_pb.valid_from)continue;
         if(_pb.valid_until&&slot.date>_pb.valid_until)continue;
+        // Check absent: local first, then DB
+        if(hasAbsentForBookingOnDate(_pb.id,slot.date))continue;
+        try{
+          var _abChk=await dbGet('booking_exceptions','type=eq.absent&booking_id=eq.'+_pb.id+'&exception_date=eq.'+slot.date+'&select=id&limit=1');
+          if(_abChk&&_abChk.length>0)continue;
+        }catch(e){}
         return alert('Bu müştərinin həmin tarixdə artıq aktiv sabit bronu var (başqa cihazdan yaradılmış ola bilər). Eyni günə ikinci slot yaratmaq olmaz.');
       }
     }
   
-    // Live DB: weekly limit cross-device check
-    if(_maxW>0){
-      var _wMon=getWeekMonday(slot.date);
-      var _wSat=dateAddDays(_wMon,5);
-      var _dbWkTemps=await dbGet('booking_exceptions','type=eq.temp_add&temp_customer_id=eq.'+custId+'&exception_date=gte.'+_wMon+'&exception_date=lte.'+_wSat+'&select=id&limit=20');
-      var _dbWkTempCnt=(_dbWkTemps||[]).length;
-      var _localPermW=getCustomerWeeklySlotCount(custId,slot.date)-_dbWkTempCnt;
-      var _dbWeekTotal=Math.max(0,_localPermW)+_dbWkTempCnt;
-      if(_dbWeekTotal>=_maxW){
-        return alert('Bu müştərinin bu həftə üçün slot limiti dolub: '+_dbWeekTotal+'/'+_maxW+' (canlı yoxlama). Yeni müvəqqəti bron üçün əvvəlcə mövcüd bronu silin/deaktiv edin və ya həmin tarix üçün \'Gəlməyəcək\' qeyd edin.');
-      }
+    // Live DB: weekly limit cross-device check (always runs, maxW is always>=3)
+    var _wMon=getWeekMonday(slot.date);
+    var _wSat=dateAddDays(_wMon,5);
+    var _dbWkTemps=await dbGet('booking_exceptions','type=eq.temp_add&temp_customer_id=eq.'+custId+'&exception_date=gte.'+_wMon+'&exception_date=lte.'+_wSat+'&select=id&limit=20');
+    var _dbWkTempCnt=(_dbWkTemps||[]).length;
+    var _localPermW=getCustomerWeeklySlotCount(custId,slot.date)-_dbWkTempCnt;
+    var _dbWeekTotal=Math.max(0,_localPermW)+_dbWkTempCnt;
+    if(_dbWeekTotal>=_maxW){
+      return alert('Bu müştərinin bu həftə üçün slot limiti dolub: '+_dbWeekTotal+'/'+_maxW+' (canlı yoxlama). Yeni müvəqqəti bron üçün əvvəlcə mövcüd bronu silin/deaktiv edin və ya həmin tarix üçün \'Gəlməyəcək\' qeyd edin.');
     }
   }catch(e){}
   S.saving=true;S.showTempAdd=false;render();
@@ -2697,7 +2741,8 @@ async function submitNewSabitBron(){
   // ── 1. Source təyin et ──
   if(source==='auto')source=inferCustomerBronSource(custId);
 
-  // ── 2. Source-a görə abunə və limit yoxlama ──
+  // ── 2. Source-a görə abunə yoxlama + weekly limit (bütün sources) ──
+  var _nsbMaxW;
   if(source==='studio'){
     var bst=getCustBronStatus(custId);
     if(bst.type==='none'||bst.type==='grace'){
@@ -2707,12 +2752,20 @@ async function submitNewSabitBron(){
     if(activSubForLimit&&bst.type!=='pending'){
       var maxD=activSubForLimit.sessions_total>=12?3:activSubForLimit.sessions_total>=8?2:activSubForLimit.sessions_total>1?2:0;
       if(maxD===0){return alert('Tək giriş proqramı üçün Studio bron yaratmaq olmaz. Partner və ya Tək giriş seçin.');}
-      var existD=0;
-      if(S.bronData){for(var i=0;i<S.bronData.length;i++){if(S.bronData[i].customer_id===custId)existD++;}}
-      if(existD>=maxD){return alert('Bu müştəri üçün artıq '+existD+' sabit bron var.\nStudio proqramına görə limit: '+maxD+' gün.');}
+      _nsbMaxW=maxD;
+    } else {
+      _nsbMaxW=3;
     }
+  } else {
+    // partner, single: no subscription required, max 3 slots/week
+    _nsbMaxW=3;
   }
-  // partner və single: abunə tələb yoxdur, limit yoxdur
+  // Weekly slot limit guard: use checkDate (next occurrence of this dow)
+  var _nsbCheckDate=getNextDateForDow(from||td(),day);
+  var _nsbWeekCount=getCustomerWeeklySlotCountForPermanentLimit(custId,_nsbCheckDate);
+  if(_nsbWeekCount>=_nsbMaxW){
+    return alert('Bu müştərinin bu həftə üçün slot limiti dolub: '+_nsbWeekCount+'/'+_nsbMaxW+'. Yeni sabit bron üçün əvvəlcə mövcüd bronu silin/deaktiv edin.');
+  }
 
   // ── 3. Dublikat yoxlama: eyni müştəriyə eyni gündə 2-ci sabit bron yaratmaq olmaz ──
   if(hasActivePermanentBookingOnDow(custId,day)){
