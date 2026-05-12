@@ -695,7 +695,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-operational-followup-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch3-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -2245,26 +2245,26 @@ function rModalTempAdd(){
   var count=getSlotCount(dow,slot.time,slot.date);
   var free=MAX_PER_SLOT-count;
   return'<div class="ov" onclick="S.showTempAdd=false;render()"><div class="modal" onclick="event.stopPropagation()">'
-    +'<div class="mtitle">+ Müvəqqəti Müştəri Əlavə Et</div>'
+    +'<div class="mtitle">+ Müvəqqəti / Sınaq Əlavə Et</div>'
     +'<div style="background:#f0faf5;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;font-size:13px">'
     +'<span style="font-weight:600">'+(dow?DAYS_AZ[dow-1]:'?')+' — '+slot.time+'</span>'
     +'<span style="color:#666">'+fmt(slot.date)+'</span>'
     +'<span style="font-weight:700;color:'+(free>0?'#1D9E75':'#C62828')+'">'+count+'/'+MAX_PER_SLOT+'</span>'
     +'</div>'
-    +(free<=0?'<div class="al al-r" style="margin-bottom:12px">Bu slot tam doludur (8/8)!</div>':'')
-    +'<div class="fg"><label class="fl">Müştəri *</label>'
-    +'<input class="fi" id="ta-cust-search" placeholder="Ad ilə axtar..." oninput="filterTempAddCusts()" autocomplete="off" style="margin-bottom:4px">'
-    +'<div id="ta-cust-list" style="max-height:160px;overflow-y:auto;border:1px solid #ddd;border-radius:8px;background:#fff"></div>'
-    +'<input type="hidden" id="ta-cust-id">'
-    +'<div id="ta-sub-status" style="margin-top:6px"></div>'
-    +'</div>'
-    +'<div class="fg"><label class="fl">Müştəri tipi *</label>'
-    +'<select class="fs" id="ta-source">'
-    +'<option value="auto">Avtomatik (abunəyə görə)</option>'
+    +(free<=0?'<div class="al al-r" style="margin-bottom:12px">Bu slot tam doludur (8/8)!</div>':'')    +'<div class="fg"><label class="fl">Müştəri tipi *</label>'
+    +'<select class="fs" id="ta-source" onchange="onTempAddSourceChange()">'
     +'<option value="studio">Studio (abunəli)</option>'
     +'<option value="partner">Partner giriş (ROF/RPP/RPS)</option>'
     +'<option value="single">Tək giriş (ROTG/ROTI/RTEST)</option>'
+    +'<option value="trial">Sınaq məşqi</option>'
     +'</select></div>'
+    +'<div class="fg"><label class="fl" id="ta-search-label">Müştəri *</label>'
+    +'<input class="fi" id="ta-cust-search" placeholder="Ad ilə axtar..." oninput="filterTempAddCusts()" autocomplete="off" style="margin-bottom:4px">'
+    +'<div id="ta-cust-list" style="max-height:160px;overflow-y:auto;border:1px solid #ddd;border-radius:8px;background:#fff"></div>'
+    +'<input type="hidden" id="ta-cust-id">'
+    +'<input type="hidden" id="ta-lead-id">'
+    +'<div id="ta-sub-status" style="margin-top:6px"></div>'
+    +'</div>'
     +'<div class="fg"><label class="fl">Qeyd</label><input class="fi" id="ta-note" placeholder="İstəyə görə"></div>'
     +'<div class="mact">'
     +'<button class="btn btn-gray" onclick="S.showTempAdd=false;render()">Ləğv et</button>'
@@ -2272,80 +2272,236 @@ function rModalTempAdd(){
     +'</div></div></div>';
 }
 
+function onTempAddSourceChange(){
+  var srcEl=document.getElementById('ta-source');
+  var searchInp=document.getElementById('ta-cust-search');
+  var list=document.getElementById('ta-cust-list');
+  var custHidden=document.getElementById('ta-cust-id');
+  var leadHidden=document.getElementById('ta-lead-id');
+  var statusDiv=document.getElementById('ta-sub-status');
+  var labelEl=document.getElementById('ta-search-label');
+  if(!srcEl)return;
+  var isTrial=srcEl.value==='trial';
+  if(searchInp)searchInp.value='';
+  if(list)list.innerHTML='';
+  if(custHidden)custHidden.value='';
+  if(leadHidden)leadHidden.value='';
+  if(statusDiv)statusDiv.innerHTML='';
+  if(labelEl)labelEl.textContent=isTrial?'Lead (Sınaq) *':'Müştəri *';
+  if(isTrial&&!S.leadsLoaded&&!S.leadsLoading)fetchLeads();
+}
+
 function filterTempAddCusts(){
   var inp=document.getElementById('ta-cust-search');
   var list=document.getElementById('ta-cust-list');
+  var srcEl=document.getElementById('ta-source');
   if(!inp||!list)return;
   var q=normQ(inp.value.trim());
-  var sorted=D.customers.slice().sort(function(a,b){return a.name.localeCompare(b.name,'az');});
+  var isTrial=srcEl&&srcEl.value==='trial';
   list.innerHTML='';
   var shown=0;
-  for(var i=0;i<sorted.length;i++){
-    var c=sorted[i];
-    if(q&&normQ(c.name).indexOf(q)<0)continue;
-    if(shown>=50)break;
-    (function(cust){
-      var el=document.createElement('div');
-      el.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px';
-      el.innerHTML=cust.name+'<span style="font-size:10px;color:#aaa;margin-left:6px">'+cust.id+'</span>';
-      el.onmouseenter=function(){this.style.background='#f0faf5';};
-      el.onmouseleave=function(){this.style.background='';};
-      el.onclick=function(){selectTempAddCust(cust.id,cust.name);};
-      list.appendChild(el);
-    })(c);
-    shown++;
+  if(isTrial){
+    var leads=S.leadsData||[];
+    if(S.leadsLoading){
+      list.innerHTML='<div style="padding:10px;color:#aaa;font-size:13px;text-align:center"><span class="spin"></span> Yüklənir...</div>';
+      return;
+    }
+    for(var i=0;i<leads.length;i++){
+      var ld=leads[i];
+      if(q&&normQ(ld.name||'').indexOf(q)<0&&normQ(ld.phone||'').indexOf(q)<0)continue;
+      if(shown>=50)break;
+      (function(lead){
+        var el=document.createElement('div');
+        var isConverted=lead.status==='converted';
+        el.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px'+(isConverted?';opacity:0.5;cursor:default':'');
+        el.innerHTML=escHtml(lead.name||'')+'<span style="font-size:10px;color:#aaa;margin-left:6px">'+(lead.phone||'')+'</span>'+' <span class="badge '+getLeadStatusBadgeClass(lead.status)+'" style="font-size:10px">'+getLeadStatusLabel(lead.status)+'</span>'+(isConverted?'<span style="font-size:10px;color:#C62828;margin-left:4px">(seçilə bilməz)</span>':'');
+        if(!isConverted){
+          el.onmouseenter=function(){this.style.background='#FFF3E0';};
+          el.onmouseleave=function(){this.style.background='';};
+          el.onclick=function(){selectTempAddCust(lead.id,lead.name);};
+        }
+        list.appendChild(el);
+      })(ld);
+      shown++;
+    }
+    if(shown===0)list.innerHTML='<div style="padding:10px;color:#aaa;font-size:13px;text-align:center">Lead tapılmadı</div>';
+  }else{
+    var sorted=D.customers.slice().sort(function(a,b){return a.name.localeCompare(b.name,'az');});
+    for(var i=0;i<sorted.length;i++){
+      var c=sorted[i];
+      if(q&&normQ(c.name).indexOf(q)<0)continue;
+      if(shown>=50)break;
+      (function(cust){
+        var el=document.createElement('div');
+        el.style.cssText='padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px';
+        el.innerHTML=cust.name+'<span style="font-size:10px;color:#aaa;margin-left:6px">'+cust.id+'</span>';
+        el.onmouseenter=function(){this.style.background='#f0faf5';};
+        el.onmouseleave=function(){this.style.background='';};
+        el.onclick=function(){selectTempAddCust(cust.id,cust.name);};
+        list.appendChild(el);
+      })(c);
+      shown++;
+    }
+    if(shown===0)list.innerHTML='<div style="padding:10px;color:#aaa;font-size:13px;text-align:center">Tapılmadı</div>';
   }
-  if(shown===0)list.innerHTML='<div style="padding:10px;color:#aaa;font-size:13px;text-align:center">Tapılmadı</div>';
 }
 
 function selectTempAddCust(id,name){
   var inp=document.getElementById('ta-cust-search');
   var list=document.getElementById('ta-cust-list');
-  var hidden=document.getElementById('ta-cust-id');
+  var custHidden=document.getElementById('ta-cust-id');
+  var leadHidden=document.getElementById('ta-lead-id');
   var statusDiv=document.getElementById('ta-sub-status');
+  var srcEl=document.getElementById('ta-source');
+  var isTrial=srcEl&&srcEl.value==='trial';
   if(inp)inp.value=name;
-  if(hidden)hidden.value=id;
-  if(list)list.innerHTML='<div style="padding:8px 12px;background:#E8F5EE;font-size:13px;border-radius:6px">✓ '+escHtml(name)+'</div>';
-  if(statusDiv){
-    var bst=getCustBronStatus(id);
-    var colorMap={ok:'#1D9E75',warn:'#E65100',grace:'#E65100',pending:'#1565C0',none:'#C62828'};
-    var col=colorMap[bst.type]||'#888';
-    statusDiv.innerHTML='<div style="font-size:12px;padding:6px 10px;background:#f8f8f8;border-radius:6px">Abunə: <span style="font-weight:600;color:'+col+'">'+bst.txt+'</span></div>';
-    if(bst.type==='none')statusDiv.innerHTML+='<div class="al al-b" style="margin-top:6px;font-size:12px">ℹ Aktiv abunəsi yoxdur. Yuxarıda <b>Partner giriş</b> və ya <b>Tək giriş</b> tipi seçin.</div>';
+  if(isTrial){
+    if(leadHidden)leadHidden.value=id;
+    if(custHidden)custHidden.value='';
+    if(list)list.innerHTML='<div style="padding:8px 12px;background:#FFF3E0;font-size:13px;border-radius:6px">✓ '+escHtml(name)+' <span class="badge b-orange" style="font-size:10px">Sınaq lead</span></div>';
+    if(statusDiv){
+      var lead=getLead(id);
+      var info='';
+      if(lead){
+        if(lead.trial_booking_ex_id){
+          info='<div class="al al-r" style="margin-top:6px;font-size:12px">⚠ Bu leadın artıq aktiv sınaq slotu var. Əvvəlcə mövcud slotu silin.</div>';
+        }else{
+          info='<div style="font-size:12px;padding:6px 10px;background:#f8f8f8;border-radius:6px">Status: <span class="badge '+getLeadStatusBadgeClass(lead.status)+'" style="font-size:10px">'+getLeadStatusLabel(lead.status)+'</span></div>';
+        }
+      }
+      statusDiv.innerHTML=info;
+    }
+  }else{
+    if(custHidden)custHidden.value=id;
+    if(leadHidden)leadHidden.value='';
+    if(list)list.innerHTML='<div style="padding:8px 12px;background:#E8F5EE;font-size:13px;border-radius:6px">✓ '+escHtml(name)+'</div>';
+    if(statusDiv){
+      var bst=getCustBronStatus(id);
+      var colorMap={ok:'#1D9E75',warn:'#E65100',grace:'#E65100',pending:'#1565C0',none:'#C62828'};
+      var col=colorMap[bst.type]||'#888';
+      statusDiv.innerHTML='<div style="font-size:12px;padding:6px 10px;background:#f8f8f8;border-radius:6px">Abunə: <span style="font-weight:600;color:'+col+'">'+bst.txt+'</span></div>';
+      if(bst.type==='none')statusDiv.innerHTML+='<div class="al al-b" style="margin-top:6px;font-size:12px">ℹ Aktiv abunəsi yoxdur. Yuxarıda <b>Partner giriş</b> və ya <b>Tək giriş</b> tipi seçin.</div>';
+    }
   }
 }
 
+function hasLeadActiveTrial(leadId){
+  var leads=S.leadsData||[];
+  for(var i=0;i<leads.length;i++){
+    if(leads[i].id===leadId&&leads[i].trial_booking_ex_id)return true;
+  }
+  return false;
+}
+
+function hasLeadTrialOnDate(leadId,dateStr){
+  var excs=S.bronExceptions||[];
+  for(var i=0;i<excs.length;i++){
+    var ex=excs[i];
+    if(ex.type==='trial_add'&&ex.temp_lead_id===leadId&&ex.exception_date===dateStr)return true;
+  }
+  return false;
+}
+
 async function submitTempAdd(){
-  var custIdEl=document.getElementById('ta-cust-id');
   var noteEl=document.getElementById('ta-note');
   var sourceEl=document.getElementById('ta-source');
-  var custId=custIdEl?custIdEl.value:'';
-  var userNote=noteEl?noteEl.value:'';
-  var sourceVal=sourceEl?sourceEl.value:'auto';
+  var userNote=(noteEl?noteEl.value:'').trim();
+  var sourceVal=sourceEl?sourceEl.value:'studio';
   var slot=S.tempAddSlot;
-  if(!custId)return alert('Müştəri seçin');
   if(!slot)return;
-  // Müvəqqəti bron duplicate check — eyni müştəri + eyni tarix
+
+  // ---- TRIAL BRANCH ----
+  if(sourceVal==='trial'){
+    var leadIdEl=document.getElementById('ta-lead-id');
+    var leadId=leadIdEl?leadIdEl.value.trim():'';
+    if(!leadId)return alert('Lead seçin');
+    var lead=getLead(leadId);
+    if(!lead)return alert('Lead tapılmadı. Yenidən cəhd edin.');
+    if(lead.status==='converted')return alert('Bu lead artıq müştəriyə çevrilib. Sınaq slotu yaradıla bilməz.');
+    if(lead.status==='trial_done')return alert('Bu leadın sınağı artıq keçib. Bu mərhələdə yeni sınaq slotu yaradılmır.');
+    if(hasLeadActiveTrial(leadId))return alert('Bu leadın artıq aktiv sınaq slotu var. Əvvəlcə mövcud slotu lead kartından silin.');
+    if(hasLeadTrialOnDate(leadId,slot.date))return alert('Bu lead həmin tarixdə artıq sınaq bronundadır.');
+    try{
+      var _dbTrial=await dbGet('booking_exceptions','type=eq.trial_add&temp_lead_id=eq.'+leadId+'&exception_date=eq.'+slot.date+'&select=id&limit=1');
+      if(_dbTrial&&_dbTrial.length>0)return alert('Bu lead həmin tarixdə artıq sınaq bronundadır (başqa cihazdan yaradılmış ola bilər).');
+    }catch(e){}
+    var prevStatus=lead.status;
+    var eid='EX'+Date.now();
+    var ex={
+      id:eid,
+      booking_id:null,
+      exception_date:slot.date,
+      type:'trial_add',
+      temp_lead_id:leadId,
+      temp_lead_name:lead.name||'',
+      day_of_week:slot.dow,
+      time_slot:slot.time,
+      note:userNote||null
+    };
+    S.saving=true;S.showTempAdd=false;render();
+    try{
+      await dbPost('booking_exceptions',ex);
+    }catch(e){
+      S.saving=false;render();
+      return alert('Sınaq slotu yaradılarkən xəta: '+e.message);
+    }
+    try{
+      await dbPatch('leads','id=eq.'+leadId,{
+        status:'trial_scheduled',
+        trial_booking_ex_id:eid,
+        trial_class_date:slot.date,
+        trial_class_time:slot.time
+      });
+    }catch(e2){
+      try{
+        await fetch(BASE+'/booking_exceptions?id=eq.'+eid,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+        S.saving=false;render();
+        return alert('Sınaq slotu yaradıldı, lakin lead yenilənərkən xəta baş verdi. Slot silinməsi cəhd edildi.\nXəta: '+e2.message);
+      }catch(e3){
+        S.saving=false;render();
+        return alert('MANUAL TƏMİZLƏMƏ LAZIMDIR:\nLead yenilənmədi, slot silinmədi.\nSlot ID: '+eid+'\nLead ID: '+leadId+'\nXəta: '+e2.message);
+      }
+    }
+    if(!S.bronExceptions)S.bronExceptions=[];
+    S.bronExceptions.push(ex);
+    var _leads=S.leadsData||[];
+    for(var i=0;i<_leads.length;i++){
+      if(_leads[i].id===leadId){
+        _leads[i].status='trial_scheduled';
+        _leads[i].trial_booking_ex_id=eid;
+        _leads[i].trial_class_date=slot.date;
+        _leads[i].trial_class_time=slot.time;
+        break;
+      }
+    }
+    logAudit('lead',leadId,'trial_scheduled',
+      'Sınaq slotu yaradıldı — '+escHtml(lead.name||leadId)+' — '+slot.date+' '+slot.time,
+      {status:prevStatus,trial_booking_ex_id:null},
+      {status:'trial_scheduled',trial_booking_ex_id:eid,trial_class_date:slot.date,trial_class_time:slot.time,exception_id:eid,source_flow:'submitTempAdd_trial'});
+    S.saving=false;render();
+    return;
+  }
+
+  // ---- NORMAL CUSTOMER BRANCH ----
+  var custIdEl=document.getElementById('ta-cust-id');
+  var custId=custIdEl?custIdEl.value:'';
+  if(!custId)return alert('Müştəri seçin');
   if(hasCustomerTempAddOnDate(custId,slot.date)){
     return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var.');
   }
-  // Sabit bron check — temp_add bloklanır əgər həmin tarixdə aktiv sabit bron varsa
   if(hasCustomerActiveBookingOnDate(custId,slot.date)){
     return alert('Bu müştərinin həmin tarixə aktiv sabit bronu var.\nMüvəqqəti bron əlavə etmək olmaz.\n(İstisna: əvvəlcə həmin tarix üçün "Gəlməyəcək" qeyd edin.)');
   }
-  // Source inferenc
-  if(sourceVal==='auto')sourceVal=inferCustomerBronSource(custId);
+  if(!sourceVal||sourceVal==='auto')sourceVal='studio';
   var marker='[source:'+sourceVal+']';
   var finalNote=userNote?marker+' '+userNote:marker;
   var cust=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
-  // Live DB check — başqa cihazdan edilmiş temp_add-ı tutur
   try{
     var _dbTmp=await dbGet('booking_exceptions','type=eq.temp_add&temp_customer_id=eq.'+custId+'&exception_date=eq.'+slot.date+'&select=id&limit=1');
     if(_dbTmp&&_dbTmp.length>0){
       return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var (başqa cihazdan yaradılmış ola bilər).');
     }
-    // Live DB: sabit bron — başqa cihazdan yaradılmış ola bilər
     var _tDow=new Date(slot.date+'T00:00:00').getDay();
     var _tSlotDow=(_tDow===0)?7:_tDow;
     var _dbPermT=await dbGet('bookings','customer_id=eq.'+custId+'&day_of_week=eq.'+_tSlotDow+'&type=eq.permanent&is_active=eq.true&select=id,valid_from,valid_until&limit=5');
@@ -2375,6 +2531,7 @@ async function submitTempAdd(){
   }catch(e){alert('Xəta: '+e.message);}
   S.saving=false;render();
 }
+
 
 // ---- YENİ SABİT BRON MODAL ----
 
