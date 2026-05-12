@@ -196,7 +196,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   auditOpenChecks:{c1:false,c2:false,c3:false,c4:false,c5:false,c6:false},
   leadsData:null,leadsLoading:false,leadsLoaded:false,
   leadsFilter:{status:'active',assigned:'all',overdue:false,search:''},
-  selLead:null,showAddLead:false};
+  selLead:null,showAddLead:false,leadLostModal:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -695,7 +695,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-leads-foundation-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-operational-followup-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -730,6 +730,7 @@ function render(){
   if(S.showSubPayment)h+=rModalSubPayment();
   if(S.showAddLead)h+=rModalAddLead();
   if(S.selLead)h+=rModalLeadDetail();
+  if(S.leadLostModal)h+=rModalLeadLost();
   root.innerHTML=h;
 }
 
@@ -6622,33 +6623,38 @@ function rLeads(){
   var all=S.leadsData||[];
   var today=td();
 
-  // Status counts
+  // Status counts (client-side from S.leadsData)
   var cnt={new:0,contacted:0,trial_scheduled:0,trial_done:0,converted:0,lost:0};
   for(var i=0;i<all.length;i++){var st=all[i].status;if(cnt.hasOwnProperty(st))cnt[st]++;}
   var activeCount=cnt.new+cnt.contacted+cnt.trial_scheduled+cnt.trial_done;
+  var trialCount=cnt.trial_scheduled+cnt.trial_done;
+  var convRate=(cnt.converted+cnt.lost>0)?Math.round(cnt.converted/(cnt.converted+cnt.lost)*100):0;
 
   var h='<div class="ph">'
     +'<div class="pt">Leads</div>'
     +'<button class="btn btn-g" onclick="S.showAddLead=true;render()">+ Yeni Lead</button>'
     +'</div>';
 
-  // Stats row
+  // ── Today + Overdue panel ──
+  h+=rLeadTodayPanel(all,today);
+
+  // Funnel summary row
   h+='<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:14px">';
   var statCards=[
-    ['active',activeCount,'Aktiv'],
-    ['new',cnt.new,'Yeni'],
-    ['contacted',cnt.contacted,'Əlaqə'],
-    ['trial_scheduled|trial_done',cnt.trial_scheduled+cnt.trial_done,'Sınaq'],
-    ['converted',cnt.converted,'Konvert'],
-    ['lost',cnt.lost,'İtirildi']
+    ['active',activeCount,'Aktiv','#1D9E75'],
+    ['new',cnt.new,'Yeni','#1565C0'],
+    ['contacted',cnt.contacted,'Əlaqə','#E65100'],
+    ['trial_scheduled|trial_done',trialCount,'Sınaq','#5E35B1'],
+    ['converted',cnt.converted,'Konvert'+(cnt.converted+cnt.lost>0?' '+convRate+'%':''),'#0F6E56'],
+    ['lost',cnt.lost,'İtirildi','#C62828']
   ];
   for(var i=0;i<statCards.length;i++){
     var sc=statCards[i];
     var isActive=(S.leadsFilter.status===sc[0])||
       (sc[0]==='trial_scheduled|trial_done'&&(S.leadsFilter.status==='trial_scheduled'||S.leadsFilter.status==='trial_done'));
     var filterVal=sc[0]==='trial_scheduled|trial_done'?'trial_scheduled':sc[0];
-    h+='<div class="scard" style="cursor:pointer;'+(isActive?'border:2px solid #1D9E75':'')+'" onclick="S.leadsFilter.status=\''+filterVal+'\';render()">'
-      +'<div class="snum">'+sc[1]+'</div>'
+    h+='<div class="scard" style="cursor:pointer;'+(isActive?'border:2px solid '+sc[3]:'')+'" onclick="S.leadsFilter.status=\''+filterVal+'\';render()">'
+      +'<div class="snum" style="color:'+sc[3]+'">'+sc[1]+'</div>'
       +'<div class="slbl">'+sc[2]+'</div>'
       +'</div>';
   }
@@ -6662,7 +6668,6 @@ function rLeads(){
 
   h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center">';
 
-  // Status filter
   var statOpts='';
   var statList=[['active','Aktiv (hamısı)'],['new','Yeni'],['contacted','Əlaqə quruldu'],
     ['trial_scheduled','Sınaq planlandı'],['trial_done','Sınaq keçdi'],
@@ -6672,7 +6677,6 @@ function rLeads(){
   }
   h+='<select class="fi" style="width:auto;padding:7px 10px" onchange="S.leadsFilter.status=this.value;render()">'+statOpts+'</select>';
 
-  // Assigned filter
   var insts=D._allInstructors||D.instructors||[];
   var instOpts2='<option value="all"'+(fAssigned==='all'?' selected':'')+'>Hamı</option>';
   for(var i=0;i<insts.length;i++){
@@ -6680,14 +6684,11 @@ function rLeads(){
   }
   h+='<select class="fi" style="width:auto;padding:7px 10px" onchange="S.leadsFilter.assigned=this.value;render()">'+instOpts2+'</select>';
 
-  // Overdue toggle
   h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap">'
     +'<input type="checkbox"'+(fOverdue?' checked':'')+' onchange="S.leadsFilter.overdue=this.checked;render()"> Gecikmiş</label>';
 
-  // Search
   h+='<input class="fi" style="max-width:180px;padding:7px 10px" placeholder="Ad / telefon..." value="'+escHtml(fSearch)+'" oninput="S.leadsFilter.search=this.value;render()">';
 
-  // Reset
   h+='<button class="btn btn-gray btn-sm" onclick="S.leadsFilter={status:\'active\',assigned:\'all\',overdue:false,search:\'\'};render()">✕ Sıfırla</button>';
   h+='</div>';
 
@@ -6722,6 +6723,7 @@ function rLeads(){
     var lead=filtered[i];
     var isOverdue2=lead.follow_up_date&&lead.follow_up_date<today
       &&['new','contacted','trial_scheduled','trial_done'].indexOf(lead.status)>=0;
+    var isActive2=['new','contacted','trial_scheduled','trial_done'].indexOf(lead.status)>=0;
     var waDigits=leadWaPhone(lead.phone||'');
     var assignedName='';
     for(var j=0;j<insts.length;j++){if(insts[j].id===lead.assigned_to){assignedName=insts[j].full_name;break;}}
@@ -6739,9 +6741,10 @@ function rLeads(){
       +(lead.source?'<span class="badge b-gray" style="font-size:10px">'+escHtml(getLeadSourceLabel(lead.source))+'</span>':'')
       +'<span class="badge '+getLeadStatusBadgeClass(lead.status)+'">'+getLeadStatusLabel(lead.status)+'</span>'
       +(isOverdue2?'<span class="badge b-red" style="font-size:10px">⏰ Gecikib</span>':'')
+      +(lead.status==='lost'&&lead.lost_reason?'<span class="badge b-gray" style="font-size:10px">'+escHtml(getLostReasonLabel(lead.lost_reason))+'</span>':'')
       +'</div></div>';
 
-    // Row 2: meta + action buttons
+    // Row 2: meta + detail button
     h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;flex-wrap:wrap;gap:6px">'
       +'<div style="font-size:11px;color:#888;display:flex;gap:10px;flex-wrap:wrap">'
       +(lead.follow_up_date
@@ -6750,16 +6753,180 @@ function rLeads(){
       +(assignedName?'<span>👤 '+escHtml(assignedName)+'</span>':'')
       +'<span style="color:#ccc;font-size:10px">'+escHtml(lead.id||'')+'</span>'
       +'</div>'
-      +'<div style="display:flex;gap:6px">';
-
+      +'<div style="display:flex;gap:5px">';
     if(waDigits.length>=11){
       h+='<a href="https://wa.me/'+waDigits+'" target="_blank" class="btn btn-gray btn-sm" style="text-decoration:none">💬 WA</a>';
     }
     h+='<button class="btn btn-b btn-sm" onclick="S.selLead=\''+escHtml(lead.id||'')+'\';render()">Bax / Düzəlt</button>'
-      +'</div></div></div>';
+      +'</div></div>';
+
+    // Row 3: quick actions (active leads only)
+    if(isActive2){
+      h+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0">';
+      h+=rLeadCardQuickActions(lead);
+      // Reschedule buttons
+      h+='<span style="display:inline-flex;gap:4px;margin-left:auto">'
+        +'<button class="btn btn-gray btn-sm" style="font-size:10px;padding:3px 7px;color:#666" onclick="quickLeadReschedule(\''+escHtml(lead.id||'')+'\',1)" title="Sabah üçün planla">📅 Sabah</button>'
+        +'<button class="btn btn-gray btn-sm" style="font-size:10px;padding:3px 7px;color:#666" onclick="quickLeadReschedule(\''+escHtml(lead.id||'')+'\',3)" title="+3 gün sonra">+3</button>'
+        +'<button class="btn btn-gray btn-sm" style="font-size:10px;padding:3px 7px;color:#666" onclick="quickLeadReschedule(\''+escHtml(lead.id||'')+'\',7)" title="+7 gün sonra">+7</button>'
+        +'</span>';
+      h+='</div>';
+    }
+
+    h+='</div>';
   }
 
   return h;
+}
+
+// ── Today + Overdue panel ──
+function rLeadTodayPanel(all,today){
+  var active=['new','contacted','trial_scheduled','trial_done'];
+  var todayL=[],overdueL=[];
+  for(var i=0;i<all.length;i++){
+    var l=all[i];
+    if(active.indexOf(l.status)<0||!l.follow_up_date)continue;
+    if(l.follow_up_date===today)todayL.push(l);
+    else if(l.follow_up_date<today)overdueL.push(l);
+  }
+  if(!todayL.length&&!overdueL.length)return'';
+  var h='<div style="margin-bottom:14px">';
+  if(todayL.length){
+    h+='<div style="font-size:12px;font-weight:600;color:#0F6E56;margin-bottom:6px">📋 Bu gün ('+todayL.length+')</div>';
+    for(var i=0;i<todayL.length;i++)h+=rLeadPanelRow(todayL[i],false);
+  }
+  if(overdueL.length){
+    h+='<div style="font-size:12px;font-weight:600;color:#C62828;margin-bottom:6px;'+(todayL.length?'margin-top:10px':'')+'">⏰ Gecikmiş ('+overdueL.length+')</div>';
+    for(var i=0;i<overdueL.length;i++)h+=rLeadPanelRow(overdueL[i],true);
+  }
+  h+='</div>';
+  return h;
+}
+
+function rLeadPanelRow(lead,isOverdue){
+  var waDigits=leadWaPhone(lead.phone||'');
+  var id=escHtml(lead.id||'');
+  var h='<div style="background:#fff;border:1px solid '+(isOverdue?'#ffcdd2':'#d4edda')+';border-radius:9px;padding:9px 12px;margin-bottom:5px">'
+    +'<div style="display:flex;align-items:center;gap:8px;justify-content:space-between">'
+    +'<div style="flex:1;min-width:0">'
+    +'<span style="font-weight:600;font-size:13px">'+escHtml(lead.name||'')+'</span>'
+    +' <span class="badge '+getLeadStatusBadgeClass(lead.status)+'" style="font-size:10px">'+getLeadStatusLabel(lead.status)+'</span>'
+    +(lead.follow_up_date?'<span style="font-size:11px;color:'+(isOverdue?'#C62828':'#0F6E56')+';margin-left:6px">📅 '+fmt(lead.follow_up_date)+'</span>':'')
+    +'</div>'
+    +'<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;align-items:center">';
+  h+=rLeadCardQuickActions(lead);
+  if(waDigits.length>=11){
+    h+='<a href="https://wa.me/'+waDigits+'" target="_blank" class="btn btn-gray btn-sm" style="text-decoration:none;font-size:11px">💬</a>';
+  }
+  h+='</div></div></div>';
+  return h;
+}
+
+// Quick action buttons (status-aware, no modal)
+function rLeadCardQuickActions(lead){
+  var id=escHtml(lead.id||'');
+  var s=lead.status;
+  var h='';
+  if(s==='new'||s==='contacted'){
+    h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#0F6E56" onclick="quickLeadStatus(\''+id+'\',\'contacted\')">✓ Əlaqə</button>';
+    h+='<button class="btn btn-gray btn-sm" style="font-size:11px" onclick="quickLeadStatus(\''+id+'\',\'trial_scheduled\')">📅 Sınaq</button>';
+  }
+  if(s==='trial_scheduled'){
+    h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#0F6E56" onclick="quickLeadStatus(\''+id+'\',\'contacted\')">✓ Əlaqə</button>';
+    h+='<button class="btn btn-g btn-sm" style="font-size:11px" onclick="quickLeadStatus(\''+id+'\',\'trial_done\')">✅ Keçdi</button>';
+  }
+  if(s==='trial_done'){
+    h+='<button class="btn btn-g btn-sm" style="font-size:11px" onclick="doConvertLead(\''+id+'\')">🔄 Çevir</button>';
+  }
+  if(['new','contacted','trial_scheduled','trial_done'].indexOf(s)>=0){
+    h+='<button class="btn btn-sm" style="font-size:11px;background:#fff0f0;color:#c62828;border:1px solid #ffcdd2;padding:5px 8px" onclick="quickLeadStatus(\''+id+'\',\'lost\')">✕ İtirildi</button>';
+  }
+  return h;
+}
+
+function getLostReasonLabel(r){
+  var m={price:'Qiymət',schedule:'Vaxt uyğun deyil',location:'Məkan uzaqdır',competitor:'Rəqibə getdi',lost_interest:'Marağını itirdi',other:'Digər'};
+  return m[r]||r||'';
+}
+
+// --- Lost Reason Modal ---
+
+function rModalLeadLost(){
+  if(!S.leadLostModal)return'';
+  var reasons=[
+    ['price','Qiymət'],
+    ['schedule','Vaxt uyğun deyil'],
+    ['location','Məkan uzaqdır'],
+    ['competitor','Rəqibə getdi'],
+    ['lost_interest','Marağını itirdi'],
+    ['other','Digər']
+  ];
+  var opts='';
+  for(var i=0;i<reasons.length;i++){
+    opts+='<option value="'+reasons[i][0]+'"'+(S.leadLostModal.reason===reasons[i][0]?' selected':'')+'>'+reasons[i][1]+'</option>';
+  }
+  return'<div class="ov" onclick="S.leadLostModal=null;render()"><div class="modal" onclick="event.stopPropagation()" style="max-width:320px">'
+    +'<div class="mtitle">Lead İtirildi</div>'
+    +'<div class="fg"><label class="fl">Səbəb (opsional)</label>'
+    +'<select class="fi" id="lost-reason-sel" onchange="S.leadLostModal.reason=this.value">'+opts+'</select></div>'
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.leadLostModal=null;render()">Ləğv et</button>'
+    +'<button class="btn" style="background:#C62828;color:#fff" onclick="quickLeadLostConfirm()">İtirildi kimi qeyd et</button>'
+    +'</div></div></div>';
+}
+
+// --- Quick Lead Actions ---
+
+async function quickLeadStatus(leadId,newStatus){
+  if(newStatus==='lost'){
+    S.leadLostModal={id:leadId,reason:'price'};
+    render();return;
+  }
+  S.saving=true;render();
+  try{
+    var body={status:newStatus};
+    if(newStatus==='contacted')body.last_contact_at=new Date().toISOString();
+    await dbPatch('leads','id=eq.'+leadId,body);
+    var leads=S.leadsData||[];
+    for(var i=0;i<leads.length;i++){
+      if(leads[i].id===leadId){
+        leads[i].status=newStatus;
+        if(newStatus==='contacted')leads[i].last_contact_at=body.last_contact_at;
+        break;
+      }
+    }
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function quickLeadLostConfirm(){
+  if(!S.leadLostModal)return;
+  var leadId=S.leadLostModal.id;
+  var reasonEl=document.getElementById('lost-reason-sel');
+  var reason=reasonEl?reasonEl.value:(S.leadLostModal.reason||'other');
+  S.saving=true;render();
+  try{
+    await dbPatch('leads','id=eq.'+leadId,{status:'lost',lost_reason:reason});
+    var leads=S.leadsData||[];
+    for(var i=0;i<leads.length;i++){
+      if(leads[i].id===leadId){leads[i].status='lost';leads[i].lost_reason=reason;break;}
+    }
+    S.leadLostModal=null;
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function quickLeadReschedule(leadId,days){
+  S.saving=true;render();
+  try{
+    var newDate=addDays(td(),days);
+    await dbPatch('leads','id=eq.'+leadId,{follow_up_date:newDate});
+    var leads=S.leadsData||[];
+    for(var i=0;i<leads.length;i++){
+      if(leads[i].id===leadId){leads[i].follow_up_date=newDate;break;}
+    }
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
 }
 
 // --- Render: Add Lead Modal ---
