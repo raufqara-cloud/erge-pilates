@@ -696,7 +696,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4b-trial-attendance-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4c-hotfix1-trial-revert-ui-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1778,6 +1778,17 @@ async function deleteException(exId){
 }
 
 async function cancelTrialSlot(exId,leadId){
+  var _guardLead=getLead(leadId);
+  if(!_guardLead){
+    try{
+      var _fetched=await dbGet('leads','id=eq.'+leadId+'&select=id,name,status,trial_done_at&limit=1');
+      if(_fetched&&_fetched.length)_guardLead=_fetched[0];
+    }catch(e){}
+  }
+  if(_guardLead&&(_guardLead.status==='trial_done'||_guardLead.trial_done_at)){
+    alert('Bu lead artıq sınaq məşqinə davamiyyət kimi qeyd edilib. Əvvəlcə lead kartından sınaq davamiyyətini silin, sonra slotu silə bilərsiniz.');
+    return;
+  }
   if(!confirm('Sınaq slotunu silmək istədiyinizdən əminsinizmi?'))return;
   var _ex=null;
   if(S.bronExceptions){for(var _i=0;_i<S.bronExceptions.length;_i++){if(S.bronExceptions[_i].id===exId){_ex=S.bronExceptions[_i];break;}}}
@@ -1813,6 +1824,40 @@ async function cancelTrialSlot(exId,leadId){
   }
   leadsInvalidate();
   fetchLeads();
+  S.saving=false;render();
+}
+
+async function revertTrialDone(leadId){
+  var lead=getLead(leadId);
+  if(!lead){alert('Lead tapılmadı.');return;}
+  if(!confirm('Sınaq davamiyyətini silmək istədiyinizdən əminsinizmi? Lead "Sınaq planlandı" statusuna qayıdacaq.'))return;
+  S.saving=true;render();
+  try{
+    await dbPatch('leads','id=eq.'+leadId,{
+      status:'trial_scheduled',
+      trial_done_at:null,
+      trial_done_instructor_id:null,
+      trial_done_instructor_name:null
+    });
+    var _leads=S.leadsData||[];
+    for(var i=0;i<_leads.length;i++){
+      if(_leads[i].id===leadId){
+        _leads[i].status='trial_scheduled';
+        _leads[i].trial_done_at=null;
+        _leads[i].trial_done_instructor_id=null;
+        _leads[i].trial_done_instructor_name=null;
+        break;
+      }
+    }
+    logAudit('lead',leadId,'trial_done_reverted',
+      'Sınaq davamiyyəti silindi — '+(lead?escHtml(lead.name||leadId):leadId),
+      {status:'trial_done',trial_done_at:lead.trial_done_at,trial_done_instructor_id:lead.trial_done_instructor_id},
+      {status:'trial_scheduled',trial_done_at:null,trial_done_instructor_id:null,source_flow:'revertTrialDone'});
+    leadsInvalidate();
+    fetchLeads();
+  }catch(e){
+    alert('Sınaq davamiyyəti silinərkən xəta: '+e.message);
+  }
   S.saving=false;render();
 }
 
@@ -7240,13 +7285,20 @@ function rLeads(){
     h+='<button class="btn btn-b btn-sm" onclick="S.selLead=\''+escHtml(lead.id||'')+'\';render()">Bax / Düzəlt</button>'
       +'</div></div>';
 
-    // Trial info row (trial_scheduled only)
+    // Trial info row (trial_scheduled or trial_done)
     if(lead.status==='trial_scheduled'&&lead.trial_booking_ex_id){
       var _exId2=escHtml(lead.trial_booking_ex_id||'');
       var _ldId2=escHtml(lead.id||'');
       h+='<div style="font-size:11px;color:#5E35B1;background:#EDE7F6;border-radius:6px;padding:5px 10px;margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">'
         +'<span>&#128467; Sınaq: '+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')+'</span>'
         +'<button class="btn btn-sm" style="font-size:10px;padding:3px 8px;background:#fff;color:#C62828;border:1px solid #ef9a9a" onclick="cancelTrialSlot(\''+_exId2+'\',\''+_ldId2+'\')">&#128465; Slotu sil</button>'
+        +'</div>';
+    }
+    if(lead.status==='trial_done'&&lead.trial_class_date){
+      var _ldId2d=escQ(lead.id||'');
+      h+='<div style="font-size:11px;color:#4A148C;background:#F3E5F5;border-radius:6px;padding:5px 10px;margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">'
+        +'<span>&#10003; Keçdi: '+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')+(lead.trial_done_instructor_name?' · '+escHtml(lead.trial_done_instructor_name):'')+'</span>'
+        +'<button class="btn btn-sm" style="font-size:10px;padding:3px 8px;background:#fff;color:#C62828;border:1px solid #ef9a9a" onclick="revertTrialDone(\''+_ldId2d+'\')">&#128465; Sınaq dav. sil</button>'
         +'</div>';
     }
 
@@ -7516,9 +7568,11 @@ function rModalLeadDetail(){
       +'</div>';
   }
   if(lead.status==='trial_done'&&lead.trial_class_date){
+    var _modalRevertId=escQ(lead.id||'');
     h+='<div style="background:#F3E5F5;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
       +'<div style="font-size:12px;color:#6A1B9A;margin-bottom:8px"><b>Sınaq keçdi:</b></div>'
       +'<div style="font-size:13px;font-weight:600;color:#4A148C">'+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')+(lead.trial_done_instructor_name?' · '+escHtml(lead.trial_done_instructor_name):'')+'</div>'
+      +'<button class="btn btn-sm" style="font-size:11px;padding:5px 10px;margin-top:8px;background:#fff;color:#C62828;border:1px solid #ef9a9a" onclick="revertTrialDone(\''+_modalRevertId+'\')">&#128465; Sınaq davamiyyətini sil</button>'
       +'</div>';
   }
 
