@@ -195,7 +195,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   adminOpenSections:{progs:false,insts:false,accts:false,excel:false,audit:false},
   auditOpenChecks:{c1:false,c2:false,c3:false,c4:false,c5:false,c6:false},
   leadsData:null,leadsLoading:false,leadsLoaded:false,
-  leadsFilter:{status:'active',assigned:'all',overdue:false,search:''},
+  leadsFilter:{status:'active',assigned:'all',overdue:false,search:'',source:'',goal:''},
   selLead:null,showAddLead:false,leadLostModal:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
@@ -696,7 +696,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-lead-profile-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-lead-profile-polish-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -7129,10 +7129,16 @@ function getLeadStatusBadgeClass(s){
 
 function getLeadSourceLabel(s){
   if(!s)return'';
-  var m={Instagram:'📸 Instagram',Referans:'👥 Referans',
-    'Zəng':'📞 Zəng',WhatsApp:'💬 WhatsApp',
-    Reklam:'📢 Reklam','Gəzinti':'🚶 Gəzinti',
-    'Bilinmir':'❓ Bilinmir','Digər':'📌 Digər'};
+  var m={
+    Instagram:'📸 Instagram',instagram:'📸 Instagram',
+    WhatsApp:'💬 WhatsApp',whatsapp:'💬 WhatsApp',
+    Referans:'👥 Referans',referral:'👥 Referans',
+    'Zəng':'📞 Zəng',
+    Reklam:'📢 Reklam',ads:'📢 Reklam',
+    'Gəzinti':'🚶 Gəzinti',walkin:'🚶 Gəzinti',
+    'Bilinmir':'❓ Bilinmir',unknown:'❓ Bilinmir',
+    'Digər':'📌 Digər',other:'📌 Digər'
+  };
   return m[s]||s;
 }
 
@@ -7248,6 +7254,16 @@ function rLeads(){
   }
   h+='<select class="fi" style="width:auto;padding:7px 10px" onchange="S.leadsFilter.assigned=this.value;render()">'+instOpts2+'</select>';
 
+  var allSrc2=['Instagram','WhatsApp','Referans','Zəng','Reklam','Gəzinti','Bilinmir','Digər'];
+  var fSource=S.leadsFilter.source||'';
+  var srcFOpts='<option value="">Mənbə: Hamısı</option>';
+  for(var i=0;i<allSrc2.length;i++) srcFOpts+='<option value="'+allSrc2[i]+'"'+(fSource===allSrc2[i]?' selected':'')+'>'+allSrc2[i]+'</option>';
+  h+='<select class="fi" style="width:auto;padding:7px 10px" onchange="S.leadsFilter.source=this.value;render()">'+srcFOpts+'</select>';
+  var allGoal2=['Arıqlama','Bədən forması','Bel/boyun ağrısı','Duruş düzəltmə','Hamiləlik/doğum sonrası','Ümumi aktivlik','Digər'];
+  var fGoal=S.leadsFilter.goal||'';
+  var goalFOpts='<option value="">Məqsəd: Hamısı</option>';
+  for(var i=0;i<allGoal2.length;i++) goalFOpts+='<option value="'+allGoal2[i]+'"'+(fGoal===allGoal2[i]?' selected':'')+'>'+allGoal2[i]+'</option>';
+  h+='<select class="fi" style="width:auto;padding:7px 10px" onchange="S.leadsFilter.goal=this.value;render()">'+goalFOpts+'</select>';
   h+='<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;white-space:nowrap">'
     +'<input type="checkbox"'+(fOverdue?' checked':'')+' onchange="S.leadsFilter.overdue=this.checked;render()"> Gecikmiş</label>';
 
@@ -7274,6 +7290,8 @@ function rLeads(){
       var q=norm(fSearch);
       if(norm(lead.name||'').indexOf(q)<0&&(lead.phone||'').indexOf(fSearch)<0)continue;
     }
+    if(fSource&&(lead.source||'')!==fSource)continue;
+    if(fGoal&&(lead.goal||'')!==fGoal)continue;
     filtered.push(lead);
   }
 
@@ -7316,6 +7334,8 @@ function rLeads(){
         :'')
       +(assignedName?'<span>👤 '+escHtml(assignedName)+'</span>':'')
       +(lead.goal?'<span style="color:#0F6E56">🎯 '+escHtml(lead.goal)+'</span>':'')
+      +(lead.interested_program?'<span style="color:#5E35B1">🏋 '+escHtml(lead.interested_program)+'</span>':'')
+      +(lead.preferred_time?'<span style="color:#0277BD">🕛 '+escHtml(lead.preferred_time)+'</span>':'')
       +'<span style="color:#ccc;font-size:10px">'+escHtml(lead.id||'')+'</span>'
       +'</div>'
       +'<div style="display:flex;gap:5px">';
@@ -7555,7 +7575,7 @@ function rModalAddLead(){
     +'</div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Məqsəd</label><select class="fi" id="nl-goal">'+goalOpts+'</select></div>'
-    +'<div class="fg"><label class="fl">Maraqlandığı xədmət</label><select class="fi" id="nl-program">'+progOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Maraqlandığı xidmət</label><select class="fi" id="nl-program">'+progOpts+'</select></div>'
     +'</div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Uyğun vaxt</label><select class="fi" id="nl-ptime">'+ptOpts+'</select></div>'
@@ -7565,7 +7585,7 @@ function rModalAddLead(){
     +'<div class="fg"><label class="fl">Növbəti əlaqə tarixi</label><input class="fi" id="nl-followup" type="date"></div>'
     +'<div class="fg"><label class="fl">Cavabdeh</label><select class="fi" id="nl-assigned">'+instOpts+'</select></div>'
     +'</div>'
-    +'<div class="fg"><label class="fl">Əlaqə qeydi</label><input class="fi" id="nl-contact-note" placeholder="Telegram, e-poçt və ya başqa kanal..."></div>'
+    +'<div class="fg"><label class="fl">Əlaqə qeydi</label><textarea class="fi" id="nl-contact-note" rows="2" placeholder="Telegram, e-poçt və ya başqa kanal..."></textarea></div>'
     +'<div class="fg"><label class="fl">Qeydlər</label><textarea class="fi" id="nl-notes" rows="2" placeholder="Qısa qeyd..."></textarea></div>'
     +'<div class="fg" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="nl-consent" style="width:16px;height:16px"><label for="nl-consent" style="font-size:12px;color:#555;cursor:pointer">Əlaqə rızası alındı (reklamlı məlumat/eşlon).</label></div>'
     +'<div class="mact">'
@@ -7638,13 +7658,13 @@ function rModalLeadDetail(){
   for(var i=0;i<ptimes2.length;i++) ptOpts2+='<option value="'+ptimes2[i]+'"'+(lead.preferred_time===ptimes2[i]?' selected':'')+'>'+ptimes2[i]+'</option>';
   h+='<div class="fi-row">'
     +'<div class="fg"><label class="fl">Məqsəd</label><select class="fi" id="ld-goal"'+dis+'>'+goalOpts2+'</select></div>'
-    +'<div class="fg"><label class="fl">Maraqlandığı xədmət</label><select class="fi" id="ld-program"'+dis+'>'+progOpts2+'</select></div>'
+    +'<div class="fg"><label class="fl">Maraqlandığı xidmət</label><select class="fi" id="ld-program"'+dis+'>'+progOpts2+'</select></div>'
     +'</div>';
   h+='<div class="fi-row">'
     +'<div class="fg"><label class="fl">Uyğun vaxt</label><select class="fi" id="ld-ptime"'+dis+'>'+ptOpts2+'</select></div>'
     +'<div class="fg"><label class="fl">Instagram</label><input class="fi" id="ld-instagram" value="'+escHtml(lead.instagram_username||'')+'"'+dis+'></div>'
     +'</div>';
-  h+='<div class="fg"><label class="fl">Əlaqə qeydi</label><input class="fi" id="ld-contact-note" value="'+escHtml(lead.contact_note||'')+'"'+dis+'></div>';
+  h+='<div class="fg"><label class="fl">Əlaqə qeydi</label><textarea class="fi" id="ld-contact-note" rows="2"'+dis+'>'+escHtml(lead.contact_note||'')+'</textarea></div>';
   h+='<div class="fg" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="ld-consent"'+(lead.consent_given?' checked':'')+' style="width:16px;height:16px"'+dis+'><label for="ld-consent" style="font-size:12px;color:#555;cursor:pointer">Əlaqə rızası alındı'+(lead.consent_date?' ('+fmt(lead.consent_date.slice(0,10))+')':'')+'</label></div>';
 
   // Trial panel in lead detail modal
