@@ -696,7 +696,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4e-lost-trial-info-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-lead-profile-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -7130,7 +7130,9 @@ function getLeadStatusBadgeClass(s){
 function getLeadSourceLabel(s){
   if(!s)return'';
   var m={Instagram:'📸 Instagram',Referans:'👥 Referans',
-    'Zəng':'📞 Zəng',WhatsApp:'💬 WhatsApp','Digər':'📌 Digər'};
+    'Zəng':'📞 Zəng',WhatsApp:'💬 WhatsApp',
+    Reklam:'📢 Reklam','Gəzinti':'🚶 Gəzinti',
+    'Bilinmir':'❓ Bilinmir','Digər':'📌 Digər'};
   return m[s]||s;
 }
 
@@ -7313,6 +7315,7 @@ function rLeads(){
         ?'<span style="'+(isOverdue2?'color:#C62828;font-weight:600':'')+'">'+'📅 '+fmt(lead.follow_up_date)+'</span>'
         :'')
       +(assignedName?'<span>👤 '+escHtml(assignedName)+'</span>':'')
+      +(lead.goal?'<span style="color:#0F6E56">🎯 '+escHtml(lead.goal)+'</span>':'')
       +'<span style="color:#ccc;font-size:10px">'+escHtml(lead.id||'')+'</span>'
       +'</div>'
       +'<div style="display:flex;gap:5px">';
@@ -7528,23 +7531,43 @@ function rModalAddLead(){
   for(var i=0;i<insts.length;i++){
     instOpts+='<option value="'+insts[i].id+'">'+escHtml(insts[i].full_name)+'</option>';
   }
-  var sources=['Instagram','Referans','Zəng','WhatsApp','Digər'];
+  var sources=['Instagram','WhatsApp','Referans','Zəng','Reklam','Gəzinti','Bilinmir','Digər'];
   var srcOpts='<option value="">— Seçin —</option>';
   for(var i=0;i<sources.length;i++) srcOpts+='<option value="'+sources[i]+'">'+sources[i]+'</option>';
+  var goals=['Arıqlama','Bədən forması','Bel/boyun ağrısı','Duruş düzəltmə','Hamiləlik/doğum sonrası','Ümumi aktivlik','Digər'];
+  var goalOpts='<option value="">— Seçin —</option>';
+  for(var i=0;i<goals.length;i++) goalOpts+='<option value="'+goals[i]+'">'+goals[i]+'</option>';
+  var progs=['Reformer','Mat','Stretching','Hamiləlik Pilatesəsi','Fərdi məşq','Bilinmir'];
+  var progOpts='<option value="">— Seçin —</option>';
+  for(var i=0;i<progs.length;i++) progOpts+='<option value="'+progs[i]+'">'+progs[i]+'</option>';
+  var ptimes=['Səhər','Günorta','Axşam','Digər'];
+  var ptOpts='<option value="">— Seçin —</option>';
+  for(var i=0;i<ptimes.length;i++) ptOpts+='<option value="'+ptimes[i]+'">'+ptimes[i]+'</option>';
 
-  return '<div class="ov" onclick="S.showAddLead=false;render()"><div class="modal" onclick="event.stopPropagation()" style="width:460px;max-width:100%">'
+  return '<div class="ov" onclick="S.showAddLead=false;render()"><div class="modal" onclick="event.stopPropagation()" style="width:480px;max-width:100%;max-height:90vh;overflow-y:auto">'
     +'<div class="mtitle">Yeni Lead</div>'
     +'<div id="lead-dup-warn" style="display:none;margin-bottom:10px;padding:8px 10px;background:#FFEBEE;color:#C62828;border-radius:8px;font-size:12px"></div>'
-    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="nl-name" placeholder="Leyla Əliyeva" autocomplete="off"></div>'
+    +'<div id="nl-contact-warn" style="display:none;margin-bottom:10px;padding:8px 10px;background:#FFF8E1;color:#F57F17;border-radius:8px;font-size:12px">Telefon, Instagram və ya əlaqə qeydi — ən az biri daxil edilməlidir.</div>'
+    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="nl-name" placeholder="Leyla Əliyəva" autocomplete="off"></div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Telefon *</label><input class="fi" id="nl-phone" placeholder="+994 50 XXX XX XX" oninput="checkLeadDupPhone(this.value)"></div>'
-    +'<div class="fg"><label class="fl">Mənbə</label><select class="fi" id="nl-source">'+srcOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="nl-phone" placeholder="+994 50 XXX XX XX" oninput="checkLeadDupPhone(this.value)"></div>'
+    +'<div class="fg"><label class="fl">Mənbə *</label><select class="fi" id="nl-source">'+srcOpts+'</select></div>'
+    +'</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Məqsəd</label><select class="fi" id="nl-goal">'+goalOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Maraqlandığı xədmət</label><select class="fi" id="nl-program">'+progOpts+'</select></div>'
+    +'</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Uyğun vaxt</label><select class="fi" id="nl-ptime">'+ptOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Instagram</label><input class="fi" id="nl-instagram" placeholder="@username"></div>'
     +'</div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Növbəti əlaqə tarixi</label><input class="fi" id="nl-followup" type="date"></div>'
     +'<div class="fg"><label class="fl">Cavabdeh</label><select class="fi" id="nl-assigned">'+instOpts+'</select></div>'
     +'</div>'
-    +'<div class="fg"><label class="fl">Qeydlər</label><textarea class="fi" id="nl-notes" rows="3" placeholder="Qısa qeyd..."></textarea></div>'
+    +'<div class="fg"><label class="fl">Əlaqə qeydi</label><input class="fi" id="nl-contact-note" placeholder="Telegram, e-poçt və ya başqa kanal..."></div>'
+    +'<div class="fg"><label class="fl">Qeydlər</label><textarea class="fi" id="nl-notes" rows="2" placeholder="Qısa qeyd..."></textarea></div>'
+    +'<div class="fg" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="nl-consent" style="width:16px;height:16px"><label for="nl-consent" style="font-size:12px;color:#555;cursor:pointer">Əlaqə rızası alındı (reklamlı məlumat/eşlon).</label></div>'
     +'<div class="mact">'
     +'<button class="btn btn-gray" onclick="S.showAddLead=false;render()">Ləğv et</button>'
     +'<button class="btn btn-g" onclick="submitAddLead()">Əlavə et</button>'
@@ -7562,7 +7585,7 @@ function rModalLeadDetail(){
   for(var i=0;i<insts.length;i++){
     instOpts+='<option value="'+insts[i].id+'"'+(lead.assigned_to===insts[i].id?' selected':'')+'>'+escHtml(insts[i].full_name)+'</option>';
   }
-  var sources=['Instagram','Referans','Zəng','WhatsApp','Digər'];
+  var sources=['Instagram','WhatsApp','Referans','Zəng','Reklam','Gəzinti','Bilinmir','Digər'];
   var srcOpts='<option value="">— Seçin —</option>';
   for(var i=0;i<sources.length;i++){
     srcOpts+='<option value="'+sources[i]+'"'+(lead.source===sources[i]?' selected':'')+'>'+sources[i]+'</option>';
@@ -7603,6 +7626,26 @@ function rModalLeadDetail(){
     +'</div>'
     +'<div class="fg"><label class="fl">Cavabdeh</label><select class="fi" id="ld-assigned"'+dis+'>'+instOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Qeydlər</label><textarea class="fi" id="ld-notes" rows="3"'+dis+'>'+escHtml(lead.notes||'')+'</textarea></div>';
+  // Profile enrichment fields
+  var goals2=['Arıqlama','Bədən forması','Bel/boyun ağrısı','Duruş düzəltmə','Hamiləlik/doğum sonrası','Ümumi aktivlik','Digər'];
+  var goalOpts2='<option value="">— Seçin —</option>';
+  for(var i=0;i<goals2.length;i++) goalOpts2+='<option value="'+goals2[i]+'"'+(lead.goal===goals2[i]?' selected':'')+'>'+goals2[i]+'</option>';
+  var progs2=['Reformer','Mat','Stretching','Hamiləlik Pilatesəsi','Fərdi məşq','Bilinmir'];
+  var progOpts2='<option value="">— Seçin —</option>';
+  for(var i=0;i<progs2.length;i++) progOpts2+='<option value="'+progs2[i]+'"'+(lead.interested_program===progs2[i]?' selected':'')+'>'+progs2[i]+'</option>';
+  var ptimes2=['Səhər','Günorta','Axşam','Digər'];
+  var ptOpts2='<option value="">— Seçin —</option>';
+  for(var i=0;i<ptimes2.length;i++) ptOpts2+='<option value="'+ptimes2[i]+'"'+(lead.preferred_time===ptimes2[i]?' selected':'')+'>'+ptimes2[i]+'</option>';
+  h+='<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Məqsəd</label><select class="fi" id="ld-goal"'+dis+'>'+goalOpts2+'</select></div>'
+    +'<div class="fg"><label class="fl">Maraqlandığı xədmət</label><select class="fi" id="ld-program"'+dis+'>'+progOpts2+'</select></div>'
+    +'</div>';
+  h+='<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Uyğun vaxt</label><select class="fi" id="ld-ptime"'+dis+'>'+ptOpts2+'</select></div>'
+    +'<div class="fg"><label class="fl">Instagram</label><input class="fi" id="ld-instagram" value="'+escHtml(lead.instagram_username||'')+'"'+dis+'></div>'
+    +'</div>';
+  h+='<div class="fg"><label class="fl">Əlaqə qeydi</label><input class="fi" id="ld-contact-note" value="'+escHtml(lead.contact_note||'')+'"'+dis+'></div>';
+  h+='<div class="fg" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="ld-consent"'+(lead.consent_given?' checked':'')+' style="width:16px;height:16px"'+dis+'><label for="ld-consent" style="font-size:12px;color:#555;cursor:pointer">Əlaqə rızası alındı'+(lead.consent_date?' ('+fmt(lead.consent_date.slice(0,10))+')':'')+'</label></div>';
 
   // Trial panel in lead detail modal
   if(lead.status==='trial_scheduled'&&lead.trial_booking_ex_id){
@@ -7692,22 +7735,42 @@ async function submitAddLead(){
   var followupEl=document.getElementById('nl-followup');
   var assignedEl=document.getElementById('nl-assigned');
   var notesEl=document.getElementById('nl-notes');
+  var goalEl=document.getElementById('nl-goal');
+  var programEl=document.getElementById('nl-program');
+  var ptimeEl=document.getElementById('nl-ptime');
+  var igEl=document.getElementById('nl-instagram');
+  var cnoteEl=document.getElementById('nl-contact-note');
+  var consentEl=document.getElementById('nl-consent');
   var name=(nameEl?nameEl.value:'').trim();
   var phone=(phoneEl?phoneEl.value:'').trim();
   var source=sourceEl?sourceEl.value:'';
+  var instagram=(igEl?igEl.value:'').trim().replace(/^@+/,'');
+  var contactNote=(cnoteEl?cnoteEl.value:'').trim();
   var followup=followupEl?followupEl.value:'';
   var assigned=assignedEl?assignedEl.value:'';
   var notes=(notesEl?notesEl.value:'').trim();
   if(!name){alert('Ad daxil edin');return;}
-  if(!phone){alert('Telefon daxil edin');return;}
+  if(!source){alert('Mənbə seçin');return;}
+  if(!phone&&!instagram&&!contactNote){
+    var w=document.getElementById('nl-contact-warn');
+    if(w)w.style.display='block';
+    return;
+  }
+  var w2=document.getElementById('nl-contact-warn');
+  if(w2)w2.style.display='none';
   S.saving=true;render();
   try{
     var newId=await generateLeadId();
-    var body={id:newId,name:name,phone:phone,status:'new'};
-    if(source)body.source=source;
+    var body={id:newId,name:name,phone:phone||null,status:'new',source:source};
     if(followup)body.follow_up_date=followup;
     if(assigned)body.assigned_to=assigned;
     if(notes)body.notes=notes;
+    if(goalEl&&goalEl.value)body.goal=goalEl.value;
+    if(programEl&&programEl.value)body.interested_program=programEl.value;
+    if(ptimeEl&&ptimeEl.value)body.preferred_time=ptimeEl.value;
+    if(instagram)body.instagram_username=instagram;
+    if(contactNote)body.contact_note=contactNote;
+    if(consentEl&&consentEl.checked){body.consent_given=true;body.consent_date=new Date().toISOString();}
     await dbPost('leads',body);
     S.showAddLead=false;
     leadsInvalidate();
@@ -7726,22 +7789,49 @@ async function submitLeadDetail(leadId){
   var followupEl=document.getElementById('ld-followup');
   var assignedEl=document.getElementById('ld-assigned');
   var notesEl=document.getElementById('ld-notes');
+  var goalEl=document.getElementById('ld-goal');
+  var programEl=document.getElementById('ld-program');
+  var ptimeEl=document.getElementById('ld-ptime');
+  var igEl=document.getElementById('ld-instagram');
+  var cnoteEl=document.getElementById('ld-contact-note');
+  var consentEl=document.getElementById('ld-consent');
   var name=(nameEl?nameEl.value:'').trim();
   var phone=(phoneEl?phoneEl.value:'').trim();
+  var source=(sourceEl?sourceEl.value:'')||'';
+  var instagram=(igEl?igEl.value:'').trim().replace(/^@+/,'');
+  var contactNote=(cnoteEl?cnoteEl.value:'').trim();
   if(!name){alert('Ad daxil edin');return;}
+  if(!source){alert('Mənbə seçin');return;}
+  if(!phone&&!instagram&&!contactNote){alert('Telefon, Instagram və ya əlaqə qeydi — ən az biri daxil edilməlidir.');return;}
+  var existingLead=getLead(leadId);
+  var consentChecked=consentEl?consentEl.checked:false;
+  var consentDate=null;
+  if(consentChecked){
+    consentDate=(existingLead&&existingLead.consent_date)||new Date().toISOString();
+  }
   S.saving=true;render();
   try{
     var body={
       name:name,
-      phone:phone,
-      source:(sourceEl?sourceEl.value:'')||null,
+      phone:phone||null,
+      source:source||null,
       status:statusEl?statusEl.value:'new',
       follow_up_date:(followupEl?followupEl.value:'')||null,
       assigned_to:(assignedEl?assignedEl.value:'')||null,
       notes:(notesEl?notesEl.value.trim():'')||null,
+      goal:(goalEl?goalEl.value:'')||null,
+      interested_program:(programEl?programEl.value:'')||null,
+      preferred_time:(ptimeEl?ptimeEl.value:'')||null,
+      instagram_username:instagram||null,
+      contact_note:contactNote||null,
+      consent_given:consentChecked,
+      consent_date:consentDate,
       last_contact_at:new Date().toISOString()
     };
     await dbPatch('leads','id=eq.'+leadId,body);
+    // Update local S.leadsData
+    var _leads=S.leadsData||[];
+    for(var i=0;i<_leads.length;i++){if(_leads[i].id===leadId){Object.assign(_leads[i],body);break;}}
     S.selLead=null;
     leadsInvalidate();
     await fetchLeads();
