@@ -696,7 +696,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4d-home-trial-count-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4e-lost-trial-info-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -7339,6 +7339,17 @@ function rLeads(){
         +'</div>';
     }
 
+    if(lead.status==='lost'&&(lead.trial_done_at||lead.trial_class_date)){
+      if(lead.trial_done_at){
+        h+='<div style="font-size:11px;color:#757575;background:#F5F5F5;border-radius:6px;padding:5px 10px;margin-top:6px">'
+          +'📋 Kəçmiş sınaq: '+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')+(lead.trial_done_instructor_name?' · '+escHtml(lead.trial_done_instructor_name):'')
+          +'</div>';
+      }else{
+        h+='<div style="font-size:11px;color:#757575;background:#F5F5F5;border-radius:6px;padding:5px 10px;margin-top:6px">'
+          +'📋 Kəçmiş sınaq slotu: '+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')
+          +'</div>';
+      }
+    }
     // Row 3: quick actions (active leads only)
     if(isActive2){
       h+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0">';
@@ -7613,6 +7624,20 @@ function rModalLeadDetail(){
       +'</div>';
   }
 
+  if(lead.status==='lost'&&(lead.trial_done_at||lead.trial_class_date)){
+    h+='<div style="background:#F5F5F5;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
+      +'<div style="font-size:12px;color:#757575;margin-bottom:6px"><b>Kəçmiş sınaq məlumatı:</b></div>';
+    if(lead.trial_done_at){
+      h+='<div style="font-size:13px;color:#555">'+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')+(lead.trial_done_instructor_name?' · '+escHtml(lead.trial_done_instructor_name):'')
+        +'</div>'
+        +'<div style="font-size:11px;color:#9E9E9E;margin-top:4px">Sınaq keçildi</div>';
+    }else{
+      h+='<div style="font-size:13px;color:#555">'+fmt(lead.trial_class_date)+(lead.trial_class_time?' · '+lead.trial_class_time:'')
+        +'</div>'
+        +'<div style="font-size:11px;color:#9E9E9E;margin-top:4px">Sınaq slotu var idi</div>';
+    }
+    h+='</div>';
+  }
   if(!isConverted){
     h+='<div style="background:#E8F5EE;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
       +'<div style="font-size:12px;color:#0F6E56;margin-bottom:8px"><b>Müştəriyə çevir:</b> Bu lead-i müştəri kimi sistemə əlavə edəcək.</div>'
