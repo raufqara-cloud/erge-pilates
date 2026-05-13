@@ -696,7 +696,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4a-hotfix1-lead-actions-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4b-trial-attendance-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -3077,11 +3077,33 @@ function openAttFromSlot(time, dateStr, dow){
       entryPaymentType:(src==='partner')?'partner':'single',
       singleNeedsPay:needsEntryPayment});
   }
-  // Build selectedIds: default checked = not absent, not disabled, not already
+  // 3. Trial leads
+  for(var i=0;i<excs.trials.length;i++){
+    var t=excs.trials[i];
+    var leadId=t.temp_lead_id;
+    var leadName=t.temp_lead_name||'?';
+    var lead=null;
+    if(S.leadsData){for(var j=0;j<S.leadsData.length;j++){if(S.leadsData[j].id===leadId){lead=S.leadsData[j];break;}}}
+    var isDone=(lead&&(lead.status==='trial_done'||!!lead.trial_done_at))||false;
+    var isConverted=(lead&&lead.status==='converted')||false;
+    var trialDisabled=isDone||isConverted;
+    customers.push({
+      custId:null,leadId:leadId,custName:leadName,leadName:leadName,
+      type:'trial',src:'trial',exId:t.id,
+      absent:false,absentExId:null,bronId:null,
+      already:isDone,isDisabled:trialDisabled,
+      isDone:isDone,isConverted:isConverted,
+      sub:null,bst:{type:'none',txt:'Lead - Sinaq'}
+    });
+  }
+  // Build selectedIds: customer rows='cust:<id>', trial rows='lead:<id>'
   var selectedIds=[];
   for(var i=0;i<customers.length;i++){
     var cu=customers[i];
-    if(!cu.absent&&!cu.isDisabled&&!cu.already)selectedIds.push(cu.custId);
+    if(!cu.absent&&!cu.isDisabled&&!cu.already){
+      if(cu.type==='trial')selectedIds.push('lead:'+cu.leadId);
+      else selectedIds.push('cust:'+cu.custId);
+    }
   }
   S.slotAttData={time:time,dateStr:dateStr,dow:dow,customers:customers,selectedIds:selectedIds,instId:null};
   S.showSlotAttModal=true;
@@ -3122,14 +3144,40 @@ function rModalSlotAttendance(){
 
   for(var i=0;i<customers.length;i++){
     var cu=customers[i];
+    var borderTop=i?'1px solid #f0f0f0':'none';
+
+    // --- TRIAL LEAD ROW ---
+    if(cu.type==='trial'){
+      var trialKey='lead:'+cu.leadId;
+      var isTrialChecked=selIds.indexOf(trialKey)>=0;
+      var trialDisabled=cu.isDisabled||cu.already;
+      var trialCbId='satt-cb-trial-'+i;
+      var trialBg=trialDisabled?'#F5F0FF':'#FFFBF0';
+      h+='<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:'+trialBg+';border-top:'+borderTop+'">'
+        +'<input type="checkbox" class="slot-att-cb" id="'+trialCbId+'" value="'+trialKey+'"'
+        +(isTrialChecked?' checked':'')+(trialDisabled?' disabled':'')
+        +' style="margin-top:4px;flex-shrink:0"'
+        +' onchange="toggleSlotAttCustomer(\''+escQ(trialKey)+'\',' + 'this.checked,false)">'
+        +'<label for="'+trialCbId+'" style="flex:1;cursor:'+(trialDisabled?'not-allowed':'pointer')+'">'
+        +'<div style="font-weight:600;font-size:13px;color:'+(trialDisabled?'#aaa':'#4A148C')+'">'+escHtml(cu.leadName||'?')+'</div>'
+        +'<div style="font-size:11px;color:#888;margin-top:1px">Lead — Sinaq</div>'
+        +'<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">'
+        +'<span class="badge" style="background:#FFF8E1;color:#F57F17;font-size:10px;border:1px solid #FFE082">SINAQ (Lead)</span>'
+        +(cu.isDone?'<span class="badge" style="background:#EDE7F6;color:#4A148C;font-size:10px">Artiq kecib ✓</span>':'')
+        +(cu.isConverted?'<span class="badge b-green" style="font-size:10px">Musteriye cevrilib</span>':'')
+        +'</div></label></div>';
+      continue;
+    }
+
+    // --- REGULAR CUSTOMER ROW ---
     var cid=String(cu.custId||cu.customer_id||'');
+    var custKey='cust:'+cid;
     var isDisabled=cu.isDisabled||cu.already;
-    var isChecked=selIds.indexOf(cid)>=0;
+    var isChecked=selIds.indexOf(custKey)>=0;
     var sub=cu.sub;
     var noSub=!sub||cu.bst.type==='none';
     var bg=cu.absent?'#FFF5F5':cu.type==='temp'?'#EFF6FF':'#fff';
     var cbId='satt-cb-'+i;
-    var borderTop=i?'1px solid #f0f0f0':'none';
 
     if(cu.needsEntryPayment&&!cu.already){
       var panelOpen=S.slotSinglePayCustId===cid;
@@ -3215,10 +3263,10 @@ function rModalSlotAttendance(){
     }
 
     h+='<div style="display:flex;align-items:flex-start;gap:8px;padding:10px 12px;background:'+bg+';border-top:'+borderTop+'">'
-      +'<input type="checkbox" class="slot-att-cb" id="'+cbId+'" value="'+cid+'"'
+      +'<input type="checkbox" class="slot-att-cb" id="'+cbId+'" value="'+custKey+'"'
       +(isChecked?' checked':'')+(isDisabled?' disabled':'')
       +' style="margin-top:4px;flex-shrink:0"'
-      +' onchange="toggleSlotAttCustomer(\''+escQ(cid)+'\',this.checked,'+(cu.absent?'true':'false')+')">'
+      +' onchange="toggleSlotAttCustomer(\''+escQ(custKey)+'\',this.checked,'+(cu.absent?'true':'false')+')">'
       +'<label for="'+cbId+'" style="flex:1;cursor:'+(isDisabled?'not-allowed':'pointer')+'">'
       +'<div style="font-weight:600;font-size:13px;color:'+(cu.already?'#aaa':cu.absent?'#C62828':'#1a1a1a')
       +';text-decoration:'+(cu.already?'line-through':'none')+'">'+escHtml(cu.custName||'?')+'</div>'
@@ -3479,7 +3527,8 @@ async function confirmSlotSinglePay(custId){
           sd.customers[i].isDisabled=true;
           sd.customers[i].singleNeedsPay=false;
           sd.customers[i].needsEntryPayment=false;
-          var idx2=sd.selectedIds?sd.selectedIds.indexOf(key):-1;
+          var _custKey2='cust:'+key;
+          var idx2=sd.selectedIds?sd.selectedIds.indexOf(_custKey2):-1;
           if(idx2>=0)sd.selectedIds.splice(idx2,1);
           break;
         }
@@ -3504,33 +3553,83 @@ async function submitSlotAttendance(){
   // selectedIds state-dən — DOM-dan asılı deyil
   var selectedIds=(sd.selectedIds||[]).slice();
   if(!selectedIds.length){alert('Heç bir müştəri seçilməyib');return;}
-  // Build work list: skip disabled/already
-  var workList=[];
+  // Split by prefix: cust:<id> = normal customer, lead:<id> = trial lead
+  var custSelectedIds=selectedIds.filter(function(k){return k.indexOf('cust:')===0;}).map(function(k){return k.slice(5);});
+  var leadSelectedIds=selectedIds.filter(function(k){return k.indexOf('lead:')===0;}).map(function(k){return k.slice(5);});
+  // Build customer map and lead map
   var custMap={};
-  for(var i=0;i<sd.customers.length;i++)custMap[sd.customers[i].custId]=sd.customers[i];
-  for(var i=0;i<selectedIds.length;i++){
-    var cu=custMap[selectedIds[i]];
+  var trialMap={};
+  for(var i=0;i<sd.customers.length;i++){
+    var _cu=sd.customers[i];
+    if(_cu.type==='trial'&&_cu.leadId)trialMap[_cu.leadId]=_cu;
+    else if(_cu.custId)custMap[_cu.custId]=_cu;
+  }
+  // Build work list for normal customers
+  var workList=[];
+  for(var i=0;i<custSelectedIds.length;i++){
+    var cu=custMap[custSelectedIds[i]];
     if(!cu)continue;
-    if(cu.already||cu.isDisabled)continue; // double guard
+    if(cu.already||cu.isDisabled)continue;
     if(!cu.sub||!cu.sub.id)continue;
     workList.push({custId:cu.custId,subId:cu.sub.id});
   }
-  if(!workList.length){alert('Seçilmiş müştərilərin heç biri üçün davamiyyət yazıla bilmir');return;}
+  var hasWork=workList.length>0||leadSelectedIds.length>0;
+  if(!hasWork){alert('Seçilmiş müştərilərin heç biri üçün davamiyyət yazıla bilmir');return;}
   S.saving=true;render();
   var errors=[];
   var done=0;
+  // --- Normal customer attendance ---
   for(var i=0;i<workList.length;i++){
     try{
       var result=await createAttendance(workList[i].custId,workList[i].subId,sd.time,instId,sd.dateStr);
       if(result!==null)done++;
     }catch(e){errors.push(e.message);}
   }
+  // --- Trial lead: PATCH lead status to trial_done ---
+  var trialDone=0;
+  var instName='';
+  for(var ii=0;ii<D.instructors.length;ii++){if(D.instructors[ii].id===instId){instName=D.instructors[ii].full_name||'';break;}}
+  for(var i=0;i<leadSelectedIds.length;i++){
+    var leadId=leadSelectedIds[i];
+    var cu=trialMap[leadId];
+    if(!cu||cu.already||cu.isDisabled)continue;
+    try{
+      var now=new Date().toISOString();
+      await dbPatch('leads','id=eq.'+leadId,{
+        status:'trial_done',
+        trial_done_at:now,
+        trial_done_instructor_id:instId,
+        trial_done_instructor_name:instName
+      });
+      // Update local S.leadsData
+      var _leads=S.leadsData||[];
+      for(var j=0;j<_leads.length;j++){
+        if(_leads[j].id===leadId){
+          _leads[j].status='trial_done';
+          _leads[j].trial_done_at=now;
+          _leads[j].trial_done_instructor_id=instId;
+          _leads[j].trial_done_instructor_name=instName;
+          break;
+        }
+      }
+      logAudit('lead',leadId,'trial_done',
+        'Sınaq keçdi — '+(cu.leadName||leadId)+' — '+sd.dateStr+' '+sd.time+(instName?' — '+instName:''),
+        {status:'trial_scheduled'},
+        {status:'trial_done',trial_done_at:now,trial_done_instructor_id:instId,trial_done_instructor_name:instName,source_flow:'submitSlotAttendance'});
+      trialDone++;
+    }catch(e){errors.push('Lead sınaq: '+e.message);}
+  }
   if(errors.length)alert('Bəzi xətalar:\n'+errors.join('\n'));
-  var msg=done===0?'Yeni davamiyyət yazılmadı.':done===1?'1 nəfər qeydə alındı.':done+' nəfər qeydə alındı.';
-  S.showAlert={t:done>0?'ok':'warn',cust:{name:''},st:{t:done>0?'ok':'warn',txt:fmt(sd.dateStr)+' '+sd.time+' — '+msg}};
+  var totalDone=done+trialDone;
+  var msgParts=[];
+  if(done>0)msgParts.push(done+' müştəri qeydə alındı');
+  if(trialDone>0)msgParts.push(trialDone+' sınaq lead — trial_done');
+  var msg=totalDone===0?'Yeni davamiyyət yazılmadı.':(msgParts.join(', ')+'.');
+  S.showAlert={t:totalDone>0?'ok':'warn',cust:{name:''},st:{t:totalDone>0?'ok':'warn',txt:fmt(sd.dateStr)+' '+sd.time+' — '+msg}};
   S.showSlotAttModal=false;
   S.slotAttData=null;
   S.saving=false;
+  if(trialDone>0){leadsInvalidate();fetchLeads();}
   render();
 }
 
