@@ -696,7 +696,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4c-hotfix1-trial-revert-ui-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-trial-patch4d-home-trial-count-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -735,6 +735,26 @@ function render(){
   root.innerHTML=h;
 }
 
+function getTrialDoneRowsForDate(dateStr){
+  var rows=[];
+  var leads=S.leadsData||[];
+  for(var i=0;i<leads.length;i++){
+    var l=leads[i];
+    if((l.status==='trial_done'||l.trial_done_at)&&l.trial_class_date===dateStr){
+      rows.push({
+        _isTrial:true,
+        customer_id:l.id,
+        customer_name:l.name||'?',
+        class_time:l.trial_class_time||'',
+        instructor_name:l.trial_done_instructor_name||'',
+        program_name:'Sınaq',
+        class_date:dateStr
+      });
+    }
+  }
+  return rows;
+}
+
 function rHome(){
   var ta=[];
   if(S.selDateAtts!==null){
@@ -755,6 +775,18 @@ function rHome(){
   }
   var viewDate=S.selDate||td();
   var isToday=viewDate===td();
+  // Lazy-load leads for trial display
+  if(!S.leadsLoaded&&!S.leadsLoading)fetchLeads();
+  // Merge trial_done rows into ta for this date
+  var _trialRows=getTrialDoneRowsForDate(viewDate);
+  for(var _ti=0;_ti<_trialRows.length;_ti++){
+    var _tr=_trialRows[_ti];
+    var _alreadyInTa=false;
+    // Avoid double-count if a trial lead was also added as attendance somehow
+    for(var _tai=0;_tai<ta.length;_tai++){if(ta[_tai]._isTrial&&ta[_tai].customer_id===_tr.customer_id){_alreadyInTa=true;break;}}
+    if(!_alreadyInTa)ta.push(_tr);
+  }
+  ta.sort(function(a,b){return(a.class_time||'').localeCompare(b.class_time||'');});
   var h='<div class="ph"><div class="pt">'+(isToday?'Bu gun — '+fmt(td()):fmt(viewDate))+'</div>'
     +'<div style="display:flex;align-items:center;gap:8px">'
     +'<input type="date" value="'+viewDate+'" max="'+td()+'" onchange="S.selDate=this.value===td()?null:this.value;S.homeSlot=null;fetchAttByDate(this.value);" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
@@ -804,11 +836,16 @@ function rHome(){
       if(gopen){
         for(var k=0;k<gatts.length;k++){
           var a=gatts[k];
-          h+='<div class="attitem" style="border-top:1px solid #f0f0f0">';
-          h+='<div><div style="font-size:11px;color:#aaa;font-weight:500">'+a.customer_id+'</div>';
-          h+='<div style="font-size:13px;font-weight:600">'+a.customer_name+'</div>';
-          h+='<div style="font-size:11px;color:#bbb">'+a.instructor_name+' — '+a.program_name+'</div></div>';
-          h+='<span class="badge b-green" style="font-size:11px">'+a.class_time+'</span>';
+          var _aBg=a._isTrial?'background:#FFFBF0':'';
+          h+='<div class="attitem" style="border-top:1px solid #f0f0f0;'+_aBg+'">';
+          h+='<div><div style="font-size:11px;color:#aaa;font-weight:500">'+(a._isTrial?'Lead':''+a.customer_id)+'</div>';
+          h+='<div style="font-size:13px;font-weight:600">'+escHtml(a.customer_name)+'</div>';
+          h+='<div style="font-size:11px;color:#bbb">'+escHtml(a.instructor_name||'')+(a.program_name?' — '+escHtml(a.program_name):'')+'</div></div>';
+          if(a._isTrial){
+            h+='<span class="badge" style="font-size:10px;background:#FFF8E1;color:#F57F17;border:1px solid #FFE082">SINAQ (Lead)</span>';
+          }else{
+            h+='<span class="badge b-green" style="font-size:11px">'+a.class_time+'</span>';
+          }
           h+='</div>';
         }
       }
