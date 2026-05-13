@@ -696,7 +696,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-lead-profile-polish-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-lead-analytics-hotfix1-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -7185,6 +7185,115 @@ function leadsInvalidate(){
 
 // --- Render: Leads Tab ---
 
+function rLeadAnalyticsPanel(leads){
+  if(!leads||!leads.length)return'';
+  var total=leads.length;
+  var converted=0,trialDone=0,trialPlanned=0,active=0,lost=0;
+  for(var i=0;i<leads.length;i++){
+    var l=leads[i];
+    var s=l.status||'';
+    if(s==='converted')converted++;
+    if(s==='lost')lost++;
+    if(['new','contacted','trial_scheduled','trial_done'].indexOf(s)>=0)active++;
+    var hasDone=s==='trial_done'||!!l.trial_done_at||(s==='converted'&&!!l.trial_done_at);
+    var hasPlanned=s==='trial_scheduled'||hasDone||!!l.trial_class_date;
+    if(hasDone)trialDone++;
+    if(hasPlanned)trialPlanned++;
+  }
+  var convPct=total?Math.round(converted/total*100):0;
+  var donePct=trialPlanned?Math.round(trialDone/trialPlanned*100):0;
+  var srcMap={};
+  for(var i=0;i<leads.length;i++){
+    var l=leads[i];
+    var _rawSrc=(l.source||'').trim();
+    var sk=_rawSrc?_rawSrc.toLowerCase():'unknown';
+    if(!srcMap[sk])srcMap[sk]={total:0,done:0,conv:0,lost:0};
+    srcMap[sk].total++;
+    if(l.status==='trial_done'||l.trial_done_at)srcMap[sk].done++;
+    if(l.status==='converted')srcMap[sk].conv++;
+    if(l.status==='lost')srcMap[sk].lost++;
+  }
+  var goalMap={};
+  for(var i=0;i<leads.length;i++){
+    var gk=(leads[i].goal||'').trim()||'Məqsəd yoxdur';
+    if(!goalMap[gk])goalMap[gk]=0;
+    goalMap[gk]++;
+  }
+  var lostMap={};
+  for(var i=0;i<leads.length;i++){
+    if(leads[i].status!=='lost')continue;
+    var lk=(leads[i].lost_reason||'').trim()||'Səbəb yoxdur';
+    if(!lostMap[lk])lostMap[lk]=0;
+    lostMap[lk]++;
+  }
+  var h='<details style="margin-bottom:14px">'
+    +'<summary style="cursor:pointer;font-size:12px;color:#888;padding:6px 2px;user-select:none">'
+    +'📊 CRM Analitika — '+total+' lead ›</summary>'
+    +'<div style="background:#f9f9f9;border-radius:10px;padding:12px 14px;margin-top:6px;border:1px solid #eaeaea">';
+  var metrics=[
+    [total,'Cəmi lead','#555'],
+    [active,'Aktiv','#1976D2'],
+    [converted,'Konvert','#1D9E75'],
+    [convPct+'%','Konvert %','#1D9E75'],
+    [trialPlanned,'Sınaq plan','#7B1FA2'],
+    [trialDone,'Sınaq keçdi','#5E35B1'],
+    [donePct+'%','Done %','#5E35B1'],
+    [lost,'İtirildi','#C62828']
+  ];
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
+  for(var i=0;i<metrics.length;i++){
+    h+='<div style="background:#fff;border:1px solid #eee;border-radius:8px;padding:8px 12px;min-width:70px;text-align:center">'
+      +'<div style="font-size:16px;font-weight:700;color:'+metrics[i][2]+'">'+metrics[i][0]+'</div>'
+      +'<div style="font-size:10px;color:#aaa;margin-top:2px">'+metrics[i][1]+'</div></div>';
+  }
+  h+='</div>';
+  var srcKeys=Object.keys(srcMap).sort(function(a,b){return srcMap[b].total-srcMap[a].total;});
+  if(srcKeys.length){
+    h+='<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:600;color:#555;margin-bottom:5px">Mənbə üzrə</div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:11px"><thead>'
+      +'<tr style="color:#aaa"><th style="text-align:left;padding:3px 6px">Mənbə</th><th style="padding:3px 6px">Cəmi</th><th style="padding:3px 6px">Sınaq</th><th style="padding:3px 6px">Konvert</th><th style="padding:3px 6px">İtirildi</th></tr>'
+      +'</thead><tbody>';
+    for(var i=0;i<srcKeys.length;i++){
+      var sk2=srcKeys[i];
+      var sd=srcMap[sk2];
+      var srcLbl=typeof getLeadSourceLabel==='function'?getLeadSourceLabel(sk2):sk2;
+      h+='<tr style="border-top:1px solid #f0f0f0">'
+        +'<td style="padding:3px 6px;color:#555">'+escHtml(srcLbl||sk2)+'</td>'
+        +'<td style="padding:3px 6px;text-align:center;font-weight:600">'+sd.total+'</td>'
+        +'<td style="padding:3px 6px;text-align:center;color:#5E35B1">'+sd.done+'</td>'
+        +'<td style="padding:3px 6px;text-align:center;color:#1D9E75">'+sd.conv+'</td>'
+        +'<td style="padding:3px 6px;text-align:center;color:#C62828">'+sd.lost+'</td>'
+        +'</tr>';
+    }
+    h+='</tbody></table></div>';
+  }
+  h+='<div style="display:flex;gap:12px;flex-wrap:wrap">';
+  var goalKeys=Object.keys(goalMap).sort(function(a,b){return goalMap[b]-goalMap[a];});
+  if(goalKeys.length){
+    h+='<div style="flex:1;min-width:140px"><div style="font-size:11px;font-weight:600;color:#555;margin-bottom:4px">Məqsəd</div>';
+    for(var i=0;i<goalKeys.length;i++){
+      h+='<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid #f0f0f0">'
+        +'<span style="color:#555">'+escHtml(goalKeys[i])+'</span>'
+        +'<span style="font-weight:600;color:#333">'+goalMap[goalKeys[i]]+'</span></div>';
+    }
+    h+='</div>';
+  }
+  var lostKeys=Object.keys(lostMap).sort(function(a,b){return lostMap[b]-lostMap[a];});
+  if(lostKeys.length){
+    h+='<div style="flex:1;min-width:140px"><div style="font-size:11px;font-weight:600;color:#555;margin-bottom:4px">İtirilmə səbəbləri</div>';
+    for(var i=0;i<lostKeys.length;i++){
+      var lk2=lostKeys[i];
+      var lostLbl=typeof getLostReasonLabel==='function'?getLostReasonLabel(lk2):lk2;
+      h+='<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid #f0f0f0">'
+        +'<span style="color:#555">'+escHtml(lostLbl||lk2)+'</span>'
+        +'<span style="font-weight:600;color:#C62828">'+lostMap[lk2]+'</span></div>';
+    }
+    h+='</div>';
+  }
+  h+='</div></div></details>';
+  return h;
+}
+
 function rLeads(){
   if(S.loading)return'<div class="al al-b"><span class="spin"></span>Yüklənir...</div>';
   if(S.leadsLoading)return'<div class="al al-b"><span class="spin"></span>Leads yüklənir...</div>';
@@ -7229,6 +7338,7 @@ function rLeads(){
       +'</div>';
   }
   h+='</div>';
+  h+=rLeadAnalyticsPanel(all);
 
   // Filter row
   var fStatus=S.leadsFilter.status||'active';
