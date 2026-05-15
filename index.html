@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — prog-commission-v1</title>
+<title>Erge Pilates — customer-discount-rules-hotfix1-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -197,7 +197,10 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   leadsData:null,leadsLoading:false,leadsLoaded:false,
   leadsFilter:{status:'active',assigned:'all',overdue:false,search:'',source:'',goal:''},
   selLead:null,showAddLead:false,leadLostModal:null,
-  commRulesCache:null,commRulesLoading:false,showCommRuleModal:false,commRuleModal:null};
+  commRulesCache:null,commRulesLoading:false,showCommRuleModal:false,commRuleModal:null,
+  discRulesCache:null,discRulesLoading:false,showDiscRules:false,
+  discRuleModal:null,showDiscRuleModal:false,
+  _discSuggested:false};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -487,7 +490,7 @@ async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNot
       is_active:true,freeze_end:null,
       status:isPending?'pending':'active'};
     await dbPost('subscriptions',sub);
-    logAudit('subscription',sub.id,'create',sub.program_name+' — '+custId,null,{program_id:sub.program_id,price_due:sub.price_due,price_paid:sub.price_paid,status:sub.status});
+    logAudit('subscription',sub.id,'create',sub.program_name+' — '+custId,null,{customer_id:sub.customer_id,program_id:sub.program_id,list_price_at_sale:sub.list_price_at_sale,discount_amount:sub.discount_amount,discount_note:sub.discount_note,price_due:sub.price_due,price_paid:sub.price_paid,status:sub.status});
     D.subscriptions.unshift(sub);
     // Müştəri profili açıqsa dərhal görünsün — full reload yoxdur
     if(S.custDetail&&S.selCust===custId){
@@ -697,7 +700,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: prog-commission-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: customer-discount-rules-hotfix1-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1000,7 +1003,7 @@ function rDetail(){
   h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;font-weight:700;color:#1D9E75">ABUNƏLİKLƏR</span>'
     +'<span style="background:#1D9E75;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+subs.length+'</span></div>';
   h+='<div style="display:flex;gap:8px;align-items:center">';
-  if(subsOpen)h+='<button class="btn btn-g btn-sm" onclick="event.stopPropagation();S.showAddSub=true;render()">+ Əlavə et</button>';
+  if(subsOpen)h+='<button class="btn btn-g btn-sm" onclick="event.stopPropagation();S.showAddSub=true;S._discSuggested=false;render()">+ Əlavə et</button>';
   h+='<span style="color:#1D9E75;font-size:14px">'+(subsOpen?'▲':'▼')+'</span></div></div>';
   if(subsOpen){
     if(!subs.length)h+='<div class="empty" style="padding:14px">Abunəlik yoxdur</div>';
@@ -1175,7 +1178,252 @@ function rDetail(){
 
   if(S.showMarkAbsent)h+=rModalMarkAbsent();
   if(S.showAddBron)h+=rModalNewSabitBron();
+
+  // DISCOUNT RULES ACCORDION
+  h+=rCustDiscountRules(c.id);
+
+  if(S.showDiscRuleModal)h+=rModalDiscRule();
   return h;
+}
+
+// ══════════════════════════════════════════════════════════
+// CUSTOMER DISCOUNT RULES — Phase 1A
+// ══════════════════════════════════════════════════════════
+
+function rCustDiscountRules(custId){
+  var open=S.showDiscRules;
+  var rules=[];
+  if(S.discRulesCache){
+    for(var i=0;i<S.discRulesCache.length;i++){
+      if(S.discRulesCache[i].customer_id===custId)rules.push(S.discRulesCache[i]);
+    }
+  }
+  // Sort: active first, then by created_at desc
+  rules.sort(function(a,b){
+    if(a.is_active&&!b.is_active)return -1;
+    if(!a.is_active&&b.is_active)return 1;
+    return(b.created_at||'').localeCompare(a.created_at||'');
+  });
+  var activeCount=0;for(var i=0;i<rules.length;i++){if(rules[i].is_active)activeCount++;}
+
+  var h='<div style="margin-bottom:8px;border:1px solid #eaeaea;border-radius:10px;overflow:hidden">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:'+(open?'#f0f4ff':'#fff')+';cursor:pointer" onclick="toggleDiscRules(\''+escQ(custId)+'\')">';
+  h+='<div style="display:flex;align-items:center;gap:10px">'
+    +'<span style="font-size:12px;font-weight:700;color:#1565C0">ENDİRİM QAYDALARI</span>'
+    +(activeCount>0?'<span style="background:#1565C0;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+activeCount+' aktiv</span>':'')
+    +'</div>';
+  h+='<div style="display:flex;gap:8px;align-items:center">';
+  if(open)h+='<button class="btn btn-sm" style="background:#1565C0;color:#fff" onclick="event.stopPropagation();openDiscRuleModal(\''+escQ(custId)+'\')">+ Yeni qayda</button>';
+  h+='<span style="color:#1565C0;font-size:14px">'+(open?'▲':'▼')+'</span></div></div>';
+
+  if(open){
+    if(!S.discRulesCache&&S.discRulesLoading){
+      h+='<div style="padding:14px;text-align:center;color:#aaa;font-size:13px"><span class="spin"></span> Yüklənir...</div>';
+    } else if(!rules.length){
+      h+='<div class="empty" style="padding:14px">Bu müştəri üçün endirim qaydası yoxdur</div>';
+    } else {
+      h+='<div style="padding:8px 14px 12px">';
+      for(var ri=0;ri<rules.length;ri++){
+        var rule=rules[ri];
+        var progName='Ümumi (bütün proqramlar)';
+        if(rule.program_id){
+          var rp=getProgramById(rule.program_id);
+          progName=rp?escHtml(rp.name):escHtml(rule.program_id);
+        }
+        var isAct=rule.is_active!==false;
+        h+='<div style="display:flex;align-items:flex-start;justify-content:space-between;padding:9px 12px;border-radius:9px;margin-bottom:5px;border:1px solid '+(isAct?'#90caf9':'#e0e0e0')+';background:'+(isAct?'#E3F2FD':'#fafafa')+'">';
+        h+='<div>';
+        h+='<div style="font-size:13px;font-weight:600;color:'+(isAct?'#1565C0':'#999')+'">'+progName+'</div>';
+        h+='<div style="font-size:12px;color:'+(isAct?'#0D47A1':'#aaa')+';margin-top:2px">'+money(rule.discount_value)+' AZN endirim</div>';
+        h+='<div style="font-size:11px;color:#888;margin-top:2px">📝 '+escHtml(rule.note)+'</div>';
+        if(!isAct)h+='<div style="font-size:11px;color:#C62828;margin-top:2px">deaktiv</div>';
+        h+='</div>';
+        if(isAct){
+          h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828;white-space:nowrap" onclick="deactivateDiscRule(\''+escQ(rule.id)+'\',\''+escQ(custId)+'\')">✕ Deaktiv</button>';
+        }
+        h+='</div>';
+      }
+      h+='</div>';
+    }
+  }
+  h+='</div>';
+  return h;
+}
+
+function toggleDiscRules(custId){
+  S.showDiscRules=!S.showDiscRules;
+  if(S.showDiscRules&&!S.discRulesCache&&!S.discRulesLoading){
+    loadDiscRulesCache(custId);
+  }
+  render();
+}
+
+async function loadDiscRulesCache(custId){
+  S.discRulesLoading=true;render();
+  try{
+    var params='customer_id=eq.'+custId+'&order=created_at.desc';
+    var rules=await dbGet('customer_discount_rules',params);
+    if(!S.discRulesCache)S.discRulesCache=[];
+    // Merge: remove old entries for this customer, add fresh
+    S.discRulesCache=S.discRulesCache.filter(function(r){return r.customer_id!==custId;});
+    S.discRulesCache=S.discRulesCache.concat(rules||[]);
+  }catch(e){
+    if(!S.discRulesCache)S.discRulesCache=[];
+    console.warn('[discRules] load failed:',e.message);
+  }
+  S.discRulesLoading=false;render();
+}
+
+function openDiscRuleModal(custId){
+  S.discRuleModal={custId:custId,programId:'',discountValue:'',note:''};
+  S.showDiscRuleModal=true;
+  render();
+}
+
+function rModalDiscRule(){
+  if(!S.discRuleModal)return'';
+  var m=S.discRuleModal;
+  var c=null;
+  for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===m.custId){c=D.customers[i];break;}}
+  var custName=c?escHtml(c.name):m.custId;
+  // Program options — same filter as Add Subscription modal (exclude partner/single)
+  var progOpts='<option value="">— Ümumi (bütün proqramlar) —</option>';
+  for(var i=0;i<D.programs.length;i++){
+    var p=D.programs[i];
+    if(!p.is_active)continue;
+    if(['ROF','RPS','RPP','ROTG','ROTI','RTEST'].indexOf(p.id)>=0)continue;
+    progOpts+='<option value="'+p.id+'">'+escHtml(p.name)+'</option>';
+  }
+  return '<div class="ov" onclick="S.showDiscRuleModal=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">+ Yeni Endirim Qaydası</div>'
+    +'<div style="font-size:12px;color:#666;margin-bottom:12px;padding:6px 10px;background:#f0f4ff;border-radius:6px">👤 Müştəri: <strong>'+custName+'</strong></div>'
+    +'<div class="fg"><label class="fl">Proqram (boş qoyulsa — bütün proqramlara tətbiq olunur)</label>'
+    +'<select class="fs" id="dr-prog">'+progOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Endirim məbləği (AZN) *</label>'
+    +'<input class="fi" id="dr-value" type="number" min="0.01" step="0.01" placeholder="20"></div>'
+    +'<div class="fg"><label class="fl">Endirim qeydi *</label>'
+    +'<input class="fi" id="dr-note" placeholder="Məs: Müşahidəçi üçün xüsusi razılaşma"></div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showDiscRuleModal=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitDiscRule()">Əlavə et</button></div>'
+    +'</div></div>';
+}
+
+async function submitDiscRule(){
+  if(!S.discRuleModal)return;
+  var m=S.discRuleModal;
+  var progId=document.getElementById('dr-prog')?document.getElementById('dr-prog').value.trim():'';
+  var valStr=document.getElementById('dr-value')?document.getElementById('dr-value').value:'';
+  var note=document.getElementById('dr-note')?document.getElementById('dr-note').value.trim():'';
+  var discVal=money(valStr);
+  if(!discVal||discVal<=0){alert('Endirim məbləği 0-dan böyük olmalıdır.');return;}
+  if(!note){alert('Endirim qeydi mütləqdir.');return;}
+  S.saving=true;render();
+  try{
+    var newId='CDR'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    var newRule={
+      id:newId,
+      customer_id:m.custId,
+      program_id:progId||null,
+      discount_type:'fixed',
+      discount_value:discVal,
+      note:note,
+      is_active:true
+    };
+    await dbPost('customer_discount_rules',newRule);
+    logAudit('customer_discount_rule',newId,'create',
+      'Müştəri: '+m.custId+(progId?' / Proqram: '+progId:' / Ümumi')+' → '+discVal+' AZN',
+      null,
+      {id:newId,customer_id:m.custId,program_id:progId||null,discount_type:'fixed',discount_value:discVal,note:note,is_active:true});
+    // Refresh cache for this customer
+    S.discRulesCache=S.discRulesCache?S.discRulesCache.filter(function(r){return r.customer_id!==m.custId;}):[];
+    S.discRulesCache.unshift(newRule);
+    S.showDiscRuleModal=false;S.discRuleModal=null;
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function deactivateDiscRule(ruleId,custId){
+  if(!confirm('Bu endirim qaydasını deaktiv etmək istəyirsiniz?\nQayda silinmir — yalnız deaktiv edilir.'))return;
+  var oldRule=null;
+  if(S.discRulesCache){for(var i=0;i<S.discRulesCache.length;i++){if(S.discRulesCache[i].id===ruleId){oldRule=S.discRulesCache[i];break;}}}
+  S.saving=true;render();
+  try{
+    await dbPatch('customer_discount_rules','id=eq.'+ruleId,{is_active:false});
+    logAudit('customer_discount_rule',ruleId,'deactivate',
+      'Müştəri: '+custId+(oldRule&&oldRule.program_id?' / Proqram: '+oldRule.program_id:' / Ümumi')+' deaktiv edildi',
+      oldRule?{id:oldRule.id,customer_id:oldRule.customer_id,program_id:oldRule.program_id,discount_value:oldRule.discount_value,note:oldRule.note,is_active:true}:null,
+      {id:ruleId,is_active:false});
+    // Update local cache
+    if(S.discRulesCache){
+      for(var i=0;i<S.discRulesCache.length;i++){
+        if(S.discRulesCache[i].id===ruleId){S.discRulesCache[i].is_active=false;break;}
+      }
+    }
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+// Lookup active discount rule for a customer+program. Returns rule object or null.
+// Priority: 1) active program-specific rule, 2) active general rule, 3) null
+async function getActiveDiscountRule(custId,progId){
+  try{
+    var params='customer_id=eq.'+custId+'&is_active=eq.true&order=created_at.desc';
+    var rules=await dbGet('customer_discount_rules',params);
+    if(!rules||!rules.length)return null;
+    // 1) program-specific
+    if(progId){
+      for(var i=0;i<rules.length;i++){if(rules[i].program_id===progId)return rules[i];}
+    }
+    // 2) general (program_id is null)
+    for(var i=0;i<rules.length;i++){if(!rules[i].program_id)return rules[i];}
+    return null;
+  }catch(e){
+    console.warn('[discRules] getActiveDiscountRule failed:',e.message);
+    return null;
+  }
+}
+
+// Called from Add Subscription modal when program selection changes
+// Only applies suggestion if operator has not manually changed the discount field
+async function applyDiscountSuggestion(progId){
+  if(!S.selCust||!progId)return;
+  var rule=await getActiveDiscountRule(S.selCust,progId);
+  // Stale check: modal may have closed, re-rendered, or program changed while awaiting
+  if(!S.showAddSub)return;
+  var progEl=document.getElementById('m-prog');
+  if(!progEl)return;
+  if(progEl.value!==progId)return;
+  var discEl=document.getElementById('m-discount');
+  var noteEl=document.getElementById('m-discount-note');
+  var hintEl=document.getElementById('m-disc-rule-hint');
+  if(!discEl)return;
+  // Only apply if operator has NOT manually changed the discount field.
+  // S._discSuggested=true means current value was set by a prior suggestion.
+  var currentDisc=money(discEl.value);
+  var wasOperatorEdit=(!S._discSuggested&&currentDisc!==0);
+  if(wasOperatorEdit){
+    if(hintEl)hintEl.style.display='none';
+    return;
+  }
+  if(rule){
+    var listEl=document.getElementById('m-list-price');
+    var listPrice=money(listEl?listEl.value:0);
+    var safeDisc=Math.min(money(rule.discount_value),listPrice);
+    discEl.value=safeDisc;
+    if(noteEl&&!noteEl._manualEdit)noteEl.value='Endirim qaydası: '+escHtml(rule.note);
+    S._discSuggested=true;
+    updateSubDiscount();
+    if(hintEl){hintEl.textContent='💡 Aktiv endirim qaydası tapıldı: '+safeDisc+' AZN';hintEl.style.display='';}
+  } else {
+    // No rule — reset to 0 only if previous value was a suggestion
+    if(S._discSuggested){
+      discEl.value=0;
+      if(noteEl&&!noteEl._manualEdit)noteEl.value='';
+      S._discSuggested=false;
+      updateSubDiscount();
+    }
+    if(hintEl)hintEl.style.display='none';
+  }
 }
 
 function rModalAddCust(){
@@ -1210,20 +1458,26 @@ function rModalAddSub(){
   }
   var defP=firstActive?money(firstActive.list_price):0;
   var todayVal=td();
+  // Reset suggestion state on modal open
+  S._discSuggested=false;
+  // Schedule initial discount rule lookup after render
+  if(firstActive)setTimeout(function(){applyDiscountSuggestion(firstActive.id);},80);
   return '<div class="ov" onclick="S.showAddSub=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Abunəlik Əlavə Et <span class="badge b-blue" style="font-size:10px;margin-left:6px">endirim aktivdir</span></div>'
     +'<div style="font-size:12px;color:#0F6E56;background:#E8F5EE;border:1px solid #b2dfc8;padding:8px 10px;border-radius:8px;margin-bottom:12px">Endirim sahəsi bu versiyada aktivdir: Paket qiyməti - Endirim = Ödənilməli məbləğ.</div>'
-    +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="m-prog" onchange="updatePrice()">'+opts+'</select></div>'
+    // Rule hint — hidden by default, shown by applyDiscountSuggestion
+    +'<div id="m-disc-rule-hint" style="display:none;font-size:12px;color:#1565C0;background:#E3F2FD;border:1px solid #90caf9;padding:7px 10px;border-radius:7px;margin-bottom:10px"></div>'
+    +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="m-prog" onchange="updatePrice();applyDiscountSuggestion(this.value)">'+opts+'</select></div>'
     +'<div class="fg"><label class="fl">Başlama tarixi *</label><input class="fi" id="m-startdate" type="date" value="'+todayVal+'"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Paket qiyməti (AZN)</label><input class="fi" id="m-list-price" type="number" value="'+defP+'" readonly style="background:#f5f5f5"></div>'
-    +'<div class="fg"><label class="fl">Endirim (AZN)</label><input class="fi" id="m-discount" type="number" min="0" step="0.01" value="0" oninput="updateSubDiscount()"></div>'
+    +'<div class="fg"><label class="fl">Endirim (AZN)</label><input class="fi" id="m-discount" type="number" min="0" step="0.01" value="0" oninput="S._discSuggested=false;updateSubDiscount()"></div>'
     +'</div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Ödənilməli (AZN)</label><input class="fi" id="m-price-due" type="number" value="'+defP+'" readonly style="background:#f5f5f5"></div>'
     +'<div class="fg"><label class="fl">Ödənilən (AZN)</label><input class="fi" id="m-price-paid" type="number" value="'+defP+'"></div>'
     +'</div>'
-    +'<div class="fg"><label class="fl">Endirim qeydi (opsional)</label><input class="fi" id="m-discount-note" placeholder="Məsələn: kampaniya, xüsusi razılaşma"></div>'
+    +'<div class="fg"><label class="fl">Endirim qeydi</label><input class="fi" id="m-discount-note" placeholder="Məsələn: kampaniya, xüsusi razılaşma" oninput="this._manualEdit=true"></div>'
     +'<div style="font-size:12px;color:#1565C0;background:#E3F2FD;padding:7px 10px;border-radius:7px;margin-bottom:10px" id="m-phint">Paket: '+defP+' AZN | Endirim: 0 AZN | Ödənilməli: '+defP+' AZN</div>'
     +'<div class="fg"><label class="fl">Ödəniş hesabı</label><select class="fs" id="m-account">'+acctOpts+'</select></div>'
     +'<div class="fg" style="margin-bottom:10px"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="m-pending"> <span style="color:#1565C0">Ödənilib, hələ başlamayıb — ilk məşqdə aktivləşəcək</span></label></div>'
@@ -4682,8 +4936,8 @@ function rAdmin(){
     h+='<button class="btn btn-gray btn-sm" onclick="S.auditLogDate=null;document.getElementById(\'al-date\')&&(document.getElementById(\'al-date\').value=\'\');S.auditLogData=null;render();loadAuditLog()">📋 Son qeydlər</button>';
     // Entity type filter
     h+='<select class="fs" style="width:auto;font-size:13px;padding:6px 10px" onchange="S.auditLogEntityType=this.value;S.auditLogData=null;render()">';
-    var _etypes=["","subscription","attendance","transaction","customer","booking","account","program","instructor","freeze"];
-    var _etlabels=["Obyekt tipi","subscription","attendance","transaction","customer","booking","account","program","instructor","freeze"];
+    var _etypes=["","subscription","attendance","transaction","customer","booking","account","program","instructor","freeze","customer_discount_rule"];
+    var _etlabels=["Obyekt tipi","subscription","attendance","transaction","customer","booking","account","program","instructor","freeze","discount_rule"];
     for(var _ei=0;_ei<_etypes.length;_ei++){h+='<option value="'+_etypes[_ei]+'"'+(S.auditLogEntityType===_etypes[_ei]?' selected':'')+'>'+_etlabels[_ei]+'</option>';}
     h+='</select>';
     // Action type filter
@@ -5442,10 +5696,24 @@ function updatePrice(){
     var hint=document.getElementById('m-phint');
     var price=money(prog.list_price);
     if(lp)lp.value=price;
-    if(disc)disc.value=0;
-    if(due)due.value=price;
-    if(paid)paid.value=price;
-    if(hint)hint.textContent='Paket: '+price+' AZN | Endirim: 0 AZN | Ödənilməli: '+price+' AZN';
+    // Preserve operator custom discount. Only reset to 0 when:
+    // (a) discount came from a rule suggestion (S._discSuggested=true), or
+    // (b) discount was already 0 (nothing to preserve).
+    var existingDisc=money(disc?disc.value:0);
+    var operatorHasCustomDisc=(!S._discSuggested&&existingDisc>0);
+    var finalDisc=0;
+    if(operatorHasCustomDisc){
+      finalDisc=Math.min(existingDisc,price); // clamp in case new list price is lower
+      if(disc)disc.value=finalDisc;
+    } else {
+      if(disc)disc.value=0;
+      finalDisc=0;
+    }
+    var newDue=money(price-finalDisc);
+    var oldDue=due?money(due.value):price;
+    if(due)due.value=newDue;
+    if(paid&&(paid.value===''||money(paid.value)===oldDue))paid.value=newDue;
+    if(hint)hint.textContent='Paket: '+price+' AZN | Endirim: '+finalDisc+' AZN | Ödənilməli: '+newDue+' AZN';
   }
 }
 function updateSubDiscount(){
@@ -5477,6 +5745,7 @@ function submitSub(){
   var discountNote=noteEl?noteEl.value.trim():'';
   if(discount<0){alert('Endirim mənfi ola bilməz.');return;}
   if(discount>listPrice){alert('Endirim paket qiymətindən çox ola bilməz.');return;}
+  if(discount>0&&!discountNote){alert('Endirim qeydi mütləqdir (endirim > 0 olduqda).');return;}
   var startDate=document.getElementById('m-startdate').value;
   var acctId=document.getElementById('m-account')?document.getElementById('m-account').value:'';
   var isPending=document.getElementById('m-pending')&&document.getElementById('m-pending').checked;
@@ -5578,7 +5847,7 @@ function filterCards(q){
     }
   }
 }
-function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoading=true;render();fetchCustDetail(id);}
+function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoading=true;S.discRulesCache=null;S.showDiscRules=false;S.discRuleModal=null;S.showDiscRuleModal=false;S._discSuggested=false;render();fetchCustDetail(id);}
 
 
 // ===== KASSA =====
