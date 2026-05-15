@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — Discount/RTEST/SlotPOS Fixed</title>
+<title>Erge Pilates — prog-commission-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -196,7 +196,8 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   auditOpenChecks:{c1:false,c2:false,c3:false,c4:false,c5:false,c6:false},
   leadsData:null,leadsLoading:false,leadsLoaded:false,
   leadsFilter:{status:'active',assigned:'all',overdue:false,search:'',source:'',goal:''},
-  selLead:null,showAddLead:false,leadLostModal:null};
+  selLead:null,showAddLead:false,leadLostModal:null,
+  commRulesCache:null,commRulesLoading:false,showCommRuleModal:false,commRuleModal:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -696,7 +697,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: crm-lead-analytics-hotfix1-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: prog-commission-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -732,6 +733,7 @@ function render(){
   if(S.showAddLead)h+=rModalAddLead();
   if(S.selLead)h+=rModalLeadDetail();
   if(S.leadLostModal)h+=rModalLeadLost();
+  if(S.showCommRuleModal)h+=rModalCommRule();
   root.innerHTML=h;
 }
 
@@ -4219,12 +4221,25 @@ async function fetchReport(month){
     var progMap={};
     for(var i=0;i<D.programs.length;i++){progMap[D.programs[i].id]=D.programs[i];}
 
+    // Load trainer+program commission override rules (Phase 1)
+    var commRuleMap={};
+    try{
+      var commRules=await dbGet('trainer_program_commissions','is_active=eq.true');
+      for(var ci=0;ci<commRules.length;ci++){
+        var cr=commRules[ci];
+        if(!commRuleMap[cr.instructor_id])commRuleMap[cr.instructor_id]={};
+        if(!commRuleMap[cr.instructor_id][cr.program_id])commRuleMap[cr.instructor_id][cr.program_id]=[];
+        commRuleMap[cr.instructor_id][cr.program_id].push(cr);
+      }
+    }catch(e){/* table not yet created — graceful fallback to general commission */}
+
     var instData={};
     for(var i=0;i<allInst.length;i++){
       instData[allInst[i].id]={
         name:allInst[i].full_name,
         pct:allInst[i].commission_pct||30,
-        sessions:0,gross:0,commission:0,days:{}
+        sessions:0,gross:0,commission:0,days:{},
+        commSources:[]
       };
     }
 
@@ -4257,14 +4272,33 @@ async function fetchReport(month){
       }
 
       var inst=instData[a.instructor_id];
+
+      // Commission hierarchy: program override → general → default 30%
+      var appliedPct=inst.pct;
+      var commSource=instMap[a.instructor_id].commission_pct?'gen':'default';
+      if(commRuleMap[a.instructor_id]&&commRuleMap[a.instructor_id][a.program_id]){
+        var rules=commRuleMap[a.instructor_id][a.program_id];
+        for(var ri=0;ri<rules.length;ri++){
+          var rule=rules[ri];
+          if(rule.valid_from<=a.class_date&&(rule.valid_until===null||rule.valid_until===undefined||a.class_date<=rule.valid_until)){
+            appliedPct=rule.commission_pct;
+            commSource='prog';
+            break;
+          }
+        }
+      }
+
       inst.sessions+=1;
       inst.gross+=perSession;
-      inst.commission+=perSession*(inst.pct/100);
+      inst.commission+=perSession*(appliedPct/100);
       var dk=a.class_date;
-      if(!inst.days[dk])inst.days[dk]={sessions:0,gross:0,commission:0};
+      if(!inst.days[dk])inst.days[dk]={sessions:0,gross:0,commission:0,pcts:[],sources:[]};
       inst.days[dk].sessions+=1;
       inst.days[dk].gross+=perSession;
-      inst.days[dk].commission+=perSession*(inst.pct/100);
+      inst.days[dk].commission+=perSession*(appliedPct/100);
+      if(inst.days[dk].pcts.indexOf(appliedPct)<0)inst.days[dk].pcts.push(appliedPct);
+      if(inst.days[dk].sources.indexOf(commSource)<0)inst.days[dk].sources.push(commSource);
+      if(inst.commSources.indexOf(commSource)<0)inst.commSources.push(commSource);
     }
 
     S.reportData={month:month,instData:instData,totalAtts:atts.length};
@@ -4355,27 +4389,39 @@ function rReport(){
     var instId=Object.keys(d.instData).find(function(k){return d.instData[k]===ins;});
     var bg=i%2===0?'#fff':'#fafcfa';
     var isSelected=S.selReportInst===instId;
+    var mixedComm=ins.commSources&&ins.commSources.indexOf('prog')>=0;
+    var faizCell=mixedComm?'<span class="badge b-purple" style="font-size:10px;padding:2px 6px">Qarışıq</span>':ins.pct+'%';
     h+='<div style="display:grid;grid-template-columns:1fr 60px 100px 60px 110px;padding:11px 14px;background:'+(isSelected?'#E8F5EE':bg)+';border-top:1px solid #f0f0f0;font-size:13px;align-items:center;cursor:pointer" onclick="S.selReportInst='+(isSelected?'null':'\''+instId+'\'')+';render()">'
       +'<div style="font-weight:500">'+ins.name+' <span style="font-size:11px;color:#1D9E75">'+(isSelected?'▲ bağla':'▼ detallar')+'</span></div>'
       +'<div style="text-align:right;color:#666">'+ins.sessions+'</div>'
       +'<div style="text-align:right;color:#666">'+Math.round(ins.gross)+' ₼</div>'
-      +'<div style="text-align:right;color:#666">'+ins.pct+'%</div>'
+      +'<div style="text-align:right;color:#666">'+faizCell+'</div>'
       +'<div style="text-align:right;font-weight:600;color:#0F6E56">'+Math.round(ins.commission)+' ₼</div>'
       +'</div>';
     // Daily breakdown
     if(isSelected&&ins.days){
       var days=Object.keys(ins.days).sort();
       h+='<div style="background:#f0faf5;border-top:1px solid #c8e6c9;padding:8px 14px">'
-        +'<div style="display:grid;grid-template-columns:120px 1fr 100px 110px;font-size:11px;font-weight:600;color:#888;padding:4px 0;border-bottom:1px solid #ddd;margin-bottom:4px">'
-        +'<div>TARİX</div><div style="text-align:right">MƏŞQ</div><div style="text-align:right">MƏBLƏĞ</div><div style="text-align:right">HAQQQ</div></div>';
+        +'<div style="display:grid;grid-template-columns:110px 50px 90px 100px 100px;font-size:11px;font-weight:600;color:#888;padding:4px 0;border-bottom:1px solid #ddd;margin-bottom:4px">'
+        +'<div>TARİX</div><div style="text-align:right">MƏŞQ</div><div style="text-align:right">MƏBLƏĞ</div><div style="text-align:right">FAİZ</div><div style="text-align:right">HAQQQ</div></div>';
       for(var j=0;j<days.length;j++){
         var day=days[j];
         var dd=ins.days[day];
         var dp=day.split('-');
-        h+='<div style="display:grid;grid-template-columns:120px 1fr 100px 110px;font-size:12px;padding:5px 0;border-bottom:1px solid #e8f5e9">'
+        // Build applied commission display
+        var dayPctTxt=ins.pct+'%';
+        if(dd.pcts&&dd.pcts.length>1){
+          dayPctTxt='<span class="badge b-purple" style="font-size:9px;padding:2px 5px">Qarışıq</span>';
+        } else if(dd.pcts&&dd.pcts.length===1){
+          var src=dd.sources&&dd.sources[0]||'gen';
+          var srcBadge=src==='prog'?' <span class="badge b-blue" style="font-size:9px;padding:1px 5px">P</span>':(src==='default'?' <span class="badge b-gray" style="font-size:9px;padding:1px 5px">D</span>':'');
+          dayPctTxt=dd.pcts[0]+'%'+srcBadge;
+        }
+        h+='<div style="display:grid;grid-template-columns:110px 50px 90px 100px 100px;font-size:12px;padding:5px 0;border-bottom:1px solid #e8f5e9;align-items:center">'
           +'<div style="color:#444">'+dp[2]+'.'+dp[1]+'.'+dp[0]+'</div>'
           +'<div style="text-align:right;color:#666">'+dd.sessions+'</div>'
           +'<div style="text-align:right;color:#666">'+Math.round(dd.gross)+' ₼</div>'
+          +'<div style="text-align:right;color:#555">'+dayPctTxt+'</div>'
           +'<div style="text-align:right;font-weight:600;color:#0F6E56">'+Math.round(dd.commission*100)/100+' ₼</div>'
           +'</div>';
       }
@@ -4403,6 +4449,9 @@ function toggleAdminSection(key){
   // Auto-load audit log rows when section is opened for the first time
   if(key==='auditlog'&&S.adminOpenSections['auditlog']&&!S.auditLogData&&!S.auditLogLoading){
     loadAuditLog();
+  }
+  if(key==='insts'&&S.adminOpenSections['insts']&&!S.commRulesCache&&!S.commRulesLoading){
+    loadCommRulesCache();
   }
   render();
 }
@@ -4495,19 +4544,58 @@ function rAdmin(){
   h+=rAdminAccHdr('insts','👤','İnstruktorlar',instBadge,'b-gray');
   if(sec.insts){
     h+='<div style="padding:12px 16px">';
+    // Trigger lazy load if not yet loaded
+    if(!S.commRulesCache&&!S.commRulesLoading){loadCommRulesCache();}
     for(var i=0;i<allInst.length;i++){
       var ins=allInst[i];
       var iact=ins.is_active!==false;
       var pct=ins.commission_pct||30;
-      h+='<div class="attitem">'
-        +'<div><div style="font-size:13px;font-weight:600">'+ins.full_name+'</div>'
-        +'<div style="font-size:11px;color:#888">Komissiya: '+pct+'%</div></div>'
-        +'<div style="display:flex;align-items:center;gap:6px">'
+      h+='<div style="border:1px solid #e8ede8;border-radius:10px;padding:10px 13px;margin-bottom:10px;background:#fff">';
+      // Main instructor row
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:10px">'
+        +'<div><div style="font-size:13px;font-weight:600">'+escHtml(ins.full_name)+'</div>'
+        +'<div style="font-size:11px;color:#888">Ümumi komissiya: '+pct+'%</div></div>'
+        +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
         +'<input type="number" min="1" max="100" value="'+pct+'" id="pct-'+ins.id+'" style="width:60px;padding:5px 7px;border:1px solid #ddd;border-radius:6px;font-size:12px;text-align:center">'
         +'<button class="btn btn-gray btn-sm" onclick="saveInstPct(\''+ins.id+'\')">Saxla</button>'
         +'<span class="badge '+(iact?'b-green':'b-gray')+'">'+(iact?'Aktiv':'Deaktiv')+'</span>'
         +'<button class="btn '+(iact?'btn-gray':'btn-g')+' btn-sm" onclick="toggleInst(\''+ins.id+'\','+(!iact)+')">'+(iact?'Deaktiv et':'Aktiv et')+'</button>'
         +'</div></div>';
+      // Commission override rules sub-section
+      h+='<div style="background:#f8fdf9;border:1px solid #e0ede0;border-radius:8px;padding:8px 12px">';
+      h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+      var instActiveRules=[];
+      if(S.commRulesCache){
+        instActiveRules=S.commRulesCache.filter(function(r){return r.instructor_id===ins.id&&r.is_active!==false;});
+      }
+      h+='<span style="font-size:12px;font-weight:600;color:#555">🎯 Proqram Komissiya İstisnaları'+(instActiveRules.length>0?' <span class="badge b-blue" style="font-size:10px">'+instActiveRules.length+'</span>':'')+'</span>';
+      h+='<button class="btn btn-g btn-sm" style="font-size:12px" onclick="openCommRuleModal(\''+ins.id+'\',null)">+ Komissiya qayda</button>';
+      h+='</div>';
+      if(S.commRulesLoading){
+        h+='<div style="font-size:12px;color:#aaa"><span class="spin"></span> Yüklənir...</div>';
+      } else if(!S.commRulesCache){
+        h+='<div style="font-size:12px;color:#aaa">Yüklənir...</div>';
+      } else if(instActiveRules.length===0){
+        h+='<div style="font-size:12px;color:#aaa">Proqram üzrə istisna yoxdur — ümumi '+pct+'% tətbiq edilir</div>';
+      } else {
+        h+='<div style="display:grid;grid-template-columns:75px 50px 82px 82px 1fr 72px;font-size:10px;font-weight:600;color:#888;padding:3px 0;border-bottom:1px solid #eee;margin-bottom:4px">'
+          +'<div>PROQRAM</div><div style="text-align:center">FAİZ</div><div style="text-align:center">BAŞLANĞIC</div><div style="text-align:center">BİTİŞ</div><div>QEYD</div><div style="text-align:right">ƏMƏL</div></div>';
+        for(var ri=0;ri<instActiveRules.length;ri++){
+          var cr=instActiveRules[ri];
+          h+='<div style="display:grid;grid-template-columns:75px 50px 82px 82px 1fr 72px;font-size:12px;padding:4px 0;border-bottom:1px solid #f5f5f5;align-items:center">'
+            +'<div style="font-weight:600;color:#1a1a1a">'+escHtml(cr.program_id)+'</div>'
+            +'<div style="text-align:center;color:#0F6E56;font-weight:700">'+cr.commission_pct+'%</div>'
+            +'<div style="text-align:center;color:#666;font-size:11px">'+fmt(cr.valid_from)+'</div>'
+            +'<div style="text-align:center;color:#666;font-size:11px">'+(cr.valid_until?fmt(cr.valid_until):'—')+'</div>'
+            +'<div style="color:#888;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(cr.note?escHtml(cr.note):'')+'</div>'
+            +'<div style="display:flex;gap:3px;justify-content:flex-end">'
+            +'<button class="btn btn-gray btn-sm" style="font-size:11px;padding:3px 7px" onclick="openCommRuleModal(\''+ins.id+'\',\''+cr.id+'\')">✏️</button>'
+            +'<button class="btn btn-gray btn-sm" style="font-size:11px;padding:3px 7px;color:#C62828" onclick="deactivateCommRule(\''+cr.id+'\',\''+ins.id+'\')">✕</button>'
+            +'</div></div>';
+        }
+      }
+      h+='</div>';
+      h+='</div>';
     }
     h+='</div>';
   }
@@ -8041,6 +8129,155 @@ async function doConvertLead(leadId){
   S.saving=false;render();
 }
 
+
+// ==================== TRAINER PROGRAM COMMISSION RULES (Phase 1) ====================
+
+async function loadCommRulesCache(){
+  S.commRulesLoading=true;render();
+  try{
+    var rules=await dbGet('trainer_program_commissions','order=instructor_id,program_id,valid_from');
+    S.commRulesCache=rules||[];
+  }catch(e){
+    S.commRulesCache=[];
+    console.warn('[commRules] Could not load trainer_program_commissions:',e.message);
+  }
+  S.commRulesLoading=false;render();
+}
+
+function openCommRuleModal(instId,ruleId){
+  var m={instId:instId,ruleId:ruleId||null,programId:'',commPct:'',validFrom:td(),validUntil:'',note:''};
+  if(ruleId&&S.commRulesCache){
+    var existing=null;
+    for(var i=0;i<S.commRulesCache.length;i++){if(S.commRulesCache[i].id===ruleId){existing=S.commRulesCache[i];break;}}
+    if(existing){
+      m.programId=existing.program_id||'';
+      m.commPct=existing.commission_pct||'';
+      m.validFrom=existing.valid_from||td();
+      m.validUntil=existing.valid_until||'';
+      m.note=existing.note||'';
+    }
+  }
+  S.commRuleModal=m;
+  S.showCommRuleModal=true;
+  render();
+}
+
+function rModalCommRule(){
+  if(!S.commRuleModal)return'';
+  var m=S.commRuleModal;
+  var isEdit=!!m.ruleId;
+  // Find instructor name
+  var allInst=D._allInstructors||D.instructors||[];
+  var instName='';
+  for(var i=0;i<allInst.length;i++){if(allInst[i].id===m.instId){instName=allInst[i].full_name;break;}}
+  // Program options
+  var progOpts='<option value="">— Proqram seçin —</option>';
+  var allProgs=D.programs||[];
+  for(var i=0;i<allProgs.length;i++){
+    var p=allProgs[i];
+    var sel=(m.programId===p.id)?' selected':'';
+    progOpts+='<option value="'+p.id+'"'+sel+'>'+escHtml(p.id)+' — '+escHtml(p.name)+'</option>';
+  }
+  return '<div class="ov" onclick="S.showCommRuleModal=false;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">'+(isEdit?'✏️ Komissiya qaydası redaktə et':'+ Yeni proqram komissiya qayda')+'</div>'
+    +'<div style="font-size:12px;color:#666;margin-bottom:12px;padding:6px 10px;background:#f0faf5;border-radius:6px">👤 Trener: <strong>'+escHtml(instName)+'</strong></div>'
+    +'<div class="fg"><label class="fl">Proqram *</label>'
+    +'<select class="fs" id="cr-prog"'+(isEdit?' disabled':'')+'>'+progOpts+'</select>'
+    +(isEdit?'<div style="font-size:11px;color:#888;margin-top:3px">Proqram dəyişdirmək üçün köhnə qaydanı bağlayıb yeni qayda əlavə edin.</div>':'')
+    +'</div>'
+    +'<div class="fg"><label class="fl">Komissiya faizi (%) *</label><input class="fi" id="cr-pct" type="number" min="1" max="100" step="0.1" placeholder="40" value="'+escHtml(String(m.commPct))+'"></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Başlanğıc tarixi *</label><input class="fi" id="cr-from" type="date" value="'+escHtml(m.validFrom||'')+'"></div>'
+    +'<div class="fg"><label class="fl">Bitmə tarixi (opsional)</label><input class="fi" id="cr-until" type="date" value="'+escHtml(m.validUntil||'')+'"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Qeyd (opsional)</label><input class="fi" id="cr-note" placeholder="Məs: Müzakirə əsasında" value="'+escHtml(m.note||'')+'"></div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showCommRuleModal=false;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitCommRule()">'+( isEdit?'Yadda saxla':'Əlavə et')+'</button></div>'
+    +'</div></div>';
+}
+
+async function submitCommRule(){
+  if(!S.commRuleModal)return;
+  var m=S.commRuleModal;
+  var isEdit=!!m.ruleId;
+
+  var progId=isEdit?m.programId:(document.getElementById('cr-prog')?document.getElementById('cr-prog').value:'');
+  var pct=parseFloat(document.getElementById('cr-pct')?document.getElementById('cr-pct').value:'');
+  var validFrom=document.getElementById('cr-from')?document.getElementById('cr-from').value:'';
+  var validUntil=document.getElementById('cr-until')?document.getElementById('cr-until').value.trim():'';
+  var note=document.getElementById('cr-note')?document.getElementById('cr-note').value.trim():'';
+
+  if(!progId)return alert('Proqram seçin.');
+  if(!pct||pct<=0||pct>100)return alert('Komissiya faizini düzgün daxil edin (1-100).');
+  if(!validFrom)return alert('Başlanğıc tarixi mütləqdir.');
+
+  // Overlap check for new rules (same instructor + program, is_active, overlapping dates)
+  if(!isEdit&&S.commRulesCache){
+    var conflict=false;
+    for(var i=0;i<S.commRulesCache.length;i++){
+      var ex=S.commRulesCache[i];
+      if(ex.instructor_id===m.instId&&ex.program_id===progId&&ex.is_active!==false){
+        // Check date overlap
+        var exFrom=ex.valid_from||'0000-01-01';
+        var exUntil=ex.valid_until||'9999-12-31';
+        var newUntil=validUntil||'9999-12-31';
+        if(!(newUntil<exFrom||validFrom>exUntil)){conflict=true;break;}
+      }
+    }
+    if(conflict&&!confirm('Bu trener + proqram üçün artıq aktiv bir qayda mövcuddur və tarix aralıqları üst-üstə düşür.\n\nYenə də davam etmək istəyirsiniz?'))return;
+  }
+
+  S.saving=true;render();
+  try{
+    if(isEdit){
+      // Edit existing rule
+      var oldRule=null;
+      if(S.commRulesCache){for(var i=0;i<S.commRulesCache.length;i++){if(S.commRulesCache[i].id===m.ruleId){oldRule=S.commRulesCache[i];break;}}}
+      var updates={commission_pct:pct,valid_from:validFrom,valid_until:validUntil||null,note:note||null};
+      await dbPatch('trainer_program_commissions','id=eq.'+m.ruleId,updates);
+      logAudit('instructor',m.instId,'commission_rule_edit',
+        (instNameForId(m.instId)||m.instId)+' / '+progId+' → '+pct+'%',
+        oldRule?{id:oldRule.id,instructor_id:oldRule.instructor_id,program_id:oldRule.program_id,commission_pct:oldRule.commission_pct,valid_from:oldRule.valid_from,valid_until:oldRule.valid_until,is_active:oldRule.is_active,note:oldRule.note}:null,
+        {id:m.ruleId,instructor_id:m.instId,program_id:progId,commission_pct:pct,valid_from:validFrom,valid_until:validUntil||null,is_active:true,note:note||null});
+    } else {
+      // Create new rule
+      var newId='TPC'+Date.now().toString(36)+Math.random().toString(36).slice(2,4);
+      var newRule={id:newId,instructor_id:m.instId,program_id:progId,commission_pct:pct,valid_from:validFrom,valid_until:validUntil||null,is_active:true,note:note||null};
+      await dbPost('trainer_program_commissions',newRule);
+      logAudit('instructor',m.instId,'commission_rule_create',
+        (instNameForId(m.instId)||m.instId)+' / '+progId+' → '+pct+'%',
+        null,
+        {id:newId,instructor_id:m.instId,program_id:progId,commission_pct:pct,valid_from:validFrom,valid_until:validUntil||null,is_active:true,note:note||null});
+    }
+    S.commRulesCache=null;S.reportData=null;
+    S.showCommRuleModal=false;S.commRuleModal=null;
+    await loadCommRulesCache();
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function deactivateCommRule(ruleId,instId){
+  if(!confirm('Bu komissiya qaydasını deaktiv etmək istəyirsiniz?\nQayda silinmir — yalnız deaktiv edilir.'))return;
+  var oldRule=null;
+  if(S.commRulesCache){for(var i=0;i<S.commRulesCache.length;i++){if(S.commRulesCache[i].id===ruleId){oldRule=S.commRulesCache[i];break;}}}
+  S.saving=true;render();
+  try{
+    await dbPatch('trainer_program_commissions','id=eq.'+ruleId,{is_active:false});
+    logAudit('instructor',instId,'commission_rule_deactivate',
+      (instNameForId(instId)||instId)+' / '+(oldRule?oldRule.program_id:ruleId)+' deaktiv edildi',
+      oldRule?{id:oldRule.id,instructor_id:oldRule.instructor_id,program_id:oldRule.program_id,commission_pct:oldRule.commission_pct,valid_from:oldRule.valid_from,valid_until:oldRule.valid_until,is_active:true,note:oldRule.note}:null,
+      {id:ruleId,is_active:false});
+    S.commRulesCache=null;S.reportData=null;
+    await loadCommRulesCache();
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+function instNameForId(instId){
+  var all=D._allInstructors||D.instructors||[];
+  for(var i=0;i<all.length;i++){if(all[i].id===instId)return all[i].full_name;}
+  return instId;
+}
 
 loadAll();
 </script>
