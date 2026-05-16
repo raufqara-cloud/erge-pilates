@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — sub-rtest-guard-v1</title>
+<title>Erge Pilates — phone-name-standard-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -704,7 +704,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: sub-rtest-guard-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: phone-name-standard-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1188,9 +1188,9 @@ function rDetail(){
 function rModalAddCust(){
   return '<div class="ov" onclick="S.showAddCust=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Yeni Mustəri</div>'
-    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="m-name" placeholder="Leyla Əliyeva"></div>'
+    +'<div class="fg"><label class="fl">Soyad Ad *</label><input class="fi" id="m-name" placeholder="Leyla Əliyeva"></div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="m-phone" placeholder="+994 50 XXX XX XX"></div>'
+    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="m-phone" placeholder="+994501234567 və ya +905551112233"></div>'
     +'<div class="fg"><label class="fl">Dogum tarixi</label><input class="fi" id="m-birth" type="date"></div>'
     +'</div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddCust=false;render()">Legv et</button>'
@@ -5299,9 +5299,9 @@ function rModalEditCust(){
   return '<div class="ov" onclick="S.editCust=null;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">✏ Müştəri Məlumatları</div>'
     +'<div style="font-size:11px;color:#aaa;font-weight:600;margin-bottom:12px">'+c.id+'</div>'
-    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="ec-name" value="'+(c.name||'')+'"></div>'
+    +'<div class="fg"><label class="fl">Soyad Ad *</label><input class="fi" id="ec-name" value="'+(c.name||'')+'"></div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="ec-phone" value="'+(c.phone||'')+'" placeholder="+994 50 XXX XX XX"></div>'
+    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="ec-phone" value="'+(c.phone||'')+'" placeholder="+994501234567 və ya +905551112233"></div>'
     +'<div class="fg"><label class="fl">Doğum tarixi</label><input class="fi" id="ec-birth" type="date" value="'+(c.birth_date||'')+'"></div>'
     +'</div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.editCust=null;render()">Ləğv et</button>'
@@ -5314,6 +5314,7 @@ async function submitEditCust(){
   var phone=document.getElementById('ec-phone').value.trim();
   var birth=document.getElementById('ec-birth').value;
   if(!name||!S.editCust)return;
+  if(phone){var _pn=normalizePhoneForStorage(phone);if(_pn===null){alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return;}phone=_pn;}
   S.saving=true;render();
   try{
     await dbPatch('customers','id=eq.'+S.editCust,{name:name,phone:phone||'',birth_date:birth||null});
@@ -5438,6 +5439,7 @@ function submitCust(){
   var p=document.getElementById('m-phone').value.trim();
   var b=document.getElementById('m-birth').value;
   if(!n)return;
+  if(p){var _pn=normalizePhoneForStorage(p);if(_pn===null){alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return;}p=_pn;}
   doAddCust(n,p,b);
 }
 function updatePrice(){
@@ -7198,20 +7200,48 @@ function rAuditResults(){
 
 // --- Helpers ---
 
-function leadPhoneNorm(phone){
-  if(!phone)return'';
-  return(phone+'').replace(/\D/g,'').slice(-9);
+// --- Adaptive phone normalization (phone-name-standard-v1) ---
+// Returns '+994XXXXXXXXX' for AZ, '+XXXXXXXXXX' for foreign, '' for empty, null for unrecognised
+function normalizePhoneForStorage(raw){
+  if(!raw)return'';
+  var s=(raw+'').trim();
+  if(!s)return'';
+  var hasPlus=s.charAt(0)==='+';
+  var has00=s.slice(0,2)==='00';
+  var d=s.replace(/\D/g,'');
+  if(!d)return'';
+  if(hasPlus){
+    if(d.length===12&&d.slice(0,3)==='994')return'+'+d;
+    if(d.length>=10)return'+'+d;
+    return null;
+  }
+  if(has00){
+    var ds=d.slice(2);
+    if(ds.length>=10)return'+'+ds;
+    return null;
+  }
+  if(d.length===10&&d.charAt(0)==='0')return'+994'+d.slice(1);
+  if(d.length===9)return'+994'+d;
+  if(d.length===12&&d.slice(0,3)==='994')return'+'+d;
+  return null;
 }
-
-function leadWaPhone(phone){
-  if(!phone)return'';
-  var d=(phone+'').replace(/\D/g,'');
-  if(d.length===9)d='994'+d;
-  else if(d.length===10&&d[0]==='0')d='994'+d.slice(1);
-  else if(d.length===12&&d.slice(0,3)==='994'){}
-  // already ok
-  return d;
+// Canonical key for duplicate detection — works on legacy raw DB values too
+function phoneKey(raw){
+  if(!raw)return'';
+  var norm=normalizePhoneForStorage(raw);
+  if(norm===null)return(raw+'').replace(/\D/g,'');
+  return norm.replace(/\D/g,'');
 }
+// Returns digits for WhatsApp URL (no '+')
+function phoneToWhatsAppDigits(raw){
+  if(!raw)return'';
+  var norm=normalizePhoneForStorage(raw);
+  if(!norm)return'';
+  return norm.replace(/\D/g,'');
+}
+// Legacy aliases — callers of leadPhoneNorm / leadWaPhone continue to work
+function leadPhoneNorm(phone){return phoneKey(phone);}
+function leadWaPhone(phone){return phoneToWhatsAppDigits(phone);}
 
 function getLeadStatusLabel(s){
   var m={new:'Yeni',contacted:'Əlaqə quruldu',trial_scheduled:'Sınaq planlandı',
@@ -7776,9 +7806,9 @@ function rModalAddLead(){
     +'<div class="mtitle">Yeni Lead</div>'
     +'<div id="lead-dup-warn" style="display:none;margin-bottom:10px;padding:8px 10px;background:#FFEBEE;color:#C62828;border-radius:8px;font-size:12px"></div>'
     +'<div id="nl-contact-warn" style="display:none;margin-bottom:10px;padding:8px 10px;background:#FFF8E1;color:#F57F17;border-radius:8px;font-size:12px">Telefon, Instagram və ya əlaqə qeydi — ən az biri daxil edilməlidir.</div>'
-    +'<div class="fg"><label class="fl">Ad Soyad *</label><input class="fi" id="nl-name" placeholder="Leyla Əliyəva" autocomplete="off"></div>'
+    +'<div class="fg"><label class="fl">Soyad Ad *</label><input class="fi" id="nl-name" placeholder="Leyla Əliyəva" autocomplete="off"></div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="nl-phone" placeholder="+994 50 XXX XX XX" oninput="checkLeadDupPhone(this.value)"></div>'
+    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="nl-phone" placeholder="+994501234567 və ya +905551112233" oninput="checkLeadDupPhone(this.value)"></div>'
     +'<div class="fg"><label class="fl">Mənbə *</label><select class="fi" id="nl-source">'+srcOpts+'</select></div>'
     +'</div>'
     +'<div class="fi-row">'
@@ -7843,7 +7873,7 @@ function rModalLeadDetail(){
   }
 
   var dis=isConverted?' disabled':'';
-  h+='<div class="fg"><label class="fl">Ad Soyad</label><input class="fi" id="ld-name" value="'+escHtml(lead.name||'')+('"'+dis+' >')+'</div>'
+  h+='<div class="fg"><label class="fl">Soyad Ad</label><input class="fi" id="ld-name" value="'+escHtml(lead.name||'')+('"'+dis+' >')+'</div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="ld-phone" value="'+escHtml(lead.phone||'')+('"'+dis+' >')+'</div>'
     +'<div class="fg"><label class="fl">Mənbə</label><select class="fi" id="ld-source"'+dis+'>'+srcOpts+'</select></div>'
@@ -7977,7 +8007,7 @@ async function submitAddLead(){
   var followup=followupEl?followupEl.value:'';
   var assigned=assignedEl?assignedEl.value:'';
   var notes=(notesEl?notesEl.value:'').trim();
-  if(!name){alert('Ad daxil edin');return;}
+  if(!name){alert('Soyad Ad daxil edin');return;}
   if(!source){alert('Mənbə seçin');return;}
   if(!phone&&!instagram&&!contactNote){
     var w=document.getElementById('nl-contact-warn');
@@ -7986,6 +8016,7 @@ async function submitAddLead(){
   }
   var w2=document.getElementById('nl-contact-warn');
   if(w2)w2.style.display='none';
+  if(phone){var _pn=normalizePhoneForStorage(phone);if(_pn===null){alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return;}phone=_pn;}
   S.saving=true;render();
   try{
     var newId=await generateLeadId();
@@ -8028,9 +8059,10 @@ async function submitLeadDetail(leadId){
   var source=(sourceEl?sourceEl.value:'')||'';
   var instagram=(igEl?igEl.value:'').trim().replace(/^@+/,'');
   var contactNote=(cnoteEl?cnoteEl.value:'').trim();
-  if(!name){alert('Ad daxil edin');return;}
+  if(!name){alert('Soyad Ad daxil edin');return;}
   if(!source){alert('Mənbə seçin');return;}
   if(!phone&&!instagram&&!contactNote){alert('Telefon, Instagram və ya əlaqə qeydi — ən az biri daxil edilməlidir.');return;}
+  if(phone){var _pn=normalizePhoneForStorage(phone);if(_pn===null){alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return;}phone=_pn;}
   var existingLead=getLead(leadId);
   var consentChecked=consentEl?consentEl.checked:false;
   var consentDate=null;
