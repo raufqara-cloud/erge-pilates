@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — prog-commission-v1</title>
+<title>Erge Pilates — sub-rtest-guard-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -476,6 +476,13 @@ async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNot
       dueNum=calcSubDueFromDiscount(listNum,discNum);
     }
     var paidNum=money(pricePaid||0);
+    // Guard: price_paid > 0 requires a payment account; price_paid = 0 → no txn, account optional
+    if(paidNum>0&&!acctId){
+      S.saving=false;
+      alert('Ödəniş məbləği ('+paidNum+' AZN) daxil edilib. Ödəniş hesabı seçilməlidir.');
+      render();
+      return;
+    }
     var sub={id:uid(),customer_id:custId,program_id:progId,program_name:prog.name,
       sessions_total:prog.sessions_total,remaining:prog.sessions_total,
       list_price_at_sale:listNum,
@@ -697,7 +704,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: prog-commission-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: sub-rtest-guard-v1</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -2440,7 +2447,7 @@ function rModalTempAdd(){
     +'<select class="fs" id="ta-source" onchange="onTempAddSourceChange()">'
     +'<option value="studio">Studio (abunəli)</option>'
     +'<option value="partner">Partner giriş (ROF/RPP/RPS)</option>'
-    +'<option value="single">Tək giriş (ROTG/ROTI/RTEST)</option>'
+    +'<option value="single">Tək giriş (ROTG/ROTI)</option>'
     +'<option value="trial">Sınaq məşqi</option>'
     +'</select></div>'
     +'<div class="fg"><label class="fl" id="ta-search-label">Müştəri *</label>'
@@ -3400,7 +3407,7 @@ function toggleSlotAttCustomer(custId, checked, wasAbsent){
 // ── Slot single pay — state-controlled form ──
 function slotPayKey(custId){return String(custId||'');}
 function getSingleEntryPrograms(){
-  var ids=['ROF','RPP','RPS','ROTG','ROTI','RTEST'];
+  var ids=['ROF','RPP','RPS','ROTG','ROTI'];
   return(D.programs||[]).filter(function(p){
     return p.is_active!==false&&(ids.indexOf(p.id)>=0||p.sessions_total<=1);
   });
@@ -3413,8 +3420,8 @@ function getPartnerEntryPrograms(){
 function getStudioSinglePrograms(){
   return(D.programs||[]).filter(function(p){
     return p.is_active!==false&&(
-      ['ROTG','ROTI','RTEST'].indexOf(p.id)>=0||
-      (p.sessions_total<=1&&['ROF','RPP','RPS'].indexOf(p.id)<0)
+      ['ROTG','ROTI'].indexOf(p.id)>=0||
+      (p.sessions_total<=1&&['ROF','RPP','RPS','RTEST'].indexOf(p.id)<0)
     );
   });
 }
@@ -3516,12 +3523,13 @@ async function confirmSlotSinglePay(custId){
   var noteEl=document.getElementById('slot-sp-note-'+key);
   var instEl=document.getElementById('slot-att-inst');
   var programId=(pay.programId||'')||(progEl?progEl.value:'');
+  // Fallback guard: RTEST must never be processed here; trial only via CRM Lead lifecycle
+  if(programId==='RTEST'){alert('RTEST artıq slot tək giriş kimi istifadə edilə bilməz.\nSınaq məşqi yalnız CRM Lead axınından qeyd edilir.');return;}
   var amount=parseFloat((amtEl?amtEl.value:pay.amount)||pay.amount)||0;
-  if(programId==='RTEST')amount=0;
   var note=(noteEl?noteEl.value:(pay.note||''))||'';
   var instId=sd.instId||(instEl?instEl.value:'');
   if(!programId){alert('Proqram seçin');return;}
-  if(amount<0||(amount===0&&programId!=='RTEST')){alert('Məbləğ 0-dan böyük olmalıdır');return;}
+  if(amount<0||amount===0){alert('Məbləğ 0-dan böyük olmalıdır');return;}
   if(sd.dateStr>td()){alert('Gələcək tarix üçün davamiyyət qeyd etmək olmaz.');return;}
   if(!instId){alert('Əvvəl instruktor seçin.');return;}
   // Partner ay limit xəbərdarlığı
@@ -3531,7 +3539,7 @@ async function confirmSlotSinglePay(custId){
   var entryItem=getSlotPayCustomer(key);
   var entryType=entryItem?entryItem.entryPaymentType:'single';
   if(entryType==='single'&&isPartnerEntryProgram(programId)){
-    alert('Bu bron Tək giriş kimi yaradılıb.\nPartner proqramı seçmək düzgün deyil — ROTG/ROTI/RTEST seçin.');
+    alert('Bu bron Tək giriş kimi yaradılıb.\nPartner proqramı seçmək düzgün deyil — ROTG/ROTI seçin.');
     return;
   }
   if(entryType==='partner'&&!isPartnerEntryProgram(programId)){
@@ -3547,7 +3555,7 @@ async function confirmSlotSinglePay(custId){
     }
   } else {
     accountId=(acctEl?acctEl.value:'')||pay.accountId||'';
-    if(!accountId&&!(programId==='RTEST'&&amount===0)){alert('Hesab seçin.');return;}
+    if(!accountId){alert('Hesab seçin.');return;}
   }
   var cust=null,prog=null,inst=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===key){cust=D.customers[i];break;}}
@@ -5049,7 +5057,7 @@ function rModalSingleAtt(){
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
     if(!p.is_active)continue;
-    if(p.sessions_total!==1&&['ROTG','ROTI','RTEST','ROF','RPP','RPS'].indexOf(p.id)<0)continue;
+    if(p.id==='RTEST'||(p.sessions_total!==1&&['ROTG','ROTI','ROF','RPP','RPS'].indexOf(p.id)<0))continue;
     var sel=(S.singleAttProgId===p.id)?' selected':'';
     var displayPrice=(p.id==='RTEST')?0:p.list_price;
     progOpts+='<option value="'+p.id+'"'+sel+' data-price="'+displayPrice+'" data-partner="'+(p.is_partner?'1':'0')+'" data-name="'+escHtml(p.name)+'">'+escHtml(p.name)+' — '+displayPrice+' AZN</option>';
@@ -5118,6 +5126,8 @@ function updateSingleProgram(){
 
 async function submitSingleAtt(){
   var progId=S.singleAttProgId||( document.getElementById('sa-prog')?document.getElementById('sa-prog').value:'');
+  // Fallback guard: RTEST must never be processed here; trial only via CRM Lead lifecycle
+  if(progId==='RTEST'){alert('RTEST artıq manual tək giriş kimi istifadə edilə bilməz.\nSınaq məşqi yalnız CRM Lead axınından qeyd edilir.');return;}
   var saDate=document.getElementById('sa-date')?document.getElementById('sa-date').value:td();
   var time=document.getElementById('sa-time').value;
   var instId=document.getElementById('sa-inst').value;
