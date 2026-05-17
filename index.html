@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — soft-role-visibility-v1</title>
+<title>Erge Pilates — actor-ui-display-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -251,6 +251,23 @@ function getUpdatedByMeta(){
   };
 }
 
+// ── ACTOR UI DISPLAY HELPERS (actor-ui-display-v1) ──
+function fmtRoleLabel(role){
+  if(!role||role==='unknown')return '';
+  var map={admin:'Admin',studio_manager:'Menecer',cashier:'Kassir'};
+  return map[role]||role;
+}
+// Returns compact actor line HTML for a transaction row (safe fallback for legacy rows)
+function fmtTxnActorHtml(t){
+  var h='';
+  var cname=t.created_by_name&&t.created_by_name!=='Unknown'?t.created_by_name:'';
+  var crole=t.created_by_role&&t.created_by_role!=='unknown'?fmtRoleLabel(t.created_by_role):'';
+  var uname=t.updated_by_name&&t.updated_by_name!=='Unknown'?t.updated_by_name:'';
+  var urole=t.updated_by_role&&t.updated_by_role!=='unknown'?fmtRoleLabel(t.updated_by_role):'';
+  if(cname)h+='<div style="font-size:10px;color:#bbb;margin-top:2px">Yaradan: '+escHtml(cname)+(crole?' ('+escHtml(crole)+')':'')+'</div>';
+  if(uname)h+='<div style="font-size:10px;color:#bbb;margin-top:1px">Son düzəliş: '+escHtml(uname)+(urole?' ('+escHtml(urole)+')':'')+'</div>';
+  return h;
+}
 // ── SOFT ROLE VISIBILITY HELPERS (soft-role-visibility-v1) ──
 function currentRole(){return S.currentUser?S.currentUser.role:'unknown';}
 function isAdmin(){return currentRole()==='admin';}
@@ -781,7 +798,7 @@ function render(){
     +'<span class="badge b-green">'+_roleLabel+'</span>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: soft-role-visibility-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: actor-ui-display-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -4814,11 +4831,19 @@ function rAdmin(){
         var alDate=formatBakuDateTime(alr.created_at);
         var alTypeColor={'subscription':'#1565C0','attendance':'#C62828','transaction':'#1D9E75'}[alr.entity_type]||'#555';
         var alDiff=renderAuditDiff(alr.old_value,alr.new_value,alr.entity_type,alr.action);
+        var alActorHtml='';
+        if(alr.actor&&alr.actor!=='Unknown'){
+          alActorHtml='<div style="font-size:10px;color:#aaa;margin-top:3px">👤 '+escHtml(alr.actor);
+          if(alr.session_id)alActorHtml+=' <span style="color:#ccc;font-size:9px">#'+escHtml(String(alr.session_id).slice(-6))+'</span>';
+          alActorHtml+='</div>';
+        } else if(alr.username&&alr.username!=='Unknown'){
+          alActorHtml='<div style="font-size:10px;color:#aaa;margin-top:3px">👤 '+escHtml(alr.username)+(alr.actor_role&&alr.actor_role!=='unknown'?' ('+escHtml(fmtRoleLabel(alr.actor_role))+')':'')+'</div>';
+        }
         h+='<tr style="border-bottom:1px solid #f5f5f5">';
         h+='<td style="padding:5px 8px;color:#888;white-space:nowrap">'+alDate+'</td>';
         h+='<td style="padding:5px 8px"><span style="color:'+alTypeColor+';font-weight:600">'+(alr.entity_type||'?')+'</span></td>';
         h+='<td style="padding:5px 8px"><span style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:11px">'+(alr.action||'?')+'</span></td>';
-        h+='<td style="padding:5px 8px;color:#444">'+(alr.summary||'—')+(alDiff?'<div style="margin-top:4px">'+alDiff+'</div>':'')+'</td>';
+        h+='<td style="padding:5px 8px;color:#444">'+(alr.summary||'—')+(alDiff?'<div style="margin-top:4px">'+alDiff+'</div>':'')+alActorHtml+'</td>';
         h+='</tr>';
       }
       h+='</table></div>';
@@ -5802,7 +5827,9 @@ function rTxnRows(txnList, acctMap){
     h+='<div style="display:grid;grid-template-columns:90px 1fr 100px 90px 60px;padding:9px 14px;background:'+bg+';border-top:'+(i?'1px solid #f0f0f0':'none')+';font-size:13px;align-items:center">'
       +'<div style="color:#888;font-size:12px">'+fmt(t.date)+'</div>'
       +'<div><div style="font-weight:500">'+(t.description||t.category)+'</div>'
-      +'<div style="font-size:11px;color:#aaa">'+t.category+'</div></div>'
+      +'<div style="font-size:11px;color:#aaa">'+t.category+'</div>'
+      +fmtTxnActorHtml(t)
+      +'</div>'
       +'<div style="font-size:12px;color:#555">'+acctName+'</div>'
       +'<div style="text-align:right;font-weight:600;color:'+amtColor+'">'+amtSign+Math.abs(parseFloat(t.amount||0)).toFixed(2)+' ₼</div>'
       +'<div style="display:flex;gap:4px;justify-content:flex-end">'
@@ -6440,7 +6467,7 @@ function exportAuditLogCSV(){
     return;
   }
   var rows=S.auditLogData.rows;
-  var cols=['created_at_baku','entity_type','entity_id','action','summary','old_value','new_value'];
+  var cols=['created_at_baku','entity_type','entity_id','action','summary','old_value','new_value','user_id','username','actor_role','session_id','actor'];
   var lines=[cols.join(',')];
   for(var i=0;i<rows.length;i++){
     var r=rows[i];
@@ -6460,7 +6487,12 @@ function exportAuditLogCSV(){
       safeStr(r.action),
       safeStr(r.summary),
       '"'+oldVal.replace(/"/g,'""')+'"',
-      '"'+newVal.replace(/"/g,'""')+'"'
+      '"'+newVal.replace(/"/g,'""')+'"',
+      safeStr(r.user_id),
+      safeStr(r.username),
+      safeStr(r.actor_role),
+      safeStr(r.session_id),
+      safeStr(r.actor)
     ].join(','));
   }
   var csv='\uFEFF'+lines.join('\r\n');
