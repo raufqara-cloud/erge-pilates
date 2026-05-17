@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — username-login-admin-users-v1-hotfix2</title>
+<title>Erge Pilates — subscription-attendance-hard-guards-v1-hotfix1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -566,6 +566,10 @@ async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNot
       render();
       return;
     }
+    // Subscription overlap hard guard: block if customer already has an open subscription
+    if(!await dbAssertCanCreateOrEditSubscription(custId,sd,null,'create')){
+      S.saving=false;render();return;
+    }
     var sub={id:uid(),customer_id:custId,program_id:progId,program_name:prog.name,
       sessions_total:prog.sessions_total,remaining:prog.sessions_total,
       list_price_at_sale:listNum,
@@ -732,6 +736,91 @@ function hasCustomerAnyBookingOnDate(customerId,dateStr,excludeExId){
   return false;
 }
 
+// ── SUBSCRIPTION HARD GUARDS v1 ─────────────────────────────────────────────
+// isSubscriptionOperationallyClosed: true only when subscription can no longer block a new one.
+// Two independent closing conditions — BOTH safe to call for active, pending, partner, legacy rows:
+//   1) end_date is present AND end_date < candidateStartDate  (period has elapsed)
+//   2) remaining is a real usable number AND remaining <= 0   (sessions exhausted)
+// IMPORTANT: null/undefined/NaN remaining is NOT treated as 0.
+//   Partner subs often have null remaining — end_date governs.
+//   Pending subs may have no reliable end_date yet — remaining governs.
+//   If BOTH are missing/unavailable, treat as still open (blocking) — safe direction.
+function isSubscriptionOperationallyClosed(existingSub,candidateStartDate){
+  var endDate=existingSub.end_date||'';
+  // Condition 1: end_date strictly before candidate
+  if(endDate&&endDate<candidateStartDate)return true;
+  // Condition 2: remaining is a real numeric value AND depleted
+  var rawRem=existingSub.remaining;
+  if(rawRem!==null&&rawRem!==undefined){
+    var rem=parseFloat(rawRem);
+    if(!isNaN(rem)&&rem<=0)return true;
+  }
+  // Missing/null/NaN remaining with end_date >= candidateStartDate (or no end_date) → still open
+  return false;
+}
+
+// isSubscriptionActiveOrPending: true when sub is operationally live (not explicitly disabled)
+function isSubscriptionActiveOrPending(sub){
+  if(sub.is_active===false)return false;
+  var st=sub.status||'';
+  if(st==='active'||st==='pending')return true;
+  if(!st&&sub.is_active!==false)return true; // legacy row without status field
+  return false;
+}
+
+// hasConflictingSubscriptionLocal: local-cache conflict scan
+function hasConflictingSubscriptionLocal(customerId,candidateStartDate,excludeSubId){
+  var lists=[D.subscriptions];
+  if(S.custDetail&&S.custDetail.subs)lists.push(S.custDetail.subs);
+  var seen={};
+  for(var li=0;li<lists.length;li++){
+    var arr=lists[li];if(!arr)continue;
+    for(var i=0;i<arr.length;i++){
+      var sub=arr[i];
+      if(sub.customer_id!==customerId)continue;
+      if(excludeSubId&&sub.id===excludeSubId)continue;
+      if(seen[sub.id])continue;
+      seen[sub.id]=true;
+      if(!isSubscriptionActiveOrPending(sub))continue;
+      // Same start date is always forbidden
+      if(sub.start_date===candidateStartDate)return true;
+      // Operationally open and overlapping
+      if(!isSubscriptionOperationallyClosed(sub,candidateStartDate))return true;
+    }
+  }
+  return false;
+}
+
+// dbAssertCanCreateOrEditSubscription: local + live DB subscription conflict check
+// mode: 'create' | 'edit' | 'activate'
+// Returns true = allowed, false = blocked (alert already shown)
+async function dbAssertCanCreateOrEditSubscription(customerId,candidateStartDate,excludeSubId,mode){
+  function _alertSub(m){
+    if(m==='edit')alert('Bu tarix başqa açıq abunəliklə konflikt yaradır. Abunəlik başlanğıc tarixini dəyişmək olmaz.');
+    else if(m==='activate')alert('Bu tarixdə başqa açıq abunəlik olduğu üçün pending abunəlik aktivləşdirilə bilməz.');
+    else alert('Bu müştərinin bu tarixə açıq abunəliyi var. Mövcud abunəlik bitmədən və ya dərs qalığı sıfırlanmadan yeni abunəlik yaratmaq olmaz.');
+  }
+  // 1) Local cache check
+  if(hasConflictingSubscriptionLocal(customerId,candidateStartDate,excludeSubId)){
+    _alertSub(mode);return false;
+  }
+  // 2) Live DB check (catches stale cache / other device)
+  try{
+    var dbSubs=await dbGet('subscriptions','customer_id=eq.'+customerId+'&is_active=neq.false&select=id,start_date,end_date,remaining,status,is_active&limit=50');
+    if(dbSubs&&dbSubs.length>0){
+      for(var i=0;i<dbSubs.length;i++){
+        var sub=dbSubs[i];
+        if(excludeSubId&&sub.id===excludeSubId)continue;
+        if(!isSubscriptionActiveOrPending(sub))continue;
+        if(sub.start_date===candidateStartDate){_alertSub(mode);return false;}
+        if(!isSubscriptionOperationallyClosed(sub,candidateStartDate)){_alertSub(mode);return false;}
+      }
+    }
+  }catch(e){}
+  return true;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function doAtt(custId,subId,classTime,instId,attDate){
   if(!await dbAssertCanCreateAttendance(custId,attDate||td()))return;
   S.saving=true;render();
@@ -746,6 +835,10 @@ async function doAtt(custId,subId,classTime,instId,attDate){
       for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
       var newStart=attDate||td();
       var newEnd=addDays(newStart,prog?prog.duration_days:30);
+      // Subscription conflict guard: ensure no other open sub exists for this start date
+      if(!await dbAssertCanCreateOrEditSubscription(custId,newStart,subId,'activate')){
+        S.saving=false;render();return;
+      }
       await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
       sub.status='active';sub.start_date=newStart;sub.end_date=newEnd;
     }
@@ -797,7 +890,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: username-login-admin-users-v1-hotfix2</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: subscription-attendance-hard-guards-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1809,6 +1902,75 @@ async function submitAddBron(){
   if(!custId)return alert('Müştəri seçin');
   var cust=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+
+  // ── Same-day defense-in-depth guards (legacy path protection) ────────────
+  if(type==='permanent'){
+    var _abDay=S.selBronDay;
+    if(_abDay){
+      // Local: active permanent booking on same day_of_week
+      if(hasActivePermanentBookingOnDow(custId,_abDay)){
+        return alert('Bu müştərinin '+(DAYS_AZ[_abDay-1]||'')+' günü üçün artıq aktiv sabit bronu var.\nEyni gündə ikinci sabit bron yaratmaq olmaz.');
+      }
+      // Local: any booking/temp_add on first occurrence date of this dow
+      var _abCheckDate=getNextDateForDow(S.selBronDate||td(),_abDay);
+      if(hasCustomerAnyBookingOnDate(custId,_abCheckDate)){
+        return alert('Bu müştərinin həmin tarixdə ('+_abCheckDate+') artıq bronu var. Eyni günə ikinci slot yaratmaq olmaz.');
+      }
+      // DB live: permanent booking same dow
+      try{
+        var _abDbPerm=await dbGet('bookings','customer_id=eq.'+custId+'&day_of_week=eq.'+_abDay+'&type=eq.permanent&select=id,is_active&limit=5');
+        if(_abDbPerm){
+          for(var _abpi=0;_abpi<_abDbPerm.length;_abpi++){
+            if(_abDbPerm[_abpi].is_active!==false){
+              return alert('Bu müştərinin '+(DAYS_AZ[_abDay-1]||'')+' günü üçün artıq aktiv sabit bronu var (başqa cihazdan yaradılmış ola bilər).');
+            }
+          }
+        }
+        // DB live: temp_add on first occurrence date
+        var _abDbTmp=await dbGet('booking_exceptions','type=eq.temp_add&temp_customer_id=eq.'+custId+'&exception_date=eq.'+_abCheckDate+'&select=id&limit=1');
+        if(_abDbTmp&&_abDbTmp.length>0){
+          return alert('Bu müştərinin həmin tarixdə ('+_abCheckDate+') artıq müvəqqəti bronu var (başqa cihazdan yaradılmış ola bilər).');
+        }
+      }catch(e){}
+    }
+  } else {
+    // temp_add branch
+    var _abDate=S.selBronDate||td();
+    // Local: existing temp_add on same date
+    if(hasCustomerTempAddOnDate(custId,_abDate)){
+      return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var.');
+    }
+    // Local: active permanent booking on same date
+    if(hasCustomerActiveBookingOnDate(custId,_abDate)){
+      return alert('Bu müştərinin həmin tarixdə aktiv sabit bronu var.\nMüvəqqəti bron əlavə etmək olmaz.');
+    }
+    // DB live: temp_add on same date
+    try{
+      var _abDbTmpEx=await dbGet('booking_exceptions','type=eq.temp_add&temp_customer_id=eq.'+custId+'&exception_date=eq.'+_abDate+'&select=id&limit=1');
+      if(_abDbTmpEx&&_abDbTmpEx.length>0){
+        return alert('Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var (başqa cihazdan yaradılmış ola bilər).');
+      }
+      // DB live: active permanent booking on same date (respecting absent exceptions)
+      var _abDow2=new Date(_abDate+'T00:00:00').getDay();
+      var _abSlotDow2=(_abDow2===0)?7:_abDow2;
+      var _abDbPermEx=await dbGet('bookings','customer_id=eq.'+custId+'&day_of_week=eq.'+_abSlotDow2+'&type=eq.permanent&is_active=eq.true&select=id,valid_from,valid_until&limit=5');
+      if(_abDbPermEx&&_abDbPermEx.length>0){
+        for(var _abpi2=0;_abpi2<_abDbPermEx.length;_abpi2++){
+          var _abpb=_abDbPermEx[_abpi2];
+          if(_abpb.valid_from&&_abDate<_abpb.valid_from)continue;
+          if(_abpb.valid_until&&_abDate>_abpb.valid_until)continue;
+          if(hasAbsentForBookingOnDate(_abpb.id,_abDate))continue;
+          try{
+            var _abAbChk=await dbGet('booking_exceptions','type=eq.absent&booking_id=eq.'+_abpb.id+'&exception_date=eq.'+_abDate+'&select=id&limit=1');
+            if(_abAbChk&&_abAbChk.length>0)continue;
+          }catch(e2){}
+          return alert('Bu müştərinin həmin tarixdə aktiv sabit bronu var (başqa cihazdan yaradılmış ola bilər).');
+        }
+      }
+    }catch(e){}
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   S.saving=true;render();
   try{
     if(type==='permanent'){
@@ -3855,6 +4017,8 @@ async function createAttendance(custId, subId, classTime, instId, attDate){
     for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
     var newStart=attDate;
     var newEnd=addDays(newStart,prog?prog.duration_days:30);
+    // Subscription conflict guard: ensure no other open sub exists for this start date
+    if(!await dbAssertCanCreateOrEditSubscription(custId,newStart,subId,'activate')) return null;
     await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
     sub.status='active';sub.start_date=newStart;sub.end_date=newEnd;
     if(S.custDetail&&S.custDetail.subs){
@@ -5553,6 +5717,12 @@ async function submitEditSub(){
   if(_editSubObj){for(var _i=0;_i<D.customers.length;_i++){if(D.customers[_i].id===_editSubObj.customer_id){_editCust=D.customers[_i];break;}}}
   var _auditCustLabel=_editCust?_editCust.name:(_editSubObj?_editSubObj.customer_id:'?');
   var _auditProgLabel=_editSubObj?(_editSubObj.program_name||_editSubObj.program_id||'?'):'?';
+  // Subscription overlap guard: check new start_date does not conflict with another open sub
+  if(_editSubObj){
+    if(!await dbAssertCanCreateOrEditSubscription(_editSubObj.customer_id,start,S.editSub,'edit')){
+      return;
+    }
+  }
   S.saving=true;render();
   try{
     await dbPatch('subscriptions','id=eq.'+S.editSub,{
