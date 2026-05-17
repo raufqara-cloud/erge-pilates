@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — actor-ui-display-v1</title>
+<title>Erge Pilates — username-login-admin-users-v1-hotfix2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -231,11 +231,13 @@ async function hashPin(pin){
   }
 }
 
+// Returns best visible display name for a user object (username preferred, display_name fallback)
+function visibleUsername(u){return u?(u.username||u.display_name||''):'';}  
 function getActorMeta(){
   var u=S.currentUser||null;
   return {
     created_by_user_id:u?u.id:null,
-    created_by_name:u?u.display_name:'Unknown',
+    created_by_name:u?visibleUsername(u):'Unknown',
     created_by_role:u?u.role:'unknown',
     created_session_id:u?u.session_id:null
   };
@@ -245,7 +247,7 @@ function getUpdatedByMeta(){
   var u=S.currentUser||null;
   return {
     updated_by_user_id:u?u.id:null,
-    updated_by_name:u?u.display_name:'Unknown',
+    updated_by_name:u?visibleUsername(u):'Unknown',
     updated_by_role:u?u.role:'unknown',
     updated_session_id:u?u.session_id:null
   };
@@ -261,11 +263,9 @@ function fmtRoleLabel(role){
 function fmtTxnActorHtml(t){
   var h='';
   var cname=t.created_by_name&&t.created_by_name!=='Unknown'?t.created_by_name:'';
-  var crole=t.created_by_role&&t.created_by_role!=='unknown'?fmtRoleLabel(t.created_by_role):'';
   var uname=t.updated_by_name&&t.updated_by_name!=='Unknown'?t.updated_by_name:'';
-  var urole=t.updated_by_role&&t.updated_by_role!=='unknown'?fmtRoleLabel(t.updated_by_role):'';
-  if(cname)h+='<div style="font-size:10px;color:#bbb;margin-top:2px">Yaradan: '+escHtml(cname)+(crole?' ('+escHtml(crole)+')':'')+'</div>';
-  if(uname)h+='<div style="font-size:10px;color:#bbb;margin-top:1px">Son düzəliş: '+escHtml(uname)+(urole?' ('+escHtml(urole)+')':'')+'</div>';
+  if(cname)h+='<div style="font-size:10px;color:#bbb;margin-top:2px">Yaradan: '+escHtml(cname)+'</div>';
+  if(uname)h+='<div style="font-size:10px;color:#bbb;margin-top:1px">Son düzəliş: '+escHtml(uname)+'</div>';
   return h;
 }
 // ── SOFT ROLE VISIBILITY HELPERS (soft-role-visibility-v1) ──
@@ -787,18 +787,17 @@ async function doFreeze(subId,days,note){
 
 function render(){
   var root=document.getElementById('root');
-  // Login modal takes priority over everything
+  // Login modal takes priority over everything (also handles forced PIN change screen)
   if(S.showLoginModal||!S.currentUser){root.innerHTML=rLoginModal();return;}
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
   // Build user info chip for topbar
   var _u=S.currentUser;
-  var _roleLabel={admin:'Admin',studio_manager:'Menecer',cashier:'Kassir'}[_u.role]||_u.role;
   var _userChip='<div class="user-chip">'
-    +'<span>'+escHtml(_u.display_name)+'</span>'
-    +'<span class="badge b-green">'+_roleLabel+'</span>'
+    +'<span>'+escHtml(visibleUsername(_u))+'</span>'
+    +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: actor-ui-display-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: username-login-admin-users-v1-hotfix2</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -839,6 +838,9 @@ function render(){
   if(S.selLead)h+=rModalLeadDetail();
   if(S.leadLostModal)h+=rModalLeadLost();
   if(S.showCommRuleModal)h+=rModalCommRule();
+  if(S.showAddUser)h+=rModalAddUser();
+  if(S.showEditUser)h+=rModalEditUser();
+  if(S.showSelfPinChange)h+=rModalSelfPinChange();
   root.innerHTML=h;
 }
 
@@ -4833,11 +4835,9 @@ function rAdmin(){
         var alDiff=renderAuditDiff(alr.old_value,alr.new_value,alr.entity_type,alr.action);
         var alActorHtml='';
         if(alr.actor&&alr.actor!=='Unknown'){
-          alActorHtml='<div style="font-size:10px;color:#aaa;margin-top:3px">👤 '+escHtml(alr.actor);
-          if(alr.session_id)alActorHtml+=' <span style="color:#ccc;font-size:9px">#'+escHtml(String(alr.session_id).slice(-6))+'</span>';
-          alActorHtml+='</div>';
+          alActorHtml='<div style="font-size:10px;color:#aaa;margin-top:3px">👤 '+escHtml(alr.actor)+'</div>';
         } else if(alr.username&&alr.username!=='Unknown'){
-          alActorHtml='<div style="font-size:10px;color:#aaa;margin-top:3px">👤 '+escHtml(alr.username)+(alr.actor_role&&alr.actor_role!=='unknown'?' ('+escHtml(fmtRoleLabel(alr.actor_role))+')':'')+'</div>';
+          alActorHtml='<div style="font-size:10px;color:#aaa;margin-top:3px">👤 '+escHtml(alr.username)+'</div>';
         }
         h+='<tr style="border-bottom:1px solid #f5f5f5">';
         h+='<td style="padding:5px 8px;color:#888;white-space:nowrap">'+alDate+'</td>';
@@ -4851,6 +4851,49 @@ function rAdmin(){
     h+='</div>';
   }
   h+='</div>';
+
+  // ── İSTİFADƏÇİLƏR (Admin-only) ──
+  if(isAdmin()){
+    if(!S.adminUsersData&&!S.adminUsersLoading){loadAdminUsers();}
+    var usersBadge=S.adminUsersData?S.adminUsersData.length+' istifadəçi':'...';
+    h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+    h+=rAdminAccHdr('users','👥','İstifadəçilər',usersBadge,'b-purple');
+    if(sec.users){
+      h+='<div style="padding:12px 16px">';
+      h+='<div style="font-size:12px;color:#888;margin-bottom:10px">Login istifadəçilərini idarə edin. Yalnız admin görür.</div>';
+      h+='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-g btn-sm" onclick="S.showAddUser=true;render()">+ Yeni istifadəçi</button></div>';
+      if(S.adminUsersLoading){
+        h+='<div style="font-size:12px;color:#aaa"><span class="spin"></span> Yüklənir...</div>';
+      } else if(!S.adminUsersData){
+        h+='<div style="font-size:12px;color:#aaa">Yüklənir...</div>';
+      } else if(!S.adminUsersData.length){
+        h+='<div class="empty">İstifadəçi tapılmadı</div>';
+      } else {
+        for(var ui=0;ui<S.adminUsersData.length;ui++){
+          var au=S.adminUsersData[ui];
+          var auRoleLabel={admin:'Admin',studio_manager:'Menecer',cashier:'Kassir'}[au.role]||au.role;
+          var auBadgeClass={admin:'b-purple',studio_manager:'b-blue',cashier:'b-gray'}[au.role]||'b-gray';
+          var auActive=au.is_active!==false;
+          h+='<div class="attitem" style="flex-wrap:wrap;gap:6px">'
+            +'<div style="flex:1;min-width:0">'
+            +'<div style="font-size:13px;font-weight:600">'+escHtml(au.username||'—')
+            +(au.display_name&&au.display_name!==au.username?'<span style="font-size:11px;color:#aaa;font-weight:400"> ('+escHtml(au.display_name)+')</span>':'')
+            +'</div>'
+            +'<div style="font-size:11px;color:#aaa;margin-top:2px">ID: '+escHtml(au.id)+'</div>'
+            +'</div>'
+            +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+            +'<span class="badge '+auBadgeClass+'">'+auRoleLabel+'</span>'
+            +'<span class="badge '+(auActive?'b-green':'b-gray')+'">'+(auActive?'Aktiv':'Deaktiv')+'</span>'
+            +'<button class="btn btn-gray btn-sm" onclick="openEditUser(\''+au.id+'\')">Redaktə</button>'
+            +'<button class="btn '+(auActive?'btn-gray':'btn-g')+' btn-sm" onclick="toggleAppUser(\''+au.id+'\','+(!auActive)+')">'+(auActive?'Deaktiv et':'Aktiv et')+'</button>'
+            +'</div>'
+            +'</div>';
+        }
+      }
+      h+='</div>';
+    }
+    h+='</div>';
+  }
 
   return h;
 }
@@ -6421,10 +6464,10 @@ async function logAudit(entityType, entityId, action, summary, oldVal, newVal){
       new_value:newVal!==undefined?newVal:null,
       // Actor metadata — requires audit_logs schema migration
       user_id:_u?_u.id:null,
-      username:_u?_u.display_name:'Unknown',
+      username:_u?visibleUsername(_u):'Unknown',
       actor_role:_u?_u.role:'unknown',
       session_id:_u?_u.session_id:null,
-      actor:_u?(_u.display_name+' ('+_u.role+')'):'Unknown'
+      actor:_u?visibleUsername(_u):'Unknown'
     };
     var r=await fetch(BASE+'/audit_logs',{
       method:'POST',
@@ -8515,6 +8558,27 @@ function instNameForId(instId){
 // ── SOFT ACTOR FOUNDATION — Login / Session ──
 
 function rLoginModal(){
+  // ── Forced PIN change screen (shown after successful login if must_change_pin=true) ──
+  if(S.pendingPinChangeUser){
+    return '<div class="login-screen"><div class="login-card">'
+      +'<div class="login-logo">ERGE <span>PILATES</span></div>'
+      +'<div class="login-sub" style="color:#E65100;font-weight:600">🔒 PIN dəyişdirilməlidir</div>'
+      +'<div style="font-size:12px;color:#888;margin-bottom:16px;text-align:center">Admin tərəfindən müvəqqəti PIN təyin edilib. Davam etmək üçün yeni PIN seçin.</div>'
+      +(S._forcedPinErr?'<div class="login-err">'+escHtml(S._forcedPinErr)+'</div>':'')
+      +'<div class="fg"><label class="fl">Müvəqqəti PIN (mövcud)</label>'
+      +'<input class="fi" id="fp-old" type="password" maxlength="8" placeholder="••••" autocomplete="current-password" '
+      +'onkeydown="if(event.key===\'Enter\')document.getElementById(\'fp-new\').focus()"></div>'
+      +'<div class="fg"><label class="fl">Yeni PIN</label>'
+      +'<input class="fi" id="fp-new" type="password" maxlength="8" placeholder="4–8 rəqəm" '
+      +'onkeydown="if(event.key===\'Enter\')document.getElementById(\'fp-new2\').focus()"></div>'
+      +'<div class="fg"><label class="fl">Yeni PIN təkrar</label>'
+      +'<input class="fi" id="fp-new2" type="password" maxlength="8" placeholder="4–8 rəqəm" '
+      +'onkeydown="if(event.key===\'Enter\')submitForcedPinChange()"></div>'
+      +'<div class="mact" style="margin-top:8px;flex-direction:column;gap:8px">'
+      +'<button class="btn btn-g" style="width:100%;padding:10px" onclick="submitForcedPinChange()">PIN-i yenilə və daxil ol</button>'
+      +'<button class="btn btn-gray" style="width:100%;padding:8px;font-size:12px" onclick="switchUser()">↩ Geri qayıt</button>'
+      +'</div></div></div>';
+  }
   if(S.appUsersData===null){
     return '<div class="login-screen"><div class="login-card">'
       +'<div class="login-logo">ERGE <span>PILATES</span></div>'
@@ -8531,69 +8595,141 @@ function rLoginModal(){
       +'<button class="btn btn-g" style="width:100%" onclick="bypassLogin()">Müvəqqəti daxil ol (sistem)</button>'
       +'</div></div>';
   }
-  var userOpts='<option value="">— Operator seçin —</option>';
-  for(var i=0;i<S.appUsersData.length;i++){
-    var u=S.appUsersData[i];
-    var rl={admin:'Admin',studio_manager:'Menecer',cashier:'Kassir'}[u.role]||u.role;
-    userOpts+='<option value="'+u.id+'">'+escHtml(u.display_name)+' — '+rl+'</option>';
-  }
   return '<div class="login-screen"><div class="login-card">'
     +'<div class="login-logo">ERGE <span>PILATES</span></div>'
-    +'<div class="login-sub">Operatoru seçin və PIN daxil edin</div>'
+    +'<div class="login-sub">İstifadəçi adı və PIN daxil edin</div>'
     +(S._loginErr?'<div class="login-err">'+escHtml(S._loginErr)+'</div>':'')
-    +'<div class="fg"><label class="fl">Operator</label>'
-    +'<select class="fs" id="login-user">'+userOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">İstifadəçi adı</label>'
+    +'<input class="fi" id="login-username" type="text" autocomplete="username" placeholder="istifadəçi adı" '
+    +'onkeydown="if(event.key===\'Enter\')document.getElementById(\'login-pin\').focus()"></div>'
     +'<div class="fg"><label class="fl">PIN</label>'
-    +'<input class="fi" id="login-pin" type="password" maxlength="8" placeholder="••••" '
+    +'<input class="fi" id="login-pin" type="password" maxlength="8" placeholder="••••" autocomplete="current-password" '
     +'onkeydown="if(event.key===\'Enter\')loginSubmit()"></div>'
     +'<div class="mact" style="margin-top:8px"><button class="btn btn-g" style="width:100%;padding:10px" onclick="loginSubmit()">Daxil ol</button></div>'
     +'</div></div>';
 }
 
 async function loginSubmit(){
-  var selEl=document.getElementById('login-user');
+  var unEl=document.getElementById('login-username');
   var pinEl=document.getElementById('login-pin');
-  var userId=selEl?selEl.value:'';
+  var uname=(unEl?unEl.value:'').trim();
   var pin=pinEl?pinEl.value:'';
-  if(!userId){S._loginErr='Operator seçilməlidir.';render();return;}
+  if(!uname){S._loginErr='İstifadəçi adı daxil edilməlidir.';render();return;}
   if(!pin){S._loginErr='PIN daxil edilməlidir.';render();return;}
+  // Find user by username (case-insensitive); fallback to display_name for backward compat
   var user=null;
-  for(var i=0;i<(S.appUsersData||[]).length;i++){if(S.appUsersData[i].id===userId){user=S.appUsersData[i];break;}}
-  if(!user){S._loginErr='İstifadəçi tapılmadı.';render();return;}
+  var unameLower=uname.toLowerCase();
+  for(var i=0;i<(S.appUsersData||[]).length;i++){
+    var u=S.appUsersData[i];
+    var uField=(u.username||'').toLowerCase();
+    var dField=(u.display_name||'').toLowerCase();
+    if(uField===unameLower||(uField===''&&dField===unameLower)){user=u;break;}
+  }
   var pinHash=await hashPin(pin);
-  if(!pinHash||pinHash!==user.pin_hash){
-    S._loginErr='PIN yanlışdır. Yenidən cəhd edin.';
+  // Generic error — do NOT reveal whether username exists
+  if(!user||!pinHash||pinHash!==user.pin_hash){
+    S._loginErr='İstifadəçi adı və ya PIN yanlışdır.';
     render();
-    // Clear pin field after error
     var pinEl2=document.getElementById('login-pin');
     if(pinEl2)pinEl2.value='';
     return;
   }
-  // Success
+  // PIN correct — check must_change_pin before opening app
   S._loginErr=null;
+  if(user.must_change_pin===true){
+    S.pendingPinChangeUser=user;
+    S._forcedPinErr=null;
+    render(); // shows forced PIN change screen via rLoginModal()
+    return;
+  }
+  // Normal login
   var sesId='SES'+Date.now()+Math.random().toString(36).slice(2,5);
-  S.currentUser={id:user.id,display_name:user.display_name,role:user.role,session_id:sesId,login_at:new Date().toISOString()};
+  S.currentUser={id:user.id,username:user.username||user.display_name,display_name:user.display_name||user.username,role:user.role,session_id:sesId,login_at:new Date().toISOString()};
   S.showLoginModal=false;
   S.loading=true;
   render(); // show loading spinner
   loadAll(); // now load operational data
 }
 
+async function submitForcedPinChange(){
+  var pcu=S.pendingPinChangeUser;
+  if(!pcu){S._forcedPinErr='Xəta: sessiya etibarsız. Geri qayıdın.';render();return;}
+  var oldPinEl=document.getElementById('fp-old');
+  var newPinEl=document.getElementById('fp-new');
+  var new2PinEl=document.getElementById('fp-new2');
+  var oldPin=oldPinEl?oldPinEl.value:'';
+  var newPin=newPinEl?newPinEl.value:'';
+  var newPin2=new2PinEl?new2PinEl.value:'';
+  if(!oldPin){S._forcedPinErr='Mövcud PIN daxil edilməlidir.';render();return;}
+  if(!newPin){S._forcedPinErr='Yeni PIN daxil edilməlidir.';render();return;}
+  if(!/^\d{4,8}$/.test(newPin)){S._forcedPinErr='Yeni PIN 4–8 rəqəmdən ibarət olmalıdır.';render();return;}
+  if(newPin!==newPin2){S._forcedPinErr='Yeni PIN-lər uyğun deyil.';render();return;}
+  // Verify old PIN again
+  var oldHash=await hashPin(oldPin);
+  if(!oldHash||oldHash!==pcu.pin_hash){
+    S._forcedPinErr='Mövcud PIN yanlışdır.';
+    render();
+    if(oldPinEl)oldPinEl.value='';
+    return;
+  }
+  // Prevent same PIN
+  var newHash=await hashPin(newPin);
+  if(!newHash){S._forcedPinErr='PIN hash xətası.';render();return;}
+  if(newHash===pcu.pin_hash){S._forcedPinErr='Yeni PIN köhnə PIN ilə eyni ola bilməz.';render();return;}
+  // Patch DB
+  var now=new Date().toISOString();
+  try{
+    await dbPatch('app_users','id=eq.'+encodeURIComponent(pcu.id),{
+      pin_hash:newHash,
+      must_change_pin:false,
+      pin_changed_at:now
+    });
+  }catch(e){S._forcedPinErr='Xəta: '+e.message;render();return;}
+  // Refresh active users cache so same-session re-login uses new PIN
+  await refreshActiveAppUsers();
+  // Create session and open app
+  S._forcedPinErr=null;
+  S.pendingPinChangeUser=null;
+  var sesId='SES'+Date.now()+Math.random().toString(36).slice(2,5);
+  S.currentUser={id:pcu.id,username:pcu.username||pcu.display_name,display_name:pcu.display_name||pcu.username,role:pcu.role,session_id:sesId,login_at:new Date().toISOString()};
+  S.showLoginModal=false;
+  S.loading=true;
+  logAudit('app_user',pcu.id,'pin_change','İstifadəçi məcburi PIN dəyişdirdi',null,{must_change_pin:false,pin_changed_at:now});
+  render();
+  loadAll();
+}
+
 function bypassLogin(){
   // Used only when app_users table is empty — soft bypass
   S._loginErr=null;
   var sesId='SES'+Date.now()+Math.random().toString(36).slice(2,5);
-  S.currentUser={id:'system',display_name:'System',role:'admin',session_id:sesId,login_at:new Date().toISOString()};
+  S.currentUser={id:'system',username:'system',display_name:'System',role:'admin',session_id:sesId,login_at:new Date().toISOString()};
   S.showLoginModal=false;
   S.loading=true;
   render();
   loadAll();
 }
 
-function switchUser(){
+// Refreshes S.appUsersData (active users only) — used after any user management write
+// and on switchUser so the login screen always sees the freshest data.
+async function refreshActiveAppUsers(){
+  try{
+    var rows=await dbGet('app_users','is_active=eq.true&order=sort_order');
+    S.appUsersData=rows||[];
+  }catch(e){
+    console.warn('[auth] refreshActiveAppUsers failed:',e.message);
+  }
+}
+
+async function switchUser(){
   S.currentUser=null;
   S.showLoginModal=true;
   S._loginErr=null;
+  S.pendingPinChangeUser=null;
+  S._forcedPinErr=null;
+  S.appUsersData=null; // trigger loading state in rLoginModal
+  render();
+  await refreshActiveAppUsers();
   render();
 }
 
@@ -8603,14 +8739,271 @@ async function initApp(){
   S.showLoginModal=true;
   S.appUsersData=null;
   render(); // show login modal loading state
-  try{
-    var rows=await dbGet('app_users','is_active=eq.true&order=sort_order');
-    S.appUsersData=rows||[];
-  }catch(e){
-    S.appUsersData=[];
-    console.warn('[auth] initApp fetchAppUsers failed:',e.message);
-  }
+  await refreshActiveAppUsers();
   render(); // show login modal with users (or fallback)
+}
+
+// ── ADMIN USER MANAGEMENT (username-login-admin-users-v1) ──
+
+async function loadAdminUsers(){
+  if(S.adminUsersLoading)return;
+  S.adminUsersLoading=true;
+  S.adminUsersData=null;
+  render();
+  try{
+    var rows=await dbGet('app_users','order=sort_order');
+    S.adminUsersData=rows||[];
+  }catch(e){
+    S.adminUsersData=[];
+    console.warn('[adminUsers] load failed:',e.message);
+  }
+  S.adminUsersLoading=false;
+  render();
+}
+
+function openEditUser(userId){
+  var u=null;
+  for(var i=0;i<(S.adminUsersData||[]).length;i++){if(S.adminUsersData[i].id===userId){u=S.adminUsersData[i];break;}}
+  if(!u)return;
+  S.editUserData={id:u.id,username:u.username||'',display_name:u.display_name||'',role:u.role||'cashier',is_active:u.is_active!==false};
+  S.showEditUser=true;
+  render();
+}
+
+async function toggleAppUser(userId, newActive){
+  if(!isAdmin())return;
+  // Last active admin protection
+  if(!newActive){
+    var activeAdmins=(S.adminUsersData||[]).filter(function(u){return u.role==='admin'&&u.is_active!==false;});
+    var target=null;
+    for(var i=0;i<(S.adminUsersData||[]).length;i++){if(S.adminUsersData[i].id===userId){target=S.adminUsersData[i];break;}}
+    if(target&&target.role==='admin'&&activeAdmins.length<=1){
+      alert('Xəta: Son aktiv admin deaktiv edilə bilməz.');
+      return;
+    }
+  }
+  if(!confirm((newActive?'Aktiv':'Deaktiv')+' etmək istədiyinizə əminsiniz?'))return;
+  S.saving=true;render();
+  try{
+    await dbPatch('app_users','id=eq.'+encodeURIComponent(userId),{is_active:newActive});
+    await loadAdminUsers();
+    await refreshActiveAppUsers();
+    logAudit('app_user',userId,(newActive?'activate':'deactivate'),'İstifadəçi '+(newActive?'aktivləşdirildi':'deaktivləşdirildi'),{is_active:!newActive},{is_active:newActive});
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+function rModalAddUser(){
+  var d=S.newUserData||{};
+  return '<div class="ov" onclick="if(event.target.classList.contains(\'ov\')){S.showAddUser=false;S.newUserData={};render()}"><div class="modal">'
+    +'<div class="mtitle">Yeni İstifadəçi</div>'
+    +'<div class="fg"><label class="fl">İstifadəçi adı *</label>'
+    +'<input class="fi" id="nu-username" placeholder="mehman_k" value="'+escHtml(d.username||'')+'"></div>'
+    +'<div class="fg"><label class="fl">Görünən ad (opsional)</label>'
+    +'<input class="fi" id="nu-displayname" placeholder="Mehman K" value="'+escHtml(d.display_name||'')+'"></div>'
+    +'<div class="fg"><label class="fl">Rol</label>'
+    +'<select class="fs" id="nu-role">'
+    +'<option value="cashier"'+((!d.role||d.role==='cashier')?' selected':'')+'>Kassir</option>'
+    +'<option value="studio_manager"'+(d.role==='studio_manager'?' selected':'')+'>Menecer</option>'
+    +'<option value="admin"'+(d.role==='admin'?' selected':'')+'>Admin</option>'
+    +'</select></div>'
+    +'<div class="fg"><label class="fl">PIN (rəqəm) *</label>'
+    +'<input class="fi" id="nu-pin" type="password" maxlength="8" placeholder="••••"></div>'
+    +'<div class="fg"><label class="fl">PIN təkrar *</label>'
+    +'<input class="fi" id="nu-pin2" type="password" maxlength="8" placeholder="••••"></div>'
+    +(S._userFormErr?'<div class="errbox">'+escHtml(S._userFormErr)+'</div>':'')
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showAddUser=false;S.newUserData={};S._userFormErr=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitAddUser()">Yarat</button>'
+    +'</div></div></div>';
+}
+
+async function submitAddUser(){
+  var username=(document.getElementById('nu-username').value||'').trim().toLowerCase();
+  var displayName=(document.getElementById('nu-displayname').value||'').trim();
+  var role=document.getElementById('nu-role').value||'cashier';
+  var pin=(document.getElementById('nu-pin').value||'').trim();
+  var pin2=(document.getElementById('nu-pin2').value||'').trim();
+  if(!username){S._userFormErr='İstifadəçi adı tələb olunur.';render();return;}
+  if(!/^[a-z0-9_]+$/.test(username)){S._userFormErr='İstifadəçi adı yalnız kiçik hərf, rəqəm və _ işarəsi ola bilər.';render();return;}
+  if(!pin){S._userFormErr='PIN tələb olunur.';render();return;}
+  if(!/^\d{4,8}$/.test(pin)){S._userFormErr='Yeni PIN 4–8 rəqəmdən ibarət olmalıdır.';render();return;}
+  if(pin!==pin2){S._userFormErr='PIN-lər uyğun deyil.';render();return;}
+  // Check duplicate username in cache
+  var existing=(S.adminUsersData||[]).filter(function(u){return (u.username||'').toLowerCase()===username;});
+  if(existing.length){S._userFormErr='Bu istifadəçi adı artıq mövcuddur.';render();return;}
+  var pinHash=await hashPin(pin);
+  if(!pinHash){S._userFormErr='PIN hash xətası.';render();return;}
+  S.saving=true;render();
+  try{
+    var newId='U'+String(Date.now()).slice(-6);
+    var now=new Date().toISOString();
+    var body={
+      id:newId,
+      username:username,
+      display_name:displayName||username,
+      role:role,
+      pin_hash:pinHash,
+      is_active:true,
+      sort_order:99,
+      must_change_pin:true,
+      pin_reset_at:now,
+      pin_reset_by_user_id:S.currentUser?S.currentUser.id:null
+    };
+    await dbPost('app_users',body);
+    S.showAddUser=false;S._userFormErr=null;S.newUserData={};
+    await loadAdminUsers();
+    await refreshActiveAppUsers();
+    logAudit('app_user',newId,'create','Yeni istifadəçi yaradıldı: '+username,null,{username,role,must_change_pin:true});
+  }catch(e){S._userFormErr='Xəta: '+e.message;S.saving=false;render();return;}
+  S.saving=false;render();
+}
+
+function rModalEditUser(){
+  var d=S.editUserData||{};
+  return '<div class="ov" onclick="if(event.target.classList.contains(\'ov\')){S.showEditUser=false;S.editUserData=null;S._userFormErr=null;render()}"><div class="modal">'
+    +'<div class="mtitle">İstifadəçi Redaktəsi</div>'
+    +'<div class="fg"><label class="fl">ID</label>'
+    +'<div style="font-size:12px;color:#888;padding:6px 0">'+escHtml(d.id||'')+'</div></div>'
+    +'<div class="fg"><label class="fl">İstifadəçi adı *</label>'
+    +'<input class="fi" id="eu-username" value="'+escHtml(d.username||'')+'"></div>'
+    +'<div class="fg"><label class="fl">Görünən ad</label>'
+    +'<input class="fi" id="eu-displayname" value="'+escHtml(d.display_name||'')+'"></div>'
+    +'<div class="fg"><label class="fl">Rol</label>'
+    +'<select class="fs" id="eu-role">'
+    +'<option value="cashier"'+(d.role==='cashier'?' selected':'')+'>Kassir</option>'
+    +'<option value="studio_manager"'+(d.role==='studio_manager'?' selected':'')+'>Menecer</option>'
+    +'<option value="admin"'+(d.role==='admin'?' selected':'')+'>Admin</option>'
+    +'</select></div>'
+    +'<div style="border-top:1px solid #f0f0f0;padding-top:12px;margin-top:4px">'
+    +'<div style="font-size:12px;font-weight:600;color:#555;margin-bottom:8px">PIN Sıfırla (opsional)</div>'
+    +'<div class="fg"><label class="fl">Yeni PIN</label>'
+    +'<input class="fi" id="eu-pin" type="password" maxlength="8" placeholder="Dəyişmək üçün daxil edin"></div>'
+    +'<div class="fg"><label class="fl">Yeni PIN təkrar</label>'
+    +'<input class="fi" id="eu-pin2" type="password" maxlength="8" placeholder="Dəyişmək üçün daxil edin"></div>'
+    +'</div>'
+    +(S._userFormErr?'<div class="errbox">'+escHtml(S._userFormErr)+'</div>':'')
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showEditUser=false;S.editUserData=null;S._userFormErr=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitEditUser()">Saxla</button>'
+    +'</div></div></div>';
+}
+
+async function submitEditUser(){
+  var d=S.editUserData||{};
+  if(!d.id){S._userFormErr='Xəta: istifadəçi ID yoxdur.';render();return;}
+  var username=(document.getElementById('eu-username').value||'').trim().toLowerCase();
+  var displayName=(document.getElementById('eu-displayname').value||'').trim();
+  var role=document.getElementById('eu-role').value||'cashier';
+  var pin=(document.getElementById('eu-pin').value||'').trim();
+  var pin2=(document.getElementById('eu-pin2').value||'').trim();
+  if(!username){S._userFormErr='İstifadəçi adı tələb olunur.';render();return;}
+  if(!/^[a-z0-9_]+$/.test(username)){S._userFormErr='İstifadəçi adı yalnız kiçik hərf, rəqəm və _ işarəsi ola bilər.';render();return;}
+  // Check duplicate username (skip self)
+  var existing=(S.adminUsersData||[]).filter(function(u){return (u.username||'').toLowerCase()===username&&u.id!==d.id;});
+  if(existing.length){S._userFormErr='Bu istifadəçi adı artıq başqasına məxsusdur.';render();return;}
+  // Last active admin role guard — cannot change last active admin away from admin
+  if(d.role==='admin'&&role!=='admin'){
+    var activeAdmins=(S.adminUsersData||[]).filter(function(u){return u.role==='admin'&&u.is_active!==false;});
+    // Find target in adminUsersData to check active status
+    var targetUser=null;
+    for(var i=0;i<(S.adminUsersData||[]).length;i++){if(S.adminUsersData[i].id===d.id){targetUser=S.adminUsersData[i];break;}}
+    if(targetUser&&targetUser.is_active!==false&&activeAdmins.length<=1){
+      S._userFormErr='Xəta: Son aktiv adminin rolu dəyişdirilə bilməz.';render();return;
+    }
+  }
+  // PIN validation (only if provided)
+  var pinHash=null;
+  if(pin){
+    if(!/^\d{4,8}$/.test(pin)){S._userFormErr='Yeni PIN 4–8 rəqəmdən ibarət olmalıdır.';render();return;}
+    if(pin!==pin2){S._userFormErr='Yeni PIN-lər uyğun deyil.';render();return;}
+    pinHash=await hashPin(pin);
+    if(!pinHash){S._userFormErr='PIN hash xətası.';render();return;}
+  }
+  S.saving=true;render();
+  try{
+    var now=new Date().toISOString();
+    var body={username:username,display_name:displayName||username,role:role};
+    if(pinHash){
+      body.pin_hash=pinHash;
+      body.must_change_pin=true;
+      body.pin_reset_at=now;
+      body.pin_reset_by_user_id=S.currentUser?S.currentUser.id:null;
+    }
+    await dbPatch('app_users','id=eq.'+encodeURIComponent(d.id),body);
+    S.showEditUser=false;S.editUserData=null;S._userFormErr=null;
+    await loadAdminUsers();
+    await refreshActiveAppUsers();
+    logAudit('app_user',d.id,'edit','İstifadəçi redaktə edildi: '+username,{username:d.username,role:d.role},{username:username,role:role,pin_reset:!!pinHash});
+  }catch(e){S._userFormErr='Xəta: '+e.message;S.saving=false;render();return;}
+  S.saving=false;render();
+}
+
+// ── SELF PIN CHANGE (username-login-admin-users-v1-hotfix1) ──
+
+function openSelfPinChange(){
+  S.showSelfPinChange=true;
+  S._selfPinErr=null;
+  render();
+}
+
+function rModalSelfPinChange(){
+  return '<div class="ov" onclick="if(event.target.classList.contains(\'ov\')){S.showSelfPinChange=false;S._selfPinErr=null;render()}"><div class="modal">'
+    +'<div class="mtitle">🔑 PIN Dəyiş</div>'
+    +'<div style="font-size:12px;color:#888;margin-bottom:12px">Yalnız öz PIN-inizi dəyişə bilərsiniz.</div>'
+    +'<div class="fg"><label class="fl">Mövcud PIN</label>'
+    +'<input class="fi" id="sp-old" type="password" maxlength="8" placeholder="••••"></div>'
+    +'<div class="fg"><label class="fl">Yeni PIN</label>'
+    +'<input class="fi" id="sp-new" type="password" maxlength="8" placeholder="4–8 simvol"></div>'
+    +'<div class="fg"><label class="fl">Yeni PIN təkrar</label>'
+    +'<input class="fi" id="sp-new2" type="password" maxlength="8" placeholder="4–8 simvol"></div>'
+    +(S._selfPinErr?'<div class="errbox">'+escHtml(S._selfPinErr)+'</div>':'')
+    +'<div class="mact">'
+    +'<button class="btn btn-gray" onclick="S.showSelfPinChange=false;S._selfPinErr=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitSelfPinChange()">Dəyiş</button>'
+    +'</div></div></div>';
+}
+
+async function submitSelfPinChange(){
+  var cu=S.currentUser;
+  if(!cu){S._selfPinErr='Xəta: sessiya yoxdur.';render();return;}
+  var oldPin=(document.getElementById('sp-old').value||'').trim();
+  var newPin=(document.getElementById('sp-new').value||'').trim();
+  var newPin2=(document.getElementById('sp-new2').value||'').trim();
+  if(!oldPin){S._selfPinErr='Mövcud PIN daxil edilməlidir.';render();return;}
+  if(!newPin){S._selfPinErr='Yeni PIN daxil edilməlidir.';render();return;}
+  if(!/^\d{4,8}$/.test(newPin)){S._selfPinErr='Yeni PIN 4–8 rəqəmdən ibarət olmalıdır.';render();return;}
+  if(newPin!==newPin2){S._selfPinErr='Yeni PIN-lər uyğun deyil.';render();return;}
+  // Verify current PIN against live DB row (re-fetch to get fresh pin_hash)
+  var freshRows=[];
+  try{freshRows=await dbGet('app_users','id=eq.'+encodeURIComponent(cu.id));}
+  catch(e){S._selfPinErr='Xəta: istifadəçi məlumatı yüklənmədi.';render();return;}
+  var freshUser=freshRows&&freshRows.length?freshRows[0]:null;
+  if(!freshUser){S._selfPinErr='Xəta: istifadəçi tapılmadı.';render();return;}
+  var oldHash=await hashPin(oldPin);
+  if(!oldHash||oldHash!==freshUser.pin_hash){
+    S._selfPinErr='Mövcud PIN yanlışdır.';
+    render();
+    var el=document.getElementById('sp-old');if(el)el.value='';
+    return;
+  }
+  var newHash=await hashPin(newPin);
+  if(!newHash){S._selfPinErr='PIN hash xətası.';render();return;}
+  if(newHash===freshUser.pin_hash){S._selfPinErr='Yeni PIN köhnə PIN ilə eyni ola bilməz.';render();return;}
+  S.saving=true;render();
+  try{
+    var now=new Date().toISOString();
+    await dbPatch('app_users','id=eq.'+encodeURIComponent(cu.id),{
+      pin_hash:newHash,
+      must_change_pin:false,
+      pin_changed_at:now
+    });
+    // Refresh active users cache so same-session re-login uses new PIN
+    await refreshActiveAppUsers();
+    S.showSelfPinChange=false;S._selfPinErr=null;
+    logAudit('app_user',cu.id,'pin_change','İstifadəçi öz PIN-ini dəyişdirdi',null,{pin_changed_at:now});
+  }catch(e){S._selfPinErr='Xəta: '+e.message;S.saving=false;render();return;}
+  S.saving=false;render();
 }
 
 initApp();
