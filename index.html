@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — phone-name-standard-v1</title>
+<title>Erge Pilates — kassa-account-picker-policy-v1-hotfix2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -704,7 +704,7 @@ async function doFreeze(subId,days,note){
 function render(){
   var root=document.getElementById('root');
   if(S.loading){root.innerHTML='<div class="topbar"><div class="logo">ERGE <span>PILATES</span></div></div><div class="lscreen"><span class="spin"></span> Yuklenilir...</div>';return;}
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: phone-name-standard-v1</small></div><div class="nav">'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: kassa-account-picker-policy-v1-hotfix2</small></div><div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
@@ -1203,7 +1203,7 @@ function rModalAddSub(){
   if(D.accounts){
     for(var i=0;i<D.accounts.length;i++){
       var a=D.accounts[i];
-      if(a.is_active!==false)acctOpts+='<option value="'+a.id+'">'+escHtml(a.name)+'</option>';
+      if(isRealPaymentAccount(a))acctOpts+='<option value="'+a.id+'">'+escHtml(a.name)+'</option>';
     }
   }
   var opts='';
@@ -3320,7 +3320,7 @@ function rModalSlotAttendance(){
         var aOpts='<option value="">— Hesab seçin —</option>';
         for(var ai=0;ai<(D.accounts||[]).length;ai++){
           var ac=D.accounts[ai];
-          if(ac.is_active===false)continue;
+          if(!isRealPaymentAccount(ac))continue;
           var asel=(accountId===ac.id)?' selected':'';
           aOpts+='<option value="'+ac.id+'"'+asel+'>'+escHtml(ac.name)+'</option>';
         }
@@ -5051,7 +5051,7 @@ function rModalSingleAtt(){
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.singleCust){c=D.customers[i];break;}}
   if(!c)return'';
   var saAcctOpts='<option value="">— Hesab seçin —</option>';
-  if(D.accounts){for(var ai=0;ai<D.accounts.length;ai++){var acc=D.accounts[ai];if(acc.is_active!==false){var acSel=(S.singleAttAcctId===acc.id)?' selected':'';saAcctOpts+='<option value="'+acc.id+'"'+acSel+'>'+acc.name+'</option>';}}}  
+  if(D.accounts){for(var ai=0;ai<D.accounts.length;ai++){var acc=D.accounts[ai];if(isRealPaymentAccount(acc)){var acSel=(S.singleAttAcctId===acc.id)?' selected':'';saAcctOpts+='<option value="'+acc.id+'"'+acSel+'>'+acc.name+'</option>';}}}  
   // Build prog options — restore selected from state
   var progOpts='<option value="">— Proqram seçin —</option>';
   for(var i=0;i<D.programs.length;i++){
@@ -6166,6 +6166,17 @@ var EXPENSE_CATS=['Əmək haqqı (işçi)','İcarə','Komunal','Nəqliyyat xərc
 var BANK_ACCT_ID='ACC003';
 var POS_COMMISSION_PCT=2;
 
+// === ACCOUNT PICKER POLICY HELPERS (kassa-account-picker-policy-v1) ===
+// Real direct payment flows: ACC001 Kassa, ACC003 Bank/POS, ACC004 Biznes kart
+function isRealPaymentAccount(a){return a.is_active!==false&&['ACC001','ACC003','ACC004'].indexOf(a.id)>=0;}
+// Manual kassa income/expense: adds ACC007 to real payment accounts
+function isManualTxnAccount(a){return a.is_active!==false&&['ACC001','ACC003','ACC004','ACC007'].indexOf(a.id)>=0;}
+// Transfer from/to: all operational accounts including partner receivables and ACC002
+function isTransferAccount(a){return a.is_active!==false&&['ACC001','ACC002','ACC003','ACC004','ACC005','ACC006','ACC007'].indexOf(a.id)>=0;}
+// Partner receivable accounts — not for manual direct payment selection
+function isPartnerReceivableAccount(a){return ['ACC005','ACC006'].indexOf(a.id)>=0;}
+// =============================================================
+
 // Returns alacaq account id based on program name
 function partnerAcctId(progName){
   var n=(progName||'').toLowerCase();
@@ -6369,9 +6380,13 @@ async function createPosCommission(amount,date,desc){
 
 function rModalAddTxn(){
   var accounts=D.accounts||[];
+  // Income/expense: ACC001, ACC003, ACC004, ACC007
   var acctOpts='<option value="">— Hesab seçin —</option>';
-  for(var i=0;i<accounts.length;i++){if(accounts[i].is_active!==false)acctOpts+='<option value="'+accounts[i].id+'">'+accounts[i].name+'</option>';}
-  var acctOpts2=acctOpts.replace('— Hesab seçin —','— Hədəf hesab —');
+  for(var i=0;i<accounts.length;i++){if(isManualTxnAccount(accounts[i]))acctOpts+='<option value="'+accounts[i].id+'">'+accounts[i].name+'</option>';}
+  // Transfer target: all operational accounts including ACC002, ACC005, ACC006
+  var acctOptsTransfer='<option value="">— Hesab seçin —</option>';
+  for(var i=0;i<accounts.length;i++){if(isTransferAccount(accounts[i]))acctOptsTransfer+='<option value="'+accounts[i].id+'">'+accounts[i].name+'</option>';}
+  var acctOpts2=acctOptsTransfer.replace('— Hesab seçin —','— Hədəf hesab —');
 
   return '<div class="ov" onclick="S.showAddTxn=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">+ Əməliyyat</div>'
@@ -6403,6 +6418,20 @@ function updateTxnForm(){
   var cats=type==='income'?INCOME_CATS:(type==='expense'?EXPENSE_CATS:['Transfer']);
   updateCatPickerOpts('txn-cat',cats);
   if(toRow)toRow.style.display=type==='transfer'?'block':'none';
+  // Swap account options: transfer allows all accounts; income/expense only real payment + ACC007
+  var acctSel=document.getElementById('txn-acct');
+  if(acctSel&&D.accounts){
+    var isTransfer=type==='transfer';
+    var curVal=acctSel.value;
+    var opts='<option value="">— Hesab seçin —</option>';
+    for(var i=0;i<D.accounts.length;i++){
+      var a=D.accounts[i];
+      if(isTransfer?isTransferAccount(a):isManualTxnAccount(a)){
+        opts+='<option value="'+a.id+'"'+(a.id===curVal?' selected':'')+'>'+escHtml(a.name)+'</option>';
+      }
+    }
+    acctSel.innerHTML=opts;
+  }
 }
 
 async function submitAddTxn(){
@@ -6440,14 +6469,33 @@ function rModalEditTxn(){
   if(S.kassaData)for(var i=0;i<S.kassaData.txns.length;i++){if(S.kassaData.txns[i].id===S.editTxnId){txn=S.kassaData.txns[i];break;}}
   if(!txn)return'';
   var accounts=D.accounts||[];
-  var acctOpts='';for(var i=0;i<accounts.length;i++)acctOpts+='<option value="'+accounts[i].id+'"'+(accounts[i].id===txn.account_id?' selected':'')+'>'+accounts[i].name+'</option>';
-  var typeOpts='';
-  for(var t of['income','expense','transfer'])typeOpts+='<option value="'+t+'"'+(t===txn.type?' selected':'')+'>'+{income:'Mədaxil',expense:'Məxaric',transfer:'Transfer'}[t]+'</option>';
+  // Apply account picker policy based on transaction type
+  var isTransferTxn=txn.type==='transfer';
+  var acctOpts='';
+  var currentAcctIncluded=false;
+  for(var i=0;i<accounts.length;i++){
+    var a=accounts[i];
+    var include=isTransferTxn?isTransferAccount(a):isManualTxnAccount(a);
+    if(include){
+      acctOpts+='<option value="'+a.id+'"'+(a.id===txn.account_id?' selected':'')+'>'+escHtml(a.name)+'</option>';
+      if(a.id===txn.account_id)currentAcctIncluded=true;
+    }
+  }
+  // Legacy compatibility: if existing account_id is outside policy list, still show it as selected
+  if(!currentAcctIncluded&&txn.account_id){
+    var legacyName=txn.account_id;
+    for(var i=0;i<accounts.length;i++){if(accounts[i].id===txn.account_id){legacyName=accounts[i].name;break;}}
+    acctOpts='<option value="'+txn.account_id+'" selected>'+escHtml(legacyName)+' (mövcud / legacy)</option>'+acctOpts;
+  }
+  var typeLabel={income:'Mədaxil',expense:'Məxaric',transfer:'Transfer'}[txn.type]||txn.type;
   var statusOpts='<option value="posted"'+(txn.status!=='pending'?' selected':'')+'>İcra olunub (posted)</option>'
     +'<option value="pending"'+(txn.status==='pending'?' selected':'')+'>Gözləyir (pending)</option>';
   return '<div class="ov" onclick="S.editTxnId=null;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">✏ Əməliyyat Düzəliş</div>'
-    +'<div class="fg"><label class="fl">Növ</label><select class="fs" id="et-type">'+typeOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Növ</label>'
+    +'<input class="fi" value="'+escHtml(typeLabel)+'" readonly disabled style="background:#f5f5f5;color:#666;cursor:default">'
+    +'<input type="hidden" id="et-type" value="'+escHtml(txn.type||'income')+'">'
+    +'</div>'
     +'<div class="fg"><label class="fl">Kateqoriya</label><input class="fi" id="et-cat" value="'+( txn.category||'')+'"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Tarix</label><input class="fi" id="et-date" type="date" value="'+(txn.date||td())+'"></div>'
@@ -6566,7 +6614,7 @@ function rModalSubPayment(){
   var paid=money(sub.price_paid||0);
   var debt=calcDebt(sub);
   var acctOpts='<option value="">— Hesab seçin —</option>';
-  if(D.accounts){for(var i=0;i<D.accounts.length;i++){var a=D.accounts[i];if(a.is_active!==false)acctOpts+='<option value="'+a.id+'">'+a.name+'</option>';}}
+  if(D.accounts){for(var i=0;i<D.accounts.length;i++){var a=D.accounts[i];if(isRealPaymentAccount(a))acctOpts+='<option value="'+a.id+'">'+a.name+'</option>';}}
   return'<div class="ov" onclick="S.showSubPayment=false;S.paySubId=null;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">💳 Abunə Borcu Ödənişi</div>'
     +'<div style="background:#FFF3E0;border-radius:9px;padding:12px 14px;margin-bottom:16px">'
