@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — soft-actor-foundation-v1</title>
+<title>Erge Pilates — soft-role-visibility-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -249,6 +249,28 @@ function getUpdatedByMeta(){
     updated_by_role:u?u.role:'unknown',
     updated_session_id:u?u.session_id:null
   };
+}
+
+// ── SOFT ROLE VISIBILITY HELPERS (soft-role-visibility-v1) ──
+function currentRole(){return S.currentUser?S.currentUser.role:'unknown';}
+function isAdmin(){return currentRole()==='admin';}
+function isManager(){return currentRole()==='studio_manager';}
+function isCashier(){return currentRole()==='cashier';}
+function canSeeAdmin(){return isAdmin()||isManager();}
+function canSeeSalaryReport(){return isAdmin()||isManager();}
+function canSeeSensitiveKassa(){return isAdmin()||isManager();}
+function isSubscriptionPaymentTxn(txn){
+  return !!(txn.subscription_id&&txn.subscription_id!==''&&txn.subscription_id!=='null')||
+    txn.category==='Abunə haqqı'||txn.category==='Abunə borcu';
+}
+function isCashierVisibleTxn(txn){
+  if(!S.currentUser)return false;
+  if(txn.created_by_user_id===S.currentUser.id)return true;
+  return isSubscriptionPaymentTxn(txn);
+}
+function getVisibleKassaTxnsForCurrentUser(txns){
+  if(!isCashier())return txns;
+  return txns.filter(isCashierVisibleTxn);
 }
 
 function norm(s){
@@ -759,13 +781,13 @@ function render(){
     +'<span class="badge b-green">'+_roleLabel+'</span>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: soft-actor-foundation-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: soft-role-visibility-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
     +'<button class="'+(S.view==='att'?'active':'')+'" onclick="sv(\'att\')">Davamiyyət</button>'
     +'<button class="'+(S.view==='cust'?'active':'')+'" onclick="sv(\'cust\')">Müştərilər</button>'
-    +'<button class="'+(S.view==='admin'?'active':'')+'" onclick="sv(\'admin\')">Admin</button>'
+    +(canSeeAdmin()?'<button class="'+(S.view==='admin'?'active':'')+'" onclick="sv(\'admin\')">Admin</button>':'')
     +'<button class="'+(S.view==='report'?'active':'')+'" onclick="sv(\'report\')">Hesabat</button>'
     +'<button class="'+(S.view==='kassa'?'active':'')+'" onclick="sv(\'kassa\')">Kassa</button>'
     +'<button class="'+(S.view==='leads'?'active':'')+'" onclick="sv(\'leads\')">Leads</button>'
@@ -778,7 +800,7 @@ function render(){
   if(S.view==='home')h+=rHome();
   else if(S.view==='att')h+=rAtt();
   else if(S.view==='cust')h+=(S.selCust?rDetail():rCusts());
-  else if(S.view==='admin')h+=rAdmin();
+  else if(S.view==='admin'){if(canSeeAdmin())h+=rAdmin();else{S.view='home';h+=rHome();}}
   else if(S.view==='report')h+=rReport();
   else if(S.view==='kassa')h+=rKassa();
   else if(S.view==='leads')h+=rLeads();
@@ -4378,13 +4400,16 @@ function rReport(){
   var now=new Date();
   var curMonth=now.getFullYear()+'-'+(String(now.getMonth()+1).padStart(2,'0'));
   if(!S.reportMonth)S.reportMonth=curMonth;
+  // Cashier cannot see salary report — silently redirect to izleme
+  if(isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
   
   var h='<div class="ph"><div class="pt">Hesabat</div></div>';
   var t1=S.reportTab==='salary'?'active':'';
   var t2=S.reportTab==='izleme'?'active':'';
   var t3=S.reportTab==='partner'?'active':'';
-  h+='<div class="tab-row"><button class="tab '+t1+'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>'
-    +'<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';S.izlemeData=null;fetchIzleme();render()">Müştəri İzləmə</button>'
+  h+='<div class="tab-row">';
+  if(canSeeSalaryReport())h+='<button class="tab '+t1+'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>';
+  h+='<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';S.izlemeData=null;fetchIzleme();render()">Müştəri İzləmə</button>'
     +'<button class="tab '+t3+'" onclick="S.reportTab=\'partner\';render()">Partner Reconciliasiya</button></div>';
   if(S.reportTab==='izleme'){return h+rIzleme();}
   if(S.reportTab==='partner'){return h+rPartnerRecon();}
@@ -5627,7 +5652,12 @@ function submitFreeze(){
   doFreeze(S.freezeSub,days,note);
 }
 
-function sv(v){S.view=v;S.search='';S.selCust=null;S.selLead=null;render();}
+function sv(v){
+  // Soft role visibility guards
+  if(v==='admin'&&!canSeeAdmin())v='home';
+  if(v==='report'&&isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
+  S.view=v;S.search='';S.selCust=null;S.selLead=null;render();
+}
 function ss(v){
   S.search=v;
   // Don't re-render, just filter the visible cards
@@ -5702,10 +5732,12 @@ function rKassa(){
     }
   }
 
-  // Balance cards
-  h+='<div class="sgrid" style="grid-template-columns:repeat('+Math.min(accounts.length,4)+',1fr);margin-bottom:8px">';
-  for(var i=0;i<accounts.length;i++){
-    var a=accounts[i];
+  // Balance cards — cashier: hide ACC002 (Yığım), ACC003 (Bank/POS), ACC007 (Vergi)
+  var CASHIER_HIDDEN_ACCTS=['ACC002','ACC003','ACC007'];
+  var visibleAccounts=canSeeSensitiveKassa()?accounts:accounts.filter(function(a){return CASHIER_HIDDEN_ACCTS.indexOf(a.id)<0;});
+  h+='<div class="sgrid" style="grid-template-columns:repeat('+Math.min(visibleAccounts.length,4)+',1fr);margin-bottom:8px">';
+  for(var i=0;i<visibleAccounts.length;i++){
+    var a=visibleAccounts[i];
     var bal=balances[a.id]||0;
     var icon=a.type==='cash'?'💵':a.type==='bank'?'🏦':'💳';
     h+='<div class="scard"><div class="snum" style="font-size:18px;color:'+(bal>=0?'#222':'#C62828')+'">'+(bal>=0?'':'-')+Math.abs(bal).toFixed(0)+' ₼</div>'
@@ -5713,32 +5745,37 @@ function rKassa(){
   }
   h+='</div>';
 
-  // Summary totals
-  var faktiki=(balances['ACC001']||0)+(balances['ACC002']||0)+(balances['ACC003']||0)+(balances['ACC004']||0);
-  var gozlenen=faktiki+(balances['ACC005']||0)+(balances['ACC006']||0)-(Math.abs(balances['ACC007']||0));
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
-  h+='<div style="background:#E8F5EE;border:1.5px solid #1D9E75;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">'
-    +'<div><div style="font-size:11px;font-weight:600;color:#1D9E75">💰 FACTİKİ NƏĞd</div>'
-    +'<div style="font-size:10px;color:#888">Kassa+Yığım+Bank+B.kart</div></div>'
-    +'<div style="font-size:20px;font-weight:700;color:'+(faktiki>=0?'#1D9E75':'#C62828')+'">'+(faktiki>=0?'':'-')+Math.abs(faktiki).toFixed(0)+' ₼</div>'
-    +'</div>';
-  h+='<div style="background:#EFF6FF;border:1.5px solid #1565C0;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">'
-    +'<div><div style="font-size:11px;font-weight:600;color:#1565C0">📊 GÖZLƏNİLƏN</div>'
-    +'<div style="font-size:10px;color:#888">Faktiki+Alacaqlar−Vergi</div></div>'
-    +'<div style="font-size:20px;font-weight:700;color:'+(gozlenen>=0?'#1565C0':'#C62828')+'">'+(gozlenen>=0?'':'-')+Math.abs(gozlenen).toFixed(0)+' ₼</div>'
-    +'</div>';
+  // Summary totals — hide faktiki/gozlenen panels for cashier (sensitive reconciliation data)
+  if(canSeeSensitiveKassa()){
+    var faktiki=(balances['ACC001']||0)+(balances['ACC002']||0)+(balances['ACC003']||0)+(balances['ACC004']||0);
+    var gozlenen=faktiki+(balances['ACC005']||0)+(balances['ACC006']||0)-(Math.abs(balances['ACC007']||0));
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
+    h+='<div style="background:#E8F5EE;border:1.5px solid #1D9E75;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">'
+      +'<div><div style="font-size:11px;font-weight:600;color:#1D9E75">💰 FACTİKİ NƏĞd</div>'
+      +'<div style="font-size:10px;color:#888">Kassa+Yığım+Bank+B.kart</div></div>'
+      +'<div style="font-size:20px;font-weight:700;color:'+(faktiki>=0?'#1D9E75':'#C62828')+'">'+(faktiki>=0?'':'-')+Math.abs(faktiki).toFixed(0)+' ₼</div>'
+      +'</div>';
+    h+='<div style="background:#EFF6FF;border:1.5px solid #1565C0;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">'
+      +'<div><div style="font-size:11px;font-weight:600;color:#1565C0">📊 GÖZLƏNİLƏN</div>'
+      +'<div style="font-size:10px;color:#888">Faktiki+Alacaqlar−Vergi</div></div>'
+      +'<div style="font-size:20px;font-weight:700;color:'+(gozlenen>=0?'#1565C0':'#C62828')+'">'+(gozlenen>=0?'':'-')+Math.abs(gozlenen).toFixed(0)+' ₼</div>'
+      +'</div>';
+    h+='</div>';
+  }
+
+  // Tabs — cashier: redirect away from sensitive tabs; hide Hesablar and Gün Bağlama
+  if(isCashier()&&(S.kassaTab==='accounts'||S.kassaTab==='zclose'))S.kassaTab='txns';
+  h+='<div class="tab-row">'
+    +'<button class="tab '+(S.kassaTab==='txns'?'active':'')+'" onclick="S.kassaTab=\'txns\';render()">Əməliyyatlar</button>';
+  if(canSeeSensitiveKassa()){
+    h+='<button class="tab '+(S.kassaTab==='accounts'?'active':'')+'" onclick="S.kassaTab=\'accounts\';render()">Hesablar</button>'
+      +'<button class="tab '+(S.kassaTab==='zclose'?'active':'')+'" onclick="S.kassaTab=\'zclose\';if(!S.zCloseHistory&&!S.zCloseLoading)fetchZCloseHistory();render()">Gün Bağlama</button>';
+  }
   h+='</div>';
 
-  // Tabs
-  h+='<div class="tab-row">'
-    +'<button class="tab '+(S.kassaTab==='txns'?'active':'')+'" onclick="S.kassaTab=\'txns\';render()">Əməliyyatlar</button>'
-    +'<button class="tab '+(S.kassaTab==='accounts'?'active':'')+'" onclick="S.kassaTab=\'accounts\';render()">Hesablar</button>'
-    +'<button class="tab '+(S.kassaTab==='zclose'?'active':'')+'" onclick="S.kassaTab=\'zclose\';if(!S.zCloseHistory&&!S.zCloseLoading)fetchZCloseHistory();render()">Gün Bağlama</button>'
-    +'</div>';
-
-  if(S.kassaTab==='accounts'){
+  if(S.kassaTab==='accounts'&&canSeeSensitiveKassa()){
     h+=rKassaAccounts(accounts,balances);
-  } else if(S.kassaTab==='zclose'){
+  } else if(S.kassaTab==='zclose'&&canSeeSensitiveKassa()){
     h+=rKassaZClose(liveTxns,accounts,balances);
   } else {
     h+=rKassaTxns(txns,accounts);
@@ -5779,6 +5816,9 @@ function rTxnRows(txnList, acctMap){
 }
 
 function rKassaTxns(txns, accounts){
+  // Cashier visibility: only own txns + all subscription payment txns (display layer only, S.kassaData not mutated)
+  txns=getVisibleKassaTxnsForCurrentUser(txns);
+
   var acctMap={};
   for(var i=0;i<accounts.length;i++)acctMap[accounts[i].id]=accounts[i].name;
 
