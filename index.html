@@ -890,7 +890,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: izleme-fresh-db-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: izleme-entry-refresh-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -4298,8 +4298,9 @@ function rPartnerRecon(){
 }
 
 
-async function fetchIzleme(){
-  if(S.izlemeData)return;
+async function fetchIzleme(force){
+  if(S.izlemeLoading)return;
+  if(S.izlemeData&&!force)return;
   S.izlemeLoading=true;render();
   try{
     var singleProgs=['ROF','RPS','RPP','ROTG','ROTI','RTEST'];
@@ -4496,6 +4497,12 @@ async function fetchIzleme(){
     S.izlemeData={completedSessions:completedSessions,expiredTime:expiredTime,almostDone:almostDone,notThisWeek:notThisWeek,debtors:debtors,statusDrift:statusDrift};
   }catch(e){alert('Xəta: '+e.message);}
   S.izlemeLoading=false;render();
+}
+
+function refreshIzleme(){
+  S.izlemeData=null;
+  fetchIzleme(true);
+  render();
 }
 
 function rIzleme(){
@@ -4715,8 +4722,8 @@ function rReport(){
   if(!S.reportMonth)S.reportMonth=curMonth;
   // Cashier cannot see salary report — silently redirect to izleme
   if(isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
-  // Cashier auto-fetch: if redirected to izleme and data not yet loaded, trigger fetch
-  if(S.reportTab==='izleme'&&!S.izlemeData&&!S.izlemeLoading){fetchIzleme();}
+  // Cashier auto-fetch: if on izleme and data not yet loaded, trigger fresh fetch
+  if(S.reportTab==='izleme'&&!S.izlemeData&&!S.izlemeLoading){fetchIzleme(true);}
   
   var h='<div class="ph"><div class="pt">Hesabat</div></div>';
   var t1=S.reportTab==='salary'?'active':'';
@@ -4724,9 +4731,14 @@ function rReport(){
   var t3=S.reportTab==='partner'?'active':'';
   h+='<div class="tab-row">';
   if(canSeeSalaryReport())h+='<button class="tab '+t1+'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>';
-  h+='<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';S.izlemeData=null;fetchIzleme();render()">Müştəri İzləmə</button>'
+  h+='<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';refreshIzleme()">Müştəri İzləmə</button>'
     +'<button class="tab '+t3+'" onclick="S.reportTab=\'partner\';render()">Partner Reconciliasiya</button></div>';
-  if(S.reportTab==='izleme'){return h+rIzleme();}
+  if(S.reportTab==='izleme'){
+    h+='<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
+      +'<button class="btn btn-g btn-sm" style="font-size:12px;padding:5px 12px" onclick="refreshIzleme()">↻ Yenilə</button>'
+      +'</div>';
+    return h+rIzleme();
+  }
   if(S.reportTab==='partner'){return h+rPartnerRecon();}
   // Year/Month selector
   var curYear=now.getFullYear();
@@ -6026,7 +6038,10 @@ function sv(v){
   // Soft role visibility guards
   if(v==='admin'&&!canSeeAdmin())v='home';
   if(v==='report'&&isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
-  S.view=v;S.search='';S.selCust=null;S.selLead=null;render();
+  S.view=v;S.search='';S.selCust=null;S.selLead=null;
+  // Force fresh İzleme data on every Report entry — prevents stale screen cache
+  if(v==='report'&&S.reportTab==='izleme'){S.izlemeData=null;fetchIzleme(true);}
+  render();
 }
 function ss(v){
   S.search=v;
