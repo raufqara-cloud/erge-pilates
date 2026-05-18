@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — subscription-attendance-hard-guards-v1-hotfix1</title>
+<title>Erge Pilates — izleme-fresh-db-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -890,7 +890,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: subscription-attendance-hard-guards-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: izleme-fresh-db-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -4307,92 +4307,169 @@ async function fetchIzleme(){
     var day7=addDays(today,-7);
     var day30=addDays(today,-30);
 
-    // 1. All active subscriptions
-    var activeSubs=await dbGet('subscriptions','is_active=eq.true&order=end_date&select=id,customer_id,program_id,end_date,remaining,sessions_total,price_paid,price_due,list_price_at_sale,discount_amount,discount_note,is_partner,is_active');
-    var debtSubs=activeSubs;
-    var recentAtts=await dbGet('attendances','class_date=gte.'+day30+'&order=class_date.desc');
-    var expiredSubs=await dbGet('subscriptions','is_active=eq.false&end_date=gte.'+day30+'&order=end_date.desc&select=id,customer_id,program_id,end_date,remaining,sessions_total,price_paid,price_due,list_price_at_sale,discount_amount,discount_note,is_partner');
+    // 1. Fetch all is_active=true subscriptions with full fields
+    var activeSubs=await dbGet('subscriptions',
+      'is_active=eq.true&order=end_date&select=id,customer_id,program_id,program_name,start_date,end_date,remaining,sessions_total,status,freeze_end,price_paid,price_due,list_price_at_sale,discount_amount,discount_note,is_partner,is_active');
 
+    // 2. Fetch recently expired subscriptions for actionable follow-up (is_active=false, last 30 days)
+    var recentExpiredInactive=await dbGet('subscriptions',
+      'is_active=eq.false&end_date=lt.'+today+'&end_date=gte.'+day30+'&order=end_date.desc&select=id,customer_id,program_id,program_name,start_date,end_date,remaining,sessions_total,status,freeze_end,price_paid,price_due,list_price_at_sale,discount_amount,discount_note,is_partner,is_active');
+
+    // 3. Status drift subs: is_active=true but end_date < today — these are abnormal
+    //    (already inside activeSubs, filtered below for drift warning and expired follow-up)
+
+    // 4. Build full list of sub IDs needing fresh attendance counts
+    var allRelevantSubs=activeSubs.slice();
+    for(var i=0;i<recentExpiredInactive.length;i++)allRelevantSubs.push(recentExpiredInactive[i]);
+    var allSubIds=[];
+    var subIdSeen={};
+    for(var i=0;i<allRelevantSubs.length;i++){
+      var sid=allRelevantSubs[i].id;
+      if(sid&&!subIdSeen[sid]){subIdSeen[sid]=true;allSubIds.push(sid);}
+    }
+
+    // 5. Fetch fresh attendance count per subscription from DB (batched, 50 per call)
+    var freshSubAttCount={};
+    var batchSize=50;
+    for(var b=0;b<allSubIds.length;b+=batchSize){
+      var batch=allSubIds.slice(b,b+batchSize);
+      if(!batch.length)break;
+      var batAtts=await dbGet('attendances','subscription_id=in.('+batch.join(',')+')'+'&select=subscription_id,id');
+      for(var i=0;i<batAtts.length;i++){
+        var sid=batAtts[i].subscription_id;
+        if(sid)freshSubAttCount[sid]=(freshSubAttCount[sid]||0)+1;
+      }
+    }
+
+    // 6. Fetch recent attendances (last 30 days) for last-date display and this-week check only
+    var recentAtts=await dbGet('attendances','class_date=gte.'+day30+'&order=class_date.desc&select=customer_id,class_date');
     var lastAtt={};
+    var weekCusts={};
     for(var i=0;i<recentAtts.length;i++){
       var a=recentAtts[i];
       if(!lastAtt[a.customer_id]||a.class_date>lastAtt[a.customer_id])lastAtt[a.customer_id]=a.class_date;
+      if(a.class_date>=day7)weekCusts[a.customer_id]=true;
     }
 
     var custMap={};
     for(var i=0;i<D.customers.length;i++)custMap[D.customers[i].id]=D.customers[i];
 
-    var subAttCount={};
-    for(var i=0;i<D.attendances.length;i++){
-      var sid=D.attendances[i].subscription_id;
-      if(sid)subAttCount[sid]=(subAttCount[sid]||0)+1;
-    }
-
-    function getRealRemaining(s){
-      if(s.is_partner)return null;
-      var used=subAttCount[s.id]||0;
-      var rr=Math.max(0,(parseInt(s.sessions_total)||0)-used);
-      s.remaining=rr;
-      s._used=used;
+    // 7. getFreshRemaining — uses fresh DB att count, never D.attendances
+    function getFreshRemaining(sub){
+      if(sub.is_partner)return null;
+      var used=freshSubAttCount[sub.id]||0;
+      var total=parseInt(sub.sessions_total)||0;
+      var rr=Math.max(0,total-used);
+      sub._used=used;
+      sub._freshRemaining=rr;
       return rr;
     }
 
-    var completedSessions=[];
-    var hasActiveSub={};
-    for(var i=0;i<activeSubs.length;i++){
-      var s=activeSubs[i];
-      var rr=getRealRemaining(s);
-      if(rr!==null&&rr>0&&!s.is_partner)hasActiveSub[s.customer_id]=true;
-    }
-    for(var i=0;i<activeSubs.length;i++){
-      var s=activeSubs[i];
-      var rr=getRealRemaining(s);
-      if(rr===0&&s.end_date>=today&&!s.is_partner){
-        if(hasActiveSub[s.customer_id])continue;
-        var c=custMap[s.customer_id];
-        if(c)completedSessions.push({c:c,s:s,last:lastAtt[c.id]||'',realRemaining:rr});
-      }
+    // Helper: is this sub operationally active (not pending, not future, not expired, not frozen)?
+    function isOperationallyActive(s){
+      if(!s.is_active)return false;
+      if(s.status==='pending')return false;
+      if(s.start_date&&s.start_date>today)return false;
+      if(!s.end_date||s.end_date<today)return false;
+      if(s.freeze_end&&s.freeze_end>=today)return false;
+      return true;
     }
 
-    var expiredTime=[];
-    var expiredCusts={};
-    for(var i=0;i<expiredSubs.length;i++){
-      var s=expiredSubs[i];
-      if(s.end_date<today&&lastAtt[s.customer_id]&&!expiredCusts[s.customer_id]&&singleProgs.indexOf(s.program_id)<0){
-        var c=custMap[s.customer_id];
-        var hasActive=false;
-        for(var j=0;j<activeSubs.length;j++){if(activeSubs[j].customer_id===s.customer_id){hasActive=true;break;}}
-        if(!hasActive&&c){expiredCusts[s.customer_id]=true;expiredTime.push({c:c,s:s,last:lastAtt[c.id]||''});}
-      }
+    // Build map: customer has any operationally active sub with fresh remaining > 0
+    var hasActivePosRem={};
+    var hasOperationalActive={};
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
+      if(!isOperationallyActive(s))continue;
+      if(s.is_partner||singleProgs.indexOf(s.program_id)>=0){hasOperationalActive[s.customer_id]=true;continue;}
+      var rr=getFreshRemaining(s);
+      hasOperationalActive[s.customer_id]=true;
+      if(rr>0)hasActivePosRem[s.customer_id]=true;
     }
 
+    // 8. almostDone — fresh remaining === 1, operationally active, studio subs only
     var almostDone=[];
     for(var i=0;i<activeSubs.length;i++){
       var s=activeSubs[i];
-      var rr=getRealRemaining(s);
-      if(rr===1&&!s.is_partner&&singleProgs.indexOf(s.program_id)<0){
+      if(s.is_partner)continue;
+      if(singleProgs.indexOf(s.program_id)>=0)continue;
+      if(!isOperationallyActive(s))continue;
+      var rr=getFreshRemaining(s);
+      if(rr===1){
         var c=custMap[s.customer_id];
         if(c)almostDone.push({c:c,s:s,last:lastAtt[c.id]||'',realRemaining:rr});
       }
     }
 
-    var notThisWeek=[];
-    var weekCusts={};
-    for(var i=0;i<recentAtts.length;i++)if(recentAtts[i].class_date>=day7)weekCusts[recentAtts[i].customer_id]=true;
+    // 9. completedSessions — fresh remaining === 0, end_date >= today, no other active sub with rem > 0
+    var completedSessions=[];
+    var completedCusts={};
     for(var i=0;i<activeSubs.length;i++){
       var s=activeSubs[i];
-      var rr=getRealRemaining(s);
-      if(rr!==null&&rr<=0)continue;
-      if(!weekCusts[s.customer_id]&&lastAtt[s.customer_id]){
+      if(s.is_partner)continue;
+      if(singleProgs.indexOf(s.program_id)>=0)continue;
+      if(s.status==='pending')continue;
+      if(!s.end_date||s.end_date<today)continue;
+      if(hasActivePosRem[s.customer_id])continue;
+      var rr=getFreshRemaining(s);
+      if(rr===0&&!completedCusts[s.customer_id]){
         var c=custMap[s.customer_id];
-        if(c&&!notThisWeek.find(function(x){return x.c.id===s.customer_id;}))notThisWeek.push({c:c,s:s,last:lastAtt[c.id]||'',realRemaining:rr});
+        if(c){completedCusts[s.customer_id]=true;completedSessions.push({c:c,s:s,last:lastAtt[c.id]||'',realRemaining:rr});}
       }
     }
 
+    // 10. notThisWeek — operationally active, studio sub, fresh rem > 0, no att in last 7 days
+    var notThisWeek=[];
+    var notThisWeekCusts={};
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
+      if(s.is_partner)continue;
+      if(singleProgs.indexOf(s.program_id)>=0)continue;
+      if(!isOperationallyActive(s))continue;
+      var rr=getFreshRemaining(s);
+      if(rr===null||rr<=0)continue;
+      if(weekCusts[s.customer_id])continue;
+      if(notThisWeekCusts[s.customer_id])continue;
+      var c=custMap[s.customer_id];
+      if(c){notThisWeekCusts[s.customer_id]=true;notThisWeek.push({c:c,s:s,last:lastAtt[c.id]||'',realRemaining:rr});}
+    }
+
+    // 11. expiredTime — actionable recently expired (last 30 days), no newer active sub
+    //     Include both is_active=false (normal) AND is_active=true with end_date<today (status drift expired)
+    var expiredCandidates=recentExpiredInactive.slice();
+    // Also add activeSubs where end_date < today AND end_date >= day30 (status drift, actionable window only)
+    // Old historical status-drift subs older than 30 days must NOT enter expiredTime
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
+      if(s.end_date&&s.end_date<today&&s.end_date>=day30&&s.status!=='pending'&&!s.is_partner&&singleProgs.indexOf(s.program_id)<0){
+        expiredCandidates.push(s);
+      }
+    }
+    // Sort by end_date desc so most recent comes first per customer
+    expiredCandidates.sort(function(a,b){return b.end_date.localeCompare(a.end_date);});
+    var expiredTime=[];
+    var expiredCusts={};
+    for(var i=0;i<expiredCandidates.length;i++){
+      var s=expiredCandidates[i];
+      if(s.is_partner)continue;
+      if(singleProgs.indexOf(s.program_id)>=0)continue;
+      if(s.status==='pending')continue;
+      if(expiredCusts[s.customer_id])continue;
+      // Must not have a currently operational active sub
+      if(hasOperationalActive[s.customer_id])continue;
+      var c=custMap[s.customer_id];
+      if(c){
+        expiredCusts[s.customer_id]=true;
+        var rr=getFreshRemaining(s);
+        expiredTime.push({c:c,s:s,last:lastAtt[c.id]||'',realRemaining:rr});
+      }
+    }
+
+    // 12. Debtors — from all is_active=true subscriptions
     var debtors=[];
     var debtCusts={};
-    for(var i=0;i<debtSubs.length;i++){
-      var s=debtSubs[i];
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
       var debt=calcDebt(s);
       if(debt>0&&!debtCusts[s.customer_id]){
         var c=custMap[s.customer_id];
@@ -4400,7 +4477,23 @@ async function fetchIzleme(){
       }
     }
 
-    S.izlemeData={completedSessions:completedSessions,expiredTime:expiredTime,almostDone:almostDone,notThisWeek:notThisWeek,debtors:debtors};
+    // 13. Status drift — is_active=true, end_date < today, status != pending, non-partner, non-single
+    //     Data quality risk — display only, do NOT auto-repair
+    var statusDrift=[];
+    for(var i=0;i<activeSubs.length;i++){
+      var s=activeSubs[i];
+      if(!s.end_date||s.end_date>=today)continue;
+      if(s.status==='pending')continue;
+      if(s.is_partner)continue;
+      if(singleProgs.indexOf(s.program_id)>=0)continue;
+      var c=custMap[s.customer_id];
+      if(c){
+        var rr=getFreshRemaining(s);
+        statusDrift.push({c:c,s:s,realRemaining:rr!==null?rr:s.remaining,freshRemaining:rr});
+      }
+    }
+
+    S.izlemeData={completedSessions:completedSessions,expiredTime:expiredTime,almostDone:almostDone,notThisWeek:notThisWeek,debtors:debtors,statusDrift:statusDrift};
   }catch(e){alert('Xəta: '+e.message);}
   S.izlemeLoading=false;render();
 }
@@ -4442,6 +4535,43 @@ function rIzleme(){
     }
     t+='</div>';
     return t;
+  }
+
+  // Status drift warning — BP-10 / Data Integrity relevant
+  if(d.statusDrift&&d.statusDrift.length>0){
+    var isOpenDrift=S.selIzleme==='drift';
+    h+='<div style=\"margin-bottom:8px;border:2px solid #F9A825;border-radius:10px;overflow:hidden;background:#FFFDE7\">'
+      +'<div style=\"display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer\" onclick=\"S.selIzleme='+(isOpenDrift?'null':"'drift'")+';render()\">'
+      +'<div style=\"display:flex;align-items:center;gap:10px\">'
+      +'<span style=\"font-size:12px;font-weight:700;color:#E65100\">⚠ STATUS UYĞUNSUZLUĞU</span>'
+      +'<span style=\"background:#E65100;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700\">'+d.statusDrift.length+'</span>'
+      +'<span style=\"font-size:11px;color:#795548\">müddət bitib, lakin is_active=true qalıb — data keyfiyyəti riski</span>'
+      +'</div>'
+      +'<span style=\"color:#E65100;font-size:14px\">'+(isOpenDrift?'▲':'▼')+'</span>'
+      +'</div>';
+    if(isOpenDrift){
+      h+='<div style=\"padding:4px 12px 8px 12px\">';
+      h+='<div style=\"font-size:11px;color:#795548;margin-bottom:6px;padding:4px 8px;background:#FFF8E1;border-radius:6px\">⚠ Bu bölmə avtomatik DB düzəlişi etmir. Yalnız məlumat keyfiyyəti xəbərdarlığıdır.</div>';
+      var driftCols='1fr 90px 100px 90px 60px';
+      h+='<div style=\"background:#fff;border:1px solid #F9A825;border-radius:8px;overflow:hidden;overflow-x:auto\">'
+        +'<div style=\"display:grid;grid-template-columns:'+driftCols+';padding:7px 12px;background:#FFF9C4;font-size:11px;font-weight:600;color:#888;min-width:480px\">'
+        +'<div>MÜŞTƏRİ</div><div>PAKET</div><div style=\"text-align:right\">BİTMƏ TARİXİ</div><div style=\"text-align:right\">STATUS</div><div style=\"text-align:right\">QALAN</div>'
+        +'</div>';
+      for(var di=0;di<d.statusDrift.length;di++){
+        var item=d.statusDrift[di];
+        var dbg=di%2===0?'#fff':'#FFFDE7';
+        var rrDisplay=item.s.is_partner?'∞':(item.freshRemaining!==null?item.freshRemaining:'—');
+        h+='<div style=\"display:grid;grid-template-columns:'+driftCols+';padding:8px 12px;background:'+dbg+';border-top:1px solid #F9A825;font-size:12px;cursor:pointer;min-width:480px\" onclick=\"selCust(\''+item.c.id+'\')\">'+
+          '<div><div style=\"font-weight:500\">'+item.c.name+'</div><div style=\"font-size:10px;color:#aaa\">'+item.c.id+'</div></div>'+
+          '<div style=\"display:flex;align-items:center\"><span class=\"badge b-gray\" style=\"font-size:11px\">'+(item.s.program_id||'—')+'</span></div>'+
+          '<div style=\"text-align:right;display:flex;align-items:center;justify-content:flex-end;color:#C62828;font-weight:600\">'+(item.s.end_date?fmt(item.s.end_date):'—')+'</div>'+
+          '<div style=\"text-align:right;display:flex;align-items:center;justify-content:flex-end\"><span style=\"font-size:10px;background:#FFCC80;color:#E65100;border-radius:8px;padding:2px 6px\">is_active=true</span></div>'+
+          '<div style=\"text-align:right;display:flex;align-items:center;justify-content:flex-end;font-weight:600\">'+rrDisplay+'</div>'+
+          '</div>';
+      }
+      h+='</div></div>';
+    }
+    h+='</div>';
   }
 
   var sections=[
@@ -4585,6 +4715,8 @@ function rReport(){
   if(!S.reportMonth)S.reportMonth=curMonth;
   // Cashier cannot see salary report — silently redirect to izleme
   if(isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
+  // Cashier auto-fetch: if redirected to izleme and data not yet loaded, trigger fetch
+  if(S.reportTab==='izleme'&&!S.izlemeData&&!S.izlemeLoading){fetchIzleme();}
   
   var h='<div class="ph"><div class="pt">Hesabat</div></div>';
   var t1=S.reportTab==='salary'?'active':'';
