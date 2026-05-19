@@ -200,6 +200,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   auditLogLimit:50,
   auditLogEntityType:'',
   auditLogAction:'',
+  auditLogUser:'',
   adminOpenSections:{progs:false,insts:false,accts:false,excel:false,audit:false},
   auditOpenChecks:{c1:false,c2:false,c3:false,c4:false,c5:false,c6:false},
   leadsData:null,leadsLoading:false,leadsLoaded:false,
@@ -338,14 +339,108 @@ function renderAuditDiff(oldVal, newVal, entityType, action){
     var old_=typeof oldVal==='string'?JSON.parse(oldVal):oldVal;
     var new_=typeof newVal==='string'?JSON.parse(newVal):newVal;
     if(!old_&&!new_)return'';
-    // For subscription edit rows, show changed fields
+    // Local helpers
+    function _chip(lbl,val){
+      if(val===null||val===undefined||String(val)==='')return'';
+      return'<span style="font-size:11px;background:#f4f4f4;border-radius:4px;padding:2px 7px;color:#444;display:inline-block">'
+        +'<span style="color:#999">'+escHtml(lbl)+':</span> <b>'+escHtml(String(val))+'</b></span>';
+    }
+    function _chips(parts){
+      var f=parts.filter(function(p){return!!p;});
+      return f.length?'<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:5px">'+f.join('')+'</div>':'';
+    }
+    function _diffRow(lbl,ov,nv){
+      return'<tr>'
+        +'<td style="padding:2px 6px;color:#888;font-size:11px;white-space:nowrap">'+escHtml(lbl)+'</td>'
+        +'<td style="padding:2px 6px;color:#C62828;font-size:11px;text-decoration:line-through;white-space:nowrap">'+escHtml(ov||'—')+'</td>'
+        +'<td style="padding:2px 4px;color:#aaa;font-size:10px">→</td>'
+        +'<td style="padding:2px 6px;color:#1D9E75;font-size:11px;white-space:nowrap">'+escHtml(nv||'—')+'</td>'
+        +'</tr>';
+    }
+    // A) customer/create — manual or lead_convert
+    if(entityType==='customer'&&action==='create'){
+      var d=new_||{};
+      var parts=[];
+      if(d.id)parts.push(_chip('ID',d.id));
+      if(d.name)parts.push(_chip('Soyad Ad',d.name));
+      if(d.phone)parts.push(_chip('Telefon',d.phone));
+      if(d.birth_date)parts.push(_chip('Doğum tarixi',d.birth_date));
+      if(d.source_flow)parts.push(_chip('Mənbə',d.source_flow));
+      if(d.lead_id)parts.push(_chip('Lead ID',d.lead_id));
+      return _chips(parts);
+    }
+    // B) customer/edit — ID context + changed fields only
+    if(entityType==='customer'&&action==='edit'){
+      var CWATCH=['name','phone','birth_date'];
+      var CLABELS={name:'Soyad Ad',phone:'Telefon',birth_date:'Doğum tarixi'};
+      var cidVal=(new_&&new_.id)||(old_&&old_.id)||'';
+      var cidLine=cidVal?'<div style="font-size:10px;color:#888;margin-bottom:4px">ID: '+escHtml(cidVal)+'</div>':'';
+      var cdrows=[];
+      for(var ci=0;ci<CWATCH.length;ci++){
+        var ck=CWATCH[ci];
+        var cov=(old_&&old_[ck]!==undefined&&old_[ck]!==null)?String(old_[ck]):'';
+        var cnv=(new_&&new_[ck]!==undefined&&new_[ck]!==null)?String(new_[ck]):'';
+        if(cov===cnv)continue;
+        cdrows.push(_diffRow(CLABELS[ck],cov||'—',cnv||'—'));
+      }
+      if(!cdrows.length)return'';
+      return cidLine+'<table style="border-collapse:collapse;margin-top:2px">'+cdrows.join('')+'</table>';
+    }
+    // C) attendance/create and attendance/delete
+    if(entityType==='attendance'&&(action==='create'||action==='delete')){
+      var atd=(action==='delete'?old_:new_)||{};
+      var parts=[];
+      var atCust=[atd.customer_name,atd.customer_id].filter(Boolean).join(' / ');
+      if(atCust)parts.push(_chip('Müştəri',atCust));
+      var atProg=[atd.program_name,atd.program_id].filter(Boolean).join(' / ');
+      if(atProg)parts.push(_chip('Proqram',atProg));
+      var atDate=[atd.class_date,atd.class_time].filter(Boolean).join(' ');
+      if(atDate)parts.push(_chip('Tarix/Vaxt',atDate));
+      if(atd.instructor_name)parts.push(_chip('Müəllim',atd.instructor_name));
+      if(atd.subscription_id)parts.push(_chip('Sub ID',atd.subscription_id));
+      if(atd.source_flow)parts.push(_chip('Mənbə',atd.source_flow));
+      return _chips(parts);
+    }
+    // D) booking create/edit/delete
+    if(entityType==='booking'){
+      var bkd=(action==='delete'?old_:new_)||new_||old_||{};
+      var parts=[];
+      if(bkd.type)parts.push(_chip('Tip',bkd.type));
+      var bkname=bkd.customer_name||bkd.temp_customer_name||bkd.temp_lead_name||'';
+      var bkid=bkd.customer_id||bkd.temp_customer_id||bkd.temp_lead_id||'';
+      if(bkname||bkid)parts.push(_chip('Müştəri',[bkname,bkid].filter(Boolean).join(' / ')));
+      var bkdate=bkd.exception_date||bkd.valid_from||'';
+      if(bkdate)parts.push(_chip('Tarix',bkdate));
+      if(bkd.day_of_week)parts.push(_chip('Gün',bkd.day_of_week));
+      if(bkd.time_slot)parts.push(_chip('Vaxt',bkd.time_slot));
+      if(bkd.booking_id)parts.push(_chip('Bron ID',bkd.booking_id));
+      if(bkd.source_flow)parts.push(_chip('Mənbə',bkd.source_flow));
+      if(bkd.note)parts.push(_chip('Qeyd',bkd.note));
+      return _chips(parts);
+    }
+    // E) lead trial lifecycle
+    var TRIAL_ACTS=['trial_scheduled','trial_done','trial_done_reverted','trial_slot_cancelled'];
+    if(entityType==='lead'&&TRIAL_ACTS.indexOf(action)>=0){
+      var parts=[];
+      var trOldSt=old_&&old_.status;
+      var trNewSt=new_&&new_.status;
+      if(trOldSt||trNewSt)parts.push(_chip('Status',(trOldSt||'—')+' → '+(trNewSt||'—')));
+      var trd=new_||old_||{};
+      if(trd.trial_class_date)parts.push(_chip('Sınaq tarixi',trd.trial_class_date));
+      if(trd.trial_class_time)parts.push(_chip('Sınaq vaxtı',trd.trial_class_time));
+      if(trd.trial_done_instructor_name)parts.push(_chip('Müəllim',trd.trial_done_instructor_name));
+      var trExId=trd.exception_id||trd.trial_booking_ex_id||'';
+      if(trExId)parts.push(_chip('Exception ID',trExId));
+      if(trd.source_flow)parts.push(_chip('Mənbə',trd.source_flow));
+      return _chips(parts);
+    }
+    // subscription/edit — existing logic preserved
     if(entityType==='subscription'&&action==='edit'&&old_&&new_){
       var WATCH=['start_date','end_date','price_due','price_paid','discount_amount','discount_note','sessions_total','remaining','status','freeze_end'];
       var rows=[];
       for(var i=0;i<WATCH.length;i++){
         var k=WATCH[i];
         var ov=old_[k],nv=new_[k];
-        // Coerce nulls and empty strings for comparison
         var ovs=(ov===null||ov===undefined)?'':String(ov);
         var nvs=(nv===null||nv===undefined)?'':String(nv);
         if(ovs===nvs)continue;
@@ -360,7 +455,27 @@ function renderAuditDiff(oldVal, newVal, entityType, action){
       if(!rows.length)return'';
       return'<table style="border-collapse:collapse;margin-top:4px">'+rows.join('')+'</table>';
     }
-    // For other types — show minimal snapshot if new_value exists
+    // F) transaction — extended display including customer_id/subscription_id/source_flow
+    if(entityType==='transaction'){
+      var txd=new_||(action==='delete'?old_:null)||old_||{};
+      var parts=[];
+      var TFIELDS=['amount','category','type','account_id','date','description','customer_id','subscription_id','source_flow'];
+      var TLABELS={amount:'Məbləğ',category:'Kateqoriya',type:'Tip',account_id:'Hesab ID',date:'Tarix',description:'Açıqlama',customer_id:'Müştəri ID',subscription_id:'Sub ID',source_flow:'Mənbə'};
+      for(var ti=0;ti<TFIELDS.length;ti++){
+        var tk=TFIELDS[ti];
+        if(txd[tk]!==undefined&&txd[tk]!==null&&String(txd[tk])!=='')parts.push(_chip(TLABELS[tk]||tk,txd[tk]));
+      }
+      return _chips(parts);
+    }
+    // G) app_user pin_change — never show PIN/hash; safe metadata only
+    if(entityType==='app_user'&&action==='pin_change'){
+      var pind=new_||old_||{};
+      var parts=[];
+      if(pind.must_change_pin!==undefined&&pind.must_change_pin!==null)parts.push(_chip('Şifrə dəyişdirilməli',String(pind.must_change_pin)));
+      if(pind.pin_changed_at)parts.push(_chip('Dəyişdirilmə tarixi',pind.pin_changed_at));
+      return _chips(parts);
+    }
+    // Fallback generic for remaining entity types
     if(new_&&typeof new_==='object'){
       var parts=[];
       var GENERIC=['amount','category','type','account_id','date','description'];
@@ -966,7 +1081,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: customer-audit-coverage-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: auditlog-ui-display-polish-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -5198,8 +5313,25 @@ function rAdmin(){
     var _aclabels=["Əməliyyat tipi","create","edit","delete"];
     for(var _aci=0;_aci<_actypes.length;_aci++){h+='<option value="'+_actypes[_aci]+'"'+(S.auditLogAction===_actypes[_aci]?' selected':'')+'>'+_aclabels[_aci]+'</option>';}
     h+='</select>';
-    if(S.auditLogDate||S.auditLogEntityType||S.auditLogAction){
-      h+='<button class="btn btn-gray btn-sm" onclick="S.auditLogDate=null;S.auditLogEntityType=\'\';S.auditLogAction=\'\';S.auditLogData=null;render();loadAuditLog()">✕ Sıfırla</button>';
+    // User/operator filter — datalist from appUsersData + loaded audit rows
+    var _auditUserOpts=[];var _auditUserSet={};
+    if(S.appUsersData){for(var _aui=0;_aui<S.appUsersData.length;_aui++){var _au=S.appUsersData[_aui];if(_au.username&&!_auditUserSet[_au.username]){_auditUserSet[_au.username]=1;_auditUserOpts.push(_au.username);}}}
+    if(S.auditLogData&&S.auditLogData.rows){for(var _alui=0;_alui<S.auditLogData.rows.length;_alui++){var _alur=S.auditLogData.rows[_alui];var _alun=_alur.username||(_alur.actor&&_alur.actor!=='Unknown'?_alur.actor:'');if(_alun&&_alun!=='Unknown'&&!_auditUserSet[_alun]){_auditUserSet[_alun]=1;_auditUserOpts.push(_alun);}}}
+    h+='<datalist id="al-user-list">';
+    for(var _aui2=0;_aui2<_auditUserOpts.length;_aui2++){h+='<option value="'+escHtml(_auditUserOpts[_aui2])+'"></option>';}
+    h+='</datalist>';
+    h+='<div style="position:relative;display:inline-flex;align-items:center">';
+    h+='<input list="al-user-list" id="al-user-input" class="fi" placeholder="👤 İstifadəçi" '
+      +'style="width:130px;font-size:13px;padding:6px 28px 6px 10px'+(S.auditLogUser?';border-color:#1D9E75':'')+'" '
+      +'value="'+escHtml(S.auditLogUser||'')+'" '
+      +'onchange="S.auditLogUser=this.value.trim();S.auditLogData=null;render();loadAuditLog()">';
+    if(S.auditLogUser){
+      h+='<button style="position:absolute;right:4px;background:none;border:none;cursor:pointer;font-size:12px;color:#aaa;padding:2px 4px;line-height:1" '
+        +'onclick="S.auditLogUser=\'\';S.auditLogData=null;render();loadAuditLog()" title="İstifadəçi filtrini sıfırla">✕</button>';
+    }
+    h+='</div>';
+    if(S.auditLogDate||S.auditLogEntityType||S.auditLogAction||S.auditLogUser){
+      h+='<button class="btn btn-gray btn-sm" onclick="S.auditLogDate=null;S.auditLogEntityType=\'\';S.auditLogAction=\'\';S.auditLogUser=\'\';S.auditLogData=null;render();loadAuditLog()">✕ Sıfırla</button>';
     }
     h+='<button class="btn btn-gray btn-sm" onclick="loadAuditLog()" style="margin-left:auto">🔄 Yenilə</button>';
     h+='<button class="btn btn-gray btn-sm" onclick="exportAuditLogCSV()">⬇️ CSV</button>';
@@ -5893,7 +6025,7 @@ async function submitEditCust(){
         break;
       }
     }
-    logAudit('customer',_custId,'edit',name+' müştəri məlumatları yeniləndi',_oldSnap,{id:_custId,name:name,phone:phone||'',birth_date:birth||''});
+    logAudit('customer',_custId,'edit',_custId+' — '+name+' müştəri məlumatları yeniləndi',_oldSnap,{id:_custId,name:name,phone:phone||'',birth_date:birth||''});
     S.editCust=null;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -6922,6 +7054,7 @@ async function loadAuditLog(){
     }
     if(S.auditLogEntityType)params+='&entity_type=eq.'+encodeURIComponent(S.auditLogEntityType);
     if(S.auditLogAction)params+='&action=eq.'+encodeURIComponent(S.auditLogAction);
+    if(S.auditLogUser)params+='&username=eq.'+encodeURIComponent(S.auditLogUser);
     var rows=await dbGet('audit_logs',params);
     S.auditLogData={rows:rows||[],date:S.auditLogDate,limit:limit};
   }catch(e){
