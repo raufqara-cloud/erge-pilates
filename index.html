@@ -206,6 +206,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   leadsFilter:{status:'active',assigned:'all',overdue:false,search:'',source:'',goal:''},
   selLead:null,showAddLead:false,leadLostModal:null,
   commRulesCache:null,commRulesLoading:false,showCommRuleModal:false,commRuleModal:null,
+  remainingDisplayCache:null,remainingDisplayLoading:false,
   currentUser:null,appUsersData:null,showLoginModal:true};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
@@ -412,10 +413,68 @@ function getAttsForCalc(custId){
 function calcRemainingForDisplay(sub){
   if(!sub)return 0;
   if(sub.is_partner)return null;
+  // Prefer fresh DB-counted remaining from display cache when available
+  if(S.remainingDisplayCache&&S.remainingDisplayCache[sub.id]!==undefined)
+    return S.remainingDisplayCache[sub.id];
   var atts=getAttsForCalc(sub.customer_id);
   if(atts)return calcSubRemaining(sub,atts);
   return Math.max(0,(parseInt(sub.remaining)||0));
 }
+
+// refreshRemainingDisplay — fetches fresh DB attendance counts for all active non-partner
+// studio subscriptions and populates S.remainingDisplayCache.
+// Display-only: does NOT write to DB. Does NOT affect recalcSubscriptionRemaining().
+async function refreshRemainingDisplay(){
+  if(S.remainingDisplayLoading)return;
+  S.remainingDisplayLoading=true;
+  try{
+    var singleP=['ROF','RPS','RPP','ROTG','ROTI','RTEST'];
+    // Collect relevant sub IDs: is_active=true, non-partner, non-single
+    var subIds=[];
+    for(var i=0;i<D.subscriptions.length;i++){
+      var s=D.subscriptions[i];
+      if(!s.is_active)continue;
+      if(s.is_partner)continue;
+      if(singleP.indexOf(s.program_id)>=0)continue;
+      subIds.push(s.id);
+    }
+    var cache={};
+    // Pre-populate from current sub.remaining as fallback (overwritten by fresh DB count below)
+    for(var i=0;i<D.subscriptions.length;i++){
+      var s=D.subscriptions[i];
+      if(!s.is_active||s.is_partner||singleP.indexOf(s.program_id)>=0)continue;
+      var tot=parseInt(s.sessions_total)||0;
+      cache[s.id]=Math.max(0,tot-(parseInt(s.remaining)>=0?tot-(parseInt(s.remaining)||0):0));
+    }
+    // Fetch fresh attendance counts from DB in batches of 50
+    var batchSize=50;
+    var freshCount={};
+    for(var b=0;b<subIds.length;b+=batchSize){
+      var batch=subIds.slice(b,b+batchSize);
+      if(!batch.length)break;
+      var rows=await dbGet('attendances','subscription_id=in.('+batch.join(',')+')'+'&select=subscription_id,id');
+      for(var j=0;j<rows.length;j++){
+        var sid=rows[j].subscription_id;
+        if(sid)freshCount[sid]=(freshCount[sid]||0)+1;
+      }
+    }
+    // Compute fresh remaining per sub
+    for(var i=0;i<D.subscriptions.length;i++){
+      var s=D.subscriptions[i];
+      if(!s.is_active||s.is_partner||singleP.indexOf(s.program_id)>=0)continue;
+      var tot=parseInt(s.sessions_total)||0;
+      var used=freshCount[s.id]||0;
+      cache[s.id]=Math.max(0,tot-used);
+    }
+    S.remainingDisplayCache=cache;
+  }catch(e){
+    // On error, leave cache null so display falls back to local count gracefully
+    S.remainingDisplayCache=null;
+  }
+  S.remainingDisplayLoading=false;
+  render();
+}
+
 function calcDebt(sub){
   if(!sub)return 0;
   var due=(sub.price_due!==undefined&&sub.price_due!==null)?toNum(sub.price_due,0):0;
@@ -890,7 +949,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: izleme-entry-refresh-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: remaining-display-consistency-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -6041,6 +6100,8 @@ function sv(v){
   S.view=v;S.search='';S.selCust=null;S.selLead=null;
   // Force fresh İzleme data on every Report entry — prevents stale screen cache
   if(v==='report'&&S.reportTab==='izleme'){S.izlemeData=null;fetchIzleme(true);}
+  // Force fresh remaining display on Müştərilər and Davamiyyət entry
+  if(v==='cust'||v==='att'){S.remainingDisplayCache=null;refreshRemainingDisplay();}
   render();
 }
 function ss(v){
@@ -7229,6 +7290,8 @@ async function recalcSubscriptionRemaining(subId){
   var newRemaining=Math.max(0,total-used);
   await dbPatch('subscriptions','id=eq.'+subId,{remaining:newRemaining});
   updateSubscriptionLocal(subId,{remaining:newRemaining});
+  // Keep display cache in sync — avoids stale display until next full refreshRemainingDisplay
+  if(S.remainingDisplayCache)S.remainingDisplayCache[subId]=newRemaining;
   S.reportData=null;S.izlemeData=null;
   return{subId:subId,used:used,remaining:newRemaining};
 }
