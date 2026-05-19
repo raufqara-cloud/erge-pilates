@@ -475,6 +475,20 @@ async function refreshRemainingDisplay(){
   render();
 }
 
+// Narrow customer cache refresh — fetches customers from DB and updates D.customers safely.
+// Fire-and-forget: does not block render, causes one extra render on completion.
+// Used on Mustərilər tab entry and fetchCustDetail for cross-session profile freshness.
+async function refreshCustomersLight(){
+  if(S._custRefreshLoading)return;
+  S._custRefreshLoading=true;
+  try{
+    var rows=await dbGet('customers','order=name');
+    if(rows&&Array.isArray(rows))D.customers=rows;
+    render();
+  }catch(e){/* silent — keep existing D.customers on network error */}
+  S._custRefreshLoading=false;
+}
+
 function calcDebt(sub){
   if(!sub)return 0;
   var due=(sub.price_due!==undefined&&sub.price_due!==null)?toNum(sub.price_due,0):0;
@@ -949,7 +963,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: remaining-display-consistency-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: customer-session-refresh-consistency-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1016,6 +1030,15 @@ function getTrialDoneRowsForDate(dateStr){
   return rows;
 }
 
+// Narrow Home view refresh — re-fetches selected date attendances and clears remaining cache.
+// Does NOT call loadAll(). Safe fire-and-forget.
+function refreshHomeView(){
+  var d=S.selDate||td();
+  fetchAttByDate(d);
+  S.remainingDisplayCache=null;
+  refreshRemainingDisplay();
+}
+
 function rHome(){
   var ta=[];
   if(S.selDateAtts!==null){
@@ -1052,6 +1075,7 @@ function rHome(){
     +'<div style="display:flex;align-items:center;gap:8px">'
     +'<input type="date" value="'+viewDate+'" max="'+td()+'" onchange="S.selDate=this.value===td()?null:this.value;S.homeSlot=null;fetchAttByDate(this.value);" style="padding:6px 10px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:inherit;outline:none">'
     +(isToday?'':'<button class="btn btn-gray btn-sm" onclick="S.selDate=null;S.selDateAtts=null;S.homeSlot=null;fetchAttByDate(td());render()">Bu gun</button>')
+    +'<button class="btn btn-gray btn-sm" onclick="refreshHomeView()" title="Yenilə">↻ Yenilə</button>'
     +'</div></div>'
     +'<div class="sgrid">'
     +'<div class="scard"><div class="snum">'+ta.length+'</div><div class="slbl">Bugunki istirak</div></div>'
@@ -5762,9 +5786,19 @@ async function fetchCustDetail(custId){
   try{
     var res=await Promise.all([
       dbGet('subscriptions','customer_id=eq.'+custId+'&order=start_date.desc'),
-      dbGet('attendances','customer_id=eq.'+custId+'&order=class_date.desc')
+      dbGet('attendances','customer_id=eq.'+custId+'&order=class_date.desc'),
+      dbGet('customers','id=eq.'+custId)
     ]);
     S.custDetail={subs:res[0]||[],atts:res[1]||[]};
+    // Refresh this customer's row in D.customers for cross-session profile edits
+    if(res[2]&&res[2].length>0){
+      var freshCust=res[2][0];
+      var found=false;
+      for(var ci=0;ci<D.customers.length;ci++){
+        if(D.customers[ci].id===custId){D.customers[ci]=freshCust;found=true;break;}
+      }
+      if(!found)D.customers.unshift(freshCust);
+    }
     // D.attendances-a bu musteri ucun TAM davamiyyeti yaz
     // Belece calcSubRemaining her zaman duzgun netice verar
     var freshAtts=S.custDetail.atts;
@@ -6102,6 +6136,8 @@ function sv(v){
   if(v==='report'&&S.reportTab==='izleme'){S.izlemeData=null;fetchIzleme(true);}
   // Force fresh remaining display on Müştərilər and Davamiyyət entry
   if(v==='cust'||v==='att'){S.remainingDisplayCache=null;refreshRemainingDisplay();}
+  // Refresh customer list on Müştərilər entry to pick up cross-session profile edits
+  if(v==='cust')refreshCustomersLight();
   render();
 }
 function ss(v){
