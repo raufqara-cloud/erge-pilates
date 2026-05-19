@@ -608,7 +608,10 @@ async function doAddCust(name,phone,birth){
   try{
     var rows=await dbPost('customers',{name:name,phone:phone||'',birth_date:birth||''});
     var row=Array.isArray(rows)?rows[0]:rows;
-    if(row)D.customers.unshift(row);
+    if(row){
+      D.customers.unshift(row);
+      logAudit('customer',row.id,'create',row.name+' müştəri yaradıldı',null,{id:row.id,name:row.name,phone:row.phone||'',birth_date:row.birth_date||'',source_flow:'manual_customer_create'});
+    }
     S.showAddCust=false;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -963,7 +966,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: customer-session-refresh-consistency-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: customer-audit-coverage-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -5870,17 +5873,27 @@ async function submitEditCust(){
   var birth=document.getElementById('ec-birth').value;
   if(!name||!S.editCust)return;
   if(phone){var _pn=normalizePhoneForStorage(phone);if(_pn===null){alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return;}phone=_pn;}
+  // Capture old snapshot before DB write or render (DOM may be replaced after render())
+  var _custId=S.editCust;
+  var _oldSnap=null;
+  for(var _oi=0;_oi<D.customers.length;_oi++){
+    if(D.customers[_oi].id===_custId){
+      _oldSnap={id:D.customers[_oi].id,name:D.customers[_oi].name,phone:D.customers[_oi].phone||'',birth_date:D.customers[_oi].birth_date||''};
+      break;
+    }
+  }
   S.saving=true;render();
   try{
-    await dbPatch('customers','id=eq.'+S.editCust,{name:name,phone:phone||'',birth_date:birth||null});
+    await dbPatch('customers','id=eq.'+_custId,{name:name,phone:phone||'',birth_date:birth||null});
     for(var i=0;i<D.customers.length;i++){
-      if(D.customers[i].id===S.editCust){
+      if(D.customers[i].id===_custId){
         D.customers[i].name=name;
         D.customers[i].phone=phone||'';
         D.customers[i].birth_date=birth||null;
         break;
       }
     }
+    logAudit('customer',_custId,'edit',name+' müştəri məlumatları yeniləndi',_oldSnap,{id:_custId,name:name,phone:phone||'',birth_date:birth||''});
     S.editCust=null;
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -8755,7 +8768,10 @@ async function submitLeadDetail(leadId){
 async function createCustomerFromLead(lead){
   var rows=await dbPost('customers',{name:lead.name,phone:lead.phone||'',birth_date:''});
   var row=Array.isArray(rows)?rows[0]:rows;
-  if(row)D.customers.unshift(row);
+  if(row){
+    D.customers.unshift(row);
+    logAudit('customer',row.id,'create',row.name+' müştəri (lead çevrilməsi) yaradıldı',null,{id:row.id,name:row.name,phone:row.phone||'',birth_date:'',source_flow:'lead_convert',lead_id:lead.id});
+  }
   return row;
 }
 
