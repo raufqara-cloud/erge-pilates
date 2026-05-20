@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — izleme-fresh-db-v1</title>
+<title>Erge Pilates — data-integrity-fresh-snapshot-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1091,7 +1091,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: attendance-preventive-guards-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: data-integrity-fresh-snapshot-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -2320,6 +2320,7 @@ async function cancelAbsent(exId){
       _caEx?{type:_caEx.type,booking_id:_caEx.booking_id||null,exception_date:_caEx.exception_date,temp_customer_id:_caEx.temp_customer_id||null,temp_customer_name:_caEx.temp_customer_name||null,time_slot:_caEx.time_slot||null}:null,
       null);
     S.bronExceptions=S.bronExceptions.filter(function(e){return e.id!==exId;});
+    invalidateDataIntegrityResults('Bron istisna silindi ('+exId+')');
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -2425,6 +2426,7 @@ async function deleteBron(id){
       _delBron?{customer_id:_delBron.customer_id,customer_name:_delBron.customer_name,day_of_week:_delBron.day_of_week,time_slot:_delBron.time_slot,type:'permanent',is_active:true}:null,
       {is_active:false,valid_until:addDays(td(),-1),source_flow:'deleteBron'});
     if(S.bronData)S.bronData=S.bronData.filter(function(b){return b.id!==id;});
+    invalidateDataIntegrityResults('Bron deaktiv edildi ('+id+')');
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -5328,18 +5330,15 @@ function rAdmin(){
   }else if(S.auditResults.error){
     auditBadge='Xəta';auditBadgeClass='b-red';
   }else{
-    var totalProbs=S.auditResults.c1.length+S.auditResults.c2.length+S.auditResults.c3.length+S.auditResults.c4.length;
-    auditBadge=totalProbs===0?'Təmiz':''+totalProbs+' problem';
+    var totalProbs=S.auditResults.c1.length+S.auditResults.c2.length+S.auditResults.c3.length+S.auditResults.c4.length+(S.auditResults.c5||[]).length+(S.auditResults.c6||[]).length;
+    auditBadge=(S.auditResults.stale?'⚠ ':'')+(totalProbs===0?'Təmiz':''+totalProbs+' problem');
     auditBadgeClass=totalProbs===0?'b-green':'b-yellow';
   }
   h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
   h+=rAdminAccHdr('audit','🔍','Məlumat Yoxlaması',auditBadge,auditBadgeClass);
   if(sec.audit){
     h+='<div style="padding:12px 16px">';
-    h+='<div style="font-size:13px;color:#555;margin-bottom:10px">Dublikat davamiyyət, abunə qalıq uyğunsuzluğu və tarix aralığı pozuntularını yoxlayır. Yalnız oxuma rejimi — heç bir dəyişiklik edilmir.</div>';
-    if(!D.attFull){
-      h+='<div class="al al-y" style="margin-bottom:10px">⚠ Davamiyyət datası tam yüklənməyib, nəticə natamam ola bilər.</div>';
-    }
+    h+='<div style="font-size:13px;color:#555;margin-bottom:10px">Dublikat davamiyyət, abunə qalıq uyğunsuzluğu və tarix aralığı pozuntularını yoxlayır. Yalnız oxuma rejimi — heç bir dəyişiklik edilmir. Hər yoxlamada DB-dən təzə məlumat oxunur.</div>';
     h+='<button class="btn btn-b" onclick="runDataIntegrityAudit()" '+(S.auditLoading?'disabled':'')+'>'+( S.auditLoading?'<span class="spin"></span> Yoxlanılır...':'🔍 Yoxlamanı başlat')+'</button>';
     h+=rAuditResults();
     h+='</div>';
@@ -5977,6 +5976,7 @@ async function deleteAtt(attId, subId, attDate){
     D.attendances=D.attendances.filter(function(a){return a.id!==localAttId;});
     if(S.selDateAtts)S.selDateAtts=S.selDateAtts.filter(function(a){return a.id!==localAttId;});
     if(S.custDetail&&S.custDetail.atts)S.custDetail.atts=S.custDetail.atts.filter(function(a){return a.id!==localAttId;});
+    invalidateDataIntegrityResults('Davamiyyət silindi ('+attDate+')');
     // Remaining: real attendance count əsasında yenidən hesabla
     if(localSubId&&localSubId!=='null'){
       await recalcSubscriptionRemaining(localSubId);
@@ -6046,6 +6046,7 @@ async function deleteSub(subId){
     if(S.custDetail){
       S.custDetail.subs=S.custDetail.subs.filter(function(s){return s.id!==subId;});
     }
+    invalidateDataIntegrityResults('Abunəlik silindi ('+subId+')');
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -7399,6 +7400,7 @@ async function deleteTxn(id){
       null
     );
     if(S.kassaData)S.kassaData.txns=S.kassaData.txns.filter(function(t){return t.id!==id;});
+    invalidateDataIntegrityResults('Əməliyyat silindi ('+id+')');
     if(subId)await recalcSubscriptionPaid(subId);
     // custDetail yenilə — transaction silindikdən sonra profil anında düzəlsin
     if(S.custDetail&&S.selCust){
@@ -7562,6 +7564,7 @@ async function repairAllSubscriptions(){
     }
     alert('✓ '+count+' abunəlik yenidən hesablandı.\nSəhifəni yeniləyin ki, dəyişikliklər görünsün.');
     S.custDetail=null;
+    invalidateDataIntegrityResults('Bütün abunə qalıqları yenidən hesablandı');
   }catch(e){alert('Xəta: '+e.message);}
   S.saving=false;render();
 }
@@ -7573,16 +7576,47 @@ async function repairCustomerSubscriptions(custId){
     if(!subs[i].is_partner)await recalcSubscriptionRemaining(subs[i].id);
   }
   alert(custId+' üçün abunə qalıqları yenidən hesablandı.');
+  invalidateDataIntegrityResults(custId+' üçün abunə qalıqları yenidən hesablandı');
   if(S.selCust===custId){S.custDetail=null;S.custDetailLoading=true;fetchCustDetail(custId);}
   else render();
 }
 
-// ==================== DATA INTEGRITY AUDIT — daily-integrity-v1 ====================
+// ==================== DATA INTEGRITY AUDIT — data-integrity-fresh-snapshot-v1 ====================
 
-function auditDuplicateAttendanceByDay(){
+// Read-only fresh snapshot fetch — does NOT write to D.*
+async function fetchDataIntegritySnapshot(){
+  var snap={customers:[],subscriptions:[],attendances:[],transactions:[],bookings:[]};
+  try{
+    var res=await Promise.all([
+      dbGetAll('customers','order=id',2000),
+      dbGetAll('subscriptions','order=customer_id',2000),
+      dbGetAll('attendances','order=class_date.desc',5000),
+      dbGetAll('transactions','order=date.desc,created_at.desc',1000),
+      dbGetAll('bookings','is_active=eq.true&type=eq.permanent&order=day_of_week,time_slot',1000)
+    ]);
+    snap.customers   = res[0]||[];
+    snap.subscriptions = res[1]||[];
+    snap.attendances = res[2]||[];
+    snap.transactions = res[3]||[];
+    snap.bookings    = res[4]||[];
+  }catch(e){
+    throw new Error('Snapshot yüklənərkən xəta: '+e.message);
+  }
+  return snap;
+}
+
+// Invalidate stale audit results after related mutations (does NOT auto-rerun)
+function invalidateDataIntegrityResults(reason){
+  if(S.auditResults&&!S.auditResults.error){
+    S.auditResults.stale=true;
+    S.auditResults.staleReason=reason||'Məlumat dəyişdi';
+  }
+}
+
+function auditDuplicateAttendanceByDay(attsArg){
   // Check 1: same customer_id + class_date, count > 1
   var map={};
-  var atts=D.attendances||[];
+  var atts=attsArg||D.attendances||[];
   for(var i=0;i<atts.length;i++){
     var a=atts[i];
     var key=a.customer_id+'|'+a.class_date;
@@ -7597,10 +7631,10 @@ function auditDuplicateAttendanceByDay(){
   return issues;
 }
 
-function auditDuplicateAttendanceBySlot(){
+function auditDuplicateAttendanceBySlot(attsArg){
   // Check 2: same customer_id + class_date + class_time, count > 1
   var map={};
-  var atts=D.attendances||[];
+  var atts=attsArg||D.attendances||[];
   for(var i=0;i<atts.length;i++){
     var a=atts[i];
     var key=a.customer_id+'|'+a.class_date+'|'+(a.class_time||'');
@@ -7614,13 +7648,13 @@ function auditDuplicateAttendanceBySlot(){
   return issues;
 }
 
-function auditSubscriptionRemainingMismatch(){
+function auditSubscriptionRemainingMismatch(subsArg, attsArg, customersArg){
   // Check 3: non-partner subs where DB remaining != expected remaining
   var issues=[];
-  var subs=D.subscriptions||[];
-  var atts=D.attendances||[];
+  var subs=subsArg||D.subscriptions||[];
+  var atts=attsArg||D.attendances||[];
   var custMap={};
-  var customers=D.customers||[];
+  var customers=customersArg||D.customers||[];
   for(var i=0;i<customers.length;i++)custMap[customers[i].id]=customers[i].name;
   for(var i=0;i<subs.length;i++){
     var sub=subs[i];
@@ -7650,12 +7684,12 @@ function auditSubscriptionRemainingMismatch(){
   return issues;
 }
 
-function auditAttendanceOutsideSubscriptionRange(){
+function auditAttendanceOutsideSubscriptionRange(attsArg, subsArg){
   // Check 4: attendance.class_date outside subscription start/end
   var issues=[];
-  var atts=D.attendances||[];
+  var atts=attsArg||D.attendances||[];
   var subMap={};
-  var subs=D.subscriptions||[];
+  var subs=subsArg||D.subscriptions||[];
   for(var i=0;i<subs.length;i++)subMap[subs[i].id]=subs[i];
   for(var i=0;i<atts.length;i++){
     var a=atts[i];
@@ -7680,13 +7714,13 @@ function auditAttendanceOutsideSubscriptionRange(){
   return issues;
 }
 
-function auditPaymentDrift(txnsArg){
+function auditPaymentDrift(txnsArg, subsArg, customersArg){
   // Check 5: non-partner subscriptions with payment anomalies
   var issues=[];
-  var subs=D.subscriptions||[];
+  var subs=subsArg||D.subscriptions||[];
   var txns=txnsArg||(S.kassaData&&S.kassaData.txns)||[];
   var custMap={};
-  var customers=D.customers||[];
+  var customers=customersArg||D.customers||[];
   for(var i=0;i<customers.length;i++)custMap[customers[i].id]=customers[i].name;
 
   // Build txn map keyed by subscription_id
@@ -7735,12 +7769,12 @@ function auditPaymentDrift(txnsArg){
   return issues;
 }
 
-function auditBronRisks(bookingsArg){
+function auditBronRisks(bookingsArg, subsArg, customersArg){
   // Check 6: active permanent booking risks
   var issues=[];
   var brons=bookingsArg||S.bronData||[];
-  var customers=D.customers||[];
-  var subs=D.subscriptions||[];
+  var customers=customersArg||D.customers||[];
+  var subs=subsArg||D.subscriptions||[];
   var custMap={};
   for(var i=0;i<customers.length;i++)custMap[customers[i].id]=customers[i];
 
@@ -7814,27 +7848,25 @@ function auditBronRisks(bookingsArg){
   return issues;
 }
 async function runDataIntegrityAudit(){
-  if(!D.attFull){
-    alert('Davamiyyət datası tam yüklənməyib. Zəhmət olmasa səhifəni yeniləyin və bir az gözləyin.');
-    return;
-  }
   S.auditLoading=true;
   S.auditResults=null;
   S.auditOpenChecks={c1:false,c2:false,c3:false,c4:false,c5:false,c6:false};
   render();
   try{
-    var r1=auditDuplicateAttendanceByDay();
-    var r2=auditDuplicateAttendanceBySlot();
-    var r3=auditSubscriptionRemainingMismatch();
-    var r4=auditAttendanceOutsideSubscriptionRange();
-    // Fetch fresh read-only data for c5/c6 — not stored globally
-    var auditTxns=[];
-    var auditBookings=[];
-    try{auditTxns=await dbGetAll('transactions','order=date.desc,created_at.desc',1000);}catch(e){console.warn('audit txns fetch failed',e);}
-    try{auditBookings=await dbGetAll('bookings','is_active=eq.true&type=eq.permanent&order=day_of_week,time_slot',1000);}catch(e){console.warn('audit bookings fetch failed',e);}
-    var r5=auditPaymentDrift(auditTxns.length?auditTxns:null);
-    var r6=auditBronRisks(auditBookings.length?auditBookings:null);
-    S.auditResults={c1:r1,c2:r2,c3:r3,c4:r4,c5:r5,c6:r6,ts:new Date().toLocaleTimeString('az-AZ')};
+    // Fetch fresh read-only snapshot — does NOT write to D.*
+    var snap=await fetchDataIntegritySnapshot();
+    var r1=auditDuplicateAttendanceByDay(snap.attendances);
+    var r2=auditDuplicateAttendanceBySlot(snap.attendances);
+    var r3=auditSubscriptionRemainingMismatch(snap.subscriptions,snap.attendances,snap.customers);
+    var r4=auditAttendanceOutsideSubscriptionRange(snap.attendances,snap.subscriptions);
+    var r5=auditPaymentDrift(snap.transactions,snap.subscriptions,snap.customers);
+    var r6=auditBronRisks(snap.bookings,snap.subscriptions,snap.customers);
+    S.auditResults={
+      c1:r1,c2:r2,c3:r3,c4:r4,c5:r5,c6:r6,
+      ts:new Date().toLocaleTimeString('az-AZ'),
+      source:'fresh_db_snapshot',
+      stale:false
+    };
   }catch(e){
     S.auditResults={error:'Yoxlama zamanı xəta: '+e.message};
   }
@@ -7965,7 +7997,10 @@ function rAuditResults(){
   var checkLabels=['Dublikat gün','Dublikat slot','Qalıq fərqi','Tarix aralığı','Ödəniş fərqi','Bron riski'];
 
   var h='<div style="margin-top:12px">';
-  h+='<div style="font-size:11px;color:#aaa;margin-bottom:8px">Son yoxlama: '+res.ts+'</div>';
+  h+='<div style="font-size:11px;color:#aaa;margin-bottom:8px">Son yoxlama: '+res.ts+' <span style="color:#bbb;font-size:10px">(fresh DB)</span></div>';
+  if(res.stale){
+    h+='<div class="al al-y" style="margin-bottom:8px;font-size:12px">⚠ <b>Köhnəlmiş nəticə</b> — '+(res.staleReason||'Məlumat dəyişdi')+'. Dəqiq nəticə üçün yenidən yoxlayın.</div>';
+  }
 
   // Summary card
   h+='<div style="background:#f8faf8;border:1px solid #e0ebe0;border-radius:10px;padding:12px 14px;margin-bottom:12px">';
