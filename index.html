@@ -885,6 +885,7 @@ function assertCanCreateAttendance(customerId,dateStr){
 }
 
 // Live DB check — başqa cihazdan edilən əməliyyatları da tutur
+// Fail-CLOSED: DB xətası baş verərsə insert BLOKLANIR (fail-open deyil)
 async function dbAssertCanCreateAttendance(customerId,dateStr){
   if(hasCustomerAttendanceOnDate(customerId,dateStr)){
     alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
@@ -896,7 +897,10 @@ async function dbAssertCanCreateAttendance(customerId,dateStr){
       alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
       return false;
     }
-  }catch(e){}
+  }catch(e){
+    alert('Davamiyyət yoxlaması tamamlanmadı. İnternet/DB bağlantısını yoxlayıb yenidən cəhd edin.');
+    return false;
+  }
   return true;
 }
 
@@ -1013,44 +1017,50 @@ async function dbAssertCanCreateOrEditSubscription(customerId,candidateStartDate
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function doAtt(custId,subId,classTime,instId,attDate){
-  if(!await dbAssertCanCreateAttendance(custId,attDate||td()))return;
-  S.saving=true;render();
+  var _attDate=attDate||td();
+  var _lock=acquireAttLock(custId,_attDate);
+  if(!_lock)return;
   try{
-    var cust=null,sub=null,inst=null;
-    for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
-    for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
-    for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
-    // Activate pending subscription on first attendance
-    if(sub&&sub.status==='pending'){
-      var prog=null;
-      for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
-      var newStart=attDate||td();
-      var newEnd=addDays(newStart,prog?prog.duration_days:30);
-      // Subscription conflict guard: ensure no other open sub exists for this start date
-      if(!await dbAssertCanCreateOrEditSubscription(custId,newStart,subId,'activate')){
-        S.saving=false;render();return;
+    if(!await dbAssertCanCreateAttendance(custId,_attDate))return;
+    if(!await checkSlotCapacity(_attDate,classTime))return;
+    S.saving=true;render();
+    try{
+      var cust=null,sub=null,inst=null;
+      for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+      for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
+      for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
+      // Activate pending subscription on first attendance
+      if(sub&&sub.status==='pending'){
+        var prog=null;
+        for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
+        var newStart=_attDate;
+        var newEnd=addDays(newStart,prog?prog.duration_days:30);
+        // Subscription conflict guard: ensure no other open sub exists for this start date
+        if(!await dbAssertCanCreateOrEditSubscription(custId,newStart,subId,'activate')){
+          S.saving=false;render();return;
+        }
+        await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
+        sub.status='active';sub.start_date=newStart;sub.end_date=newEnd;
       }
-      await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
-      sub.status='active';sub.start_date=newStart;sub.end_date=newEnd;
-    }
-    var att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
-      program_id:sub.program_id,program_name:sub.program_name,
-      class_date:attDate||td(),class_time:classTime,
-      instructor_id:instId,instructor_name:inst?inst.full_name:''};
-    await dbPost('attendances',att);
-    logAudit('attendance',att.id,'create',
-      (cust?cust.name:custId)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
-      null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'doAtt'});
-    D.attendances.unshift(att);
-     if(att.class_date===td()&&S.selDateAtts!==null){S.selDateAtts.unshift(att);}
-    // Remaining: real attendance count əsasında yenidən hesabla
-    if(!sub.is_partner){
-      await recalcSubscriptionRemaining(subId);
-    }
-    S.showAtt=false;
-    S.showAlert={t:'ok',cust:cust,st:subStatus(activeSub(custId))};
-  }catch(e){alert('Xeta: '+e.message);}
-  S.saving=false;render();
+      var att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
+        program_id:sub.program_id,program_name:sub.program_name,
+        class_date:_attDate,class_time:classTime,
+        instructor_id:instId,instructor_name:inst?inst.full_name:''};
+      await dbPost('attendances',att);
+      logAudit('attendance',att.id,'create',
+        (cust?cust.name:custId)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
+        null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'doAtt'});
+      D.attendances.unshift(att);
+       if(att.class_date===td()&&S.selDateAtts!==null){S.selDateAtts.unshift(att);}
+      // Remaining: real attendance count əsasında yenidən hesabla
+      if(!sub.is_partner){
+        await recalcSubscriptionRemaining(subId);
+      }
+      S.showAtt=false;
+      S.showAlert={t:'ok',cust:cust,st:subStatus(activeSub(custId))};
+    }catch(e){alert('Xeta: '+e.message);}
+    S.saving=false;render();
+  }finally{releaseAttLock(_lock);}
 }
 
 async function doFreeze(subId,days,note){
@@ -1081,7 +1091,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: auditlog-ui-display-polish-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: attendance-preventive-guards-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1653,7 +1663,7 @@ function rModalAtt(){
     +'<div class="fg"><label class="fl">Instruktor *</label><select class="fs" id="m-inst">'+iOpts+'</select></div>'
     +'</div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showAtt=false;render()">Legv et</button>'
-    +'<button class="btn btn-g" onclick="submitAtt()">Qeydə al</button></div>'
+    +'<button class="btn btn-g" '+(S.saving?'disabled':'')+' onclick="submitAtt()">Qeydə al</button></div>'
     +'</div></div>';
 }
 
@@ -1700,6 +1710,39 @@ function rAlertModal(){
 var DAYS_AZ=['Bazar ertəsi','Çərşənbə axşamı','Çərşənbə','Cümə axşamı','Cümə','Şənbə'];
 var DAYS_SHORT=['B.e','Ç.a','Çər','C.a','Cüm','Şnb'];
 var MAX_PER_SLOT=8;
+
+// --- Attendance in-flight lock: prevents same customer+date parallel submits ---
+// Key format: customerId + '|' + classDate
+var S_ATT_INFLIGHT=new Set();
+function acquireAttLock(custId,dateStr){
+  var k=custId+'|'+dateStr;
+  if(S_ATT_INFLIGHT.has(k)){
+    alert('Bu müştəri üçün davamiyyət əməliyyatı artıq davam edir. Bir anlıq gözləyin.');
+    return null;
+  }
+  S_ATT_INFLIGHT.add(k);
+  return k;
+}
+function releaseAttLock(k){if(k)S_ATT_INFLIGHT.delete(k);}
+
+// --- Real attendance slot capacity guard ---
+// Checks actual attendances DB rows for class_date + class_time before any insert.
+// Returns true (can proceed) or false (blocked, alert shown).
+async function checkSlotCapacity(classDate,classTime){
+  if(!classDate||!classTime)return true; // no time = no slot capacity check needed
+  try{
+    var existing=await dbGet('attendances','class_date=eq.'+classDate+'&class_time=eq.'+classTime+'&select=id');
+    var cnt=(existing&&existing.length)||0;
+    if(cnt>=MAX_PER_SLOT){
+      alert('Bu saat üçün maksimum '+MAX_PER_SLOT+' nəfər limiti dolub. ('+classDate+' '+classTime+')');
+      return false;
+    }
+  }catch(e){
+    alert('Slot kapasitəsi yoxlaması tamamlanmadı. İnternet/DB bağlantısını yoxlayıb yenidən cəhd edin.');
+    return false;
+  }
+  return true;
+}
 
 // Get day_of_week (1=Mon...6=Sat) from a date string
 function getDayOfWeek(dateStr){
@@ -4026,18 +4069,28 @@ async function confirmSlotSinglePay(custId){
   for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
   if(!cust||!prog){alert('Müştəri və ya proqram tapılmadı');return;}
   // Günlük duplicate: tarix+saat deyil, yalnız tarix yoxlanılır (transaction-dan əvvəl)
+  // In-flight lock: set BEFORE all duplicate/capacity checks, released in finally
+  var _cspLock=acquireAttLock(key,sd.dateStr);
+  if(!_cspLock)return;
+  var _cspLockReleased=false;
+  try{
   if(hasCustomerAttendanceOnDate(key,sd.dateStr)){
     alert(cust.name+' artıq bu tarixdə davamiyyətə qeyd edilib.');
     return;
   }
-  // Live DB check — başqa cihazdan edilmiş qeydləri tutur
+  // Live DB check — fail-CLOSED: xəta baş verərsə insert bloklanır
   try{
     var _dbSlotAtt=await dbGet('attendances','customer_id=eq.'+key+'&class_date=eq.'+sd.dateStr+'&select=id&limit=1');
     if(_dbSlotAtt&&_dbSlotAtt.length>0){
       alert(cust.name+' artıq bu tarixdə davamiyyətə qeyd edilib.');
       return;
     }
-  }catch(e){}
+  }catch(e){
+    alert('Davamiyyət yoxlaması tamamlanmadı. İnternet/DB bağlantısını yoxlayıb yenidən cəhd edin.');
+    return;
+  }
+  // Slot capacity guard: real attendance rows for class_date + class_time
+  if(!await checkSlotCapacity(sd.dateStr,sd.time))return;
   if(S.slotSinglePayData)delete S.slotSinglePayData[key];
   S.slotSinglePayCustId=null;
   S.saving=true;render();
@@ -4093,6 +4146,7 @@ async function confirmSlotSinglePay(custId){
     S.showAlert={t:'ok',cust:cust,st:{t:'ok',txt:cust.name+(isPartner?' — partner giriş və davamiyyət qeyd edildi':' — tək giriş ödənişi və davamiyyət qeyd edildi')}};
   }catch(e){alert('Xəta: '+e.message);}
   S.saving=false;render();
+  }finally{releaseAttLock(_cspLock);}
 }
 
 async function submitSlotAttendance(){
@@ -4195,55 +4249,65 @@ async function createAttendance(custId, subId, classTime, instId, attDate){
   for(var i=0;i<D.subscriptions.length;i++){if(D.subscriptions[i].id===subId){sub=D.subscriptions[i];break;}}
   for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
   if(!cust||!sub)throw new Error('Müştəri/abunə tapılmadı: '+custId);
-  // Partner ay limit xəbərdarlığı (slot attendance)
-  if(isPartnerProgId(sub.program_id)){
-    if(!warnIfPartnerLimit(custId,cust.name))return null;
-  }
-  // Check duplicate: customer_id + class_date (günlük 1 dəfə, saat fərqi nəzərə alınmır)
-  if(hasCustomerAttendanceOnDate(custId,attDate)){
-    alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
-    return null;
-  }
-  // Live DB check — başqa cihazdan edilmiş qeydləri tutur
+  // In-flight lock: prevents parallel submits for same customer+date
+  var _lock=acquireAttLock(custId,attDate);
+  if(!_lock)return null;
   try{
-    var _dbAtt=await dbGet('attendances','customer_id=eq.'+custId+'&class_date=eq.'+attDate+'&select=id&limit=1');
-    if(_dbAtt&&_dbAtt.length>0){
+    // Partner ay limit xəbərdarlığı (slot attendance)
+    if(isPartnerProgId(sub.program_id)){
+      if(!warnIfPartnerLimit(custId,cust.name))return null;
+    }
+    // Check duplicate: customer_id + class_date (günlük 1 dəfə, saat fərqi nəzərə alınmır)
+    if(hasCustomerAttendanceOnDate(custId,attDate)){
       alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
       return null;
     }
-  }catch(e){}
-  // Activate pending sub
-  if(sub.status==='pending'){
-    var prog=null;
-    for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
-    var newStart=attDate;
-    var newEnd=addDays(newStart,prog?prog.duration_days:30);
-    // Subscription conflict guard: ensure no other open sub exists for this start date
-    if(!await dbAssertCanCreateOrEditSubscription(custId,newStart,subId,'activate')) return null;
-    await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
-    sub.status='active';sub.start_date=newStart;sub.end_date=newEnd;
-    if(S.custDetail&&S.custDetail.subs){
-      for(var i=0;i<S.custDetail.subs.length;i++){
-        if(S.custDetail.subs[i].id===subId){
-          S.custDetail.subs[i].status='active';S.custDetail.subs[i].start_date=newStart;S.custDetail.subs[i].end_date=newEnd;break;
+    // Live DB check — fail-CLOSED: xəta baş verərsə insert bloklanır
+    try{
+      var _dbAtt=await dbGet('attendances','customer_id=eq.'+custId+'&class_date=eq.'+attDate+'&select=id&limit=1');
+      if(_dbAtt&&_dbAtt.length>0){
+        alert('Bu müştəri artıq bu tarixdə davamiyyətə qeyd edilib.');
+        return null;
+      }
+    }catch(e){
+      alert('Davamiyyət yoxlaması tamamlanmadı. İnternet/DB bağlantısını yoxlayıb yenidən cəhd edin.');
+      return null;
+    }
+    // Slot capacity guard: real attendance rows for class_date + class_time
+    if(!await checkSlotCapacity(attDate,classTime))return null;
+    // Activate pending sub
+    if(sub.status==='pending'){
+      var prog=null;
+      for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
+      var newStart=attDate;
+      var newEnd=addDays(newStart,prog?prog.duration_days:30);
+      // Subscription conflict guard: ensure no other open sub exists for this start date
+      if(!await dbAssertCanCreateOrEditSubscription(custId,newStart,subId,'activate')) return null;
+      await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
+      sub.status='active';sub.start_date=newStart;sub.end_date=newEnd;
+      if(S.custDetail&&S.custDetail.subs){
+        for(var i=0;i<S.custDetail.subs.length;i++){
+          if(S.custDetail.subs[i].id===subId){
+            S.custDetail.subs[i].status='active';S.custDetail.subs[i].start_date=newStart;S.custDetail.subs[i].end_date=newEnd;break;
+          }
         }
       }
     }
-  }
-  var att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
-    program_id:sub.program_id,program_name:sub.program_name,
-    class_date:attDate,class_time:classTime,
-    instructor_id:instId,instructor_name:inst?inst.full_name:''};
-  await dbPost('attendances',att);
-  logAudit('attendance',att.id,'create',
-    (cust?cust.name:custId)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
-    null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'createAttendance'});
-  D.attendances.unshift(att);
-  if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date)S.selDateAtts.unshift(att);
-  // Remaining: real attendance count əsasında yenidən hesabla
-  if(!sub.is_partner){
-    await recalcSubscriptionRemaining(subId);
-  }
+    var att={id:uid(),customer_id:custId,customer_name:cust.name,subscription_id:subId,
+      program_id:sub.program_id,program_name:sub.program_name,
+      class_date:attDate,class_time:classTime,
+      instructor_id:instId,instructor_name:inst?inst.full_name:''};
+    await dbPost('attendances',att);
+    logAudit('attendance',att.id,'create',
+      (cust?cust.name:custId)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
+      null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'createAttendance'});
+    D.attendances.unshift(att);
+    if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date)S.selDateAtts.unshift(att);
+    // Remaining: real attendance count əsasında yenidən hesabla
+    if(!sub.is_partner){
+      await recalcSubscriptionRemaining(subId);
+    }
+  }finally{releaseAttLock(_lock);}
 }
 
 // ---- Plan Absent: gələcək tarix üçün absent planlaması ----
@@ -5826,57 +5890,63 @@ async function submitSingleAtt(){
     var _p=getProgramById(progId);
     if(!_p||!_p.is_partner){alert('Hesab seçin');return;}
   }
-  if(!await dbAssertCanCreateAttendance(S.singleCust,saDate||td()))return;
-  S.saving=true;render();
+  // In-flight lock acquired BEFORE duplicate/capacity DB checks (correct guard order)
+  var _singleLock=acquireAttLock(S.singleCust,saDate||td());
+  if(!_singleLock)return;
   try{
-    var c=null,inst=null,prog=null;
-    for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.singleCust){c=D.customers[i];break;}}
-    for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
-    for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){prog=D.programs[i];break;}}
-    var att={id:uid(),customer_id:S.singleCust,customer_name:c.name,
-      subscription_id:null,
-      program_id:progId,program_name:prog.name,
-      class_date:saDate||td(),class_time:time,
-      instructor_id:instId,instructor_name:inst?inst.full_name:'',
-      price_due:due,price_paid:paid};
-    await dbPost('attendances',att);
-    logAudit('attendance',att.id,'create',
-      (c?c.name:S.singleCust)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
-      null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'submitSingleAtt'});
-    D.attendances.unshift(att);
-    if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date){
-      S.selDateAtts.unshift(att);
-    }
-    // Determine account: partner → alacaq account, else selected account
-    var saAcctId=prog.is_partner?partnerAcctId(prog.name):saAcctIdPre;
-    var saPaid=saPaidPre;
-    if(saAcctId&&saPaid>0){
-      var desc=(prog?prog.name:'Tək giriş')+' — '+c.name;
-      var stxn={id:'TX'+Date.now(),date:saDate||td(),type:'income',category:'Tək giriş',
-        description:desc,amount:saPaid,account_id:saAcctId,
-        subscription_id:null,customer_id:c.id};
-      Object.assign(stxn,getActorMeta());
-      await dbPost('transactions',stxn);
-      logAudit('transaction',stxn.id,'create',
-        c.name+' — '+(prog?prog.name:'Tək giriş')+' ('+saPaid+' AZN, '+saAcctId+')',
-        null,{type:stxn.type,category:stxn.category,amount:saPaid,account_id:saAcctId,
-          subscription_id:null,customer_id:c.id,date:stxn.date,description:desc,source_flow:'submitSingleAtt'});
-      if(S.kassaData)S.kassaData.txns.unshift(stxn);
-      // 2% POS commission — stxn.account_id Bank-dırsa (ACC003), non-partner
-      if(stxn.account_id===BANK_ACCT_ID&&!prog.is_partner){
-        await createPosCommission(stxn.amount,stxn.date,desc);
+    if(!await dbAssertCanCreateAttendance(S.singleCust,saDate||td()))return;
+    if(!await checkSlotCapacity(saDate||td(),time))return;
+    S.saving=true;render();
+    try{
+      var c=null,inst=null,prog=null;
+      for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.singleCust){c=D.customers[i];break;}}
+      for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
+      for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){prog=D.programs[i];break;}}
+      var att={id:uid(),customer_id:S.singleCust,customer_name:c.name,
+        subscription_id:null,
+        program_id:progId,program_name:prog.name,
+        class_date:saDate||td(),class_time:time,
+        instructor_id:instId,instructor_name:inst?inst.full_name:'',
+        price_due:due,price_paid:paid};
+      await dbPost('attendances',att);
+      logAudit('attendance',att.id,'create',
+        (c?c.name:S.singleCust)+' — '+(att.program_name||'')+' — '+att.class_date+(att.class_time?' '+att.class_time:''),
+        null,{customer_id:att.customer_id,customer_name:att.customer_name,subscription_id:att.subscription_id,program_id:att.program_id,program_name:att.program_name,class_date:att.class_date,class_time:att.class_time,instructor_id:att.instructor_id,instructor_name:att.instructor_name,source_flow:'submitSingleAtt'});
+      D.attendances.unshift(att);
+      if(S.selDateAtts!==null&&(S.selDate||td())===att.class_date){
+        S.selDateAtts.unshift(att);
       }
-      S.kassaData=null;
-    }
-    S.showSingleAtt=false;
-    S.singleAttProgId=null;
-    S.singleAttDate=null;
-    S.singleAttAcctId=null;
-    S.singleAttDue=null;
-    S.singleAttPaid=null;
-    S.showAlert={t:'ok',cust:c,st:{t:'ok',txt:'Tək giriş qeydə alindi'}};
-  }catch(e){alert('Xeta: '+e.message);}
-  S.saving=false;render();
+      // Determine account: partner → alacaq account, else selected account
+      var saAcctId=prog.is_partner?partnerAcctId(prog.name):saAcctIdPre;
+      var saPaid=saPaidPre;
+      if(saAcctId&&saPaid>0){
+        var desc=(prog?prog.name:'Tək giriş')+' — '+c.name;
+        var stxn={id:'TX'+Date.now(),date:saDate||td(),type:'income',category:'Tək giriş',
+          description:desc,amount:saPaid,account_id:saAcctId,
+          subscription_id:null,customer_id:c.id};
+        Object.assign(stxn,getActorMeta());
+        await dbPost('transactions',stxn);
+        logAudit('transaction',stxn.id,'create',
+          c.name+' — '+(prog?prog.name:'Tək giriş')+' ('+saPaid+' AZN, '+saAcctId+')',
+          null,{type:stxn.type,category:stxn.category,amount:saPaid,account_id:saAcctId,
+            subscription_id:null,customer_id:c.id,date:stxn.date,description:desc,source_flow:'submitSingleAtt'});
+        if(S.kassaData)S.kassaData.txns.unshift(stxn);
+        // 2% POS commission — stxn.account_id Bank-dırsa (ACC003), non-partner
+        if(stxn.account_id===BANK_ACCT_ID&&!prog.is_partner){
+          await createPosCommission(stxn.amount,stxn.date,desc);
+        }
+        S.kassaData=null;
+      }
+      S.showSingleAtt=false;
+      S.singleAttProgId=null;
+      S.singleAttDate=null;
+      S.singleAttAcctId=null;
+      S.singleAttDue=null;
+      S.singleAttPaid=null;
+      S.showAlert={t:'ok',cust:c,st:{t:'ok',txt:'Tək giriş qeydə alindi'}};
+    }catch(e){alert('Xeta: '+e.message);}
+    S.saving=false;render();
+  }finally{releaseAttLock(_singleLock);}
 }
 
 async function deleteAtt(attId, subId, attDate){
