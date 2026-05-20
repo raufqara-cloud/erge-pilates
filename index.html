@@ -1091,7 +1091,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: data-integrity-fresh-snapshot-v1-hotfix2</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: data-integrity-fresh-snapshot-v1-hotfix3</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -7584,21 +7584,34 @@ async function repairCustomerSubscriptions(custId){
 // ==================== DATA INTEGRITY AUDIT — data-integrity-fresh-snapshot-v1 ====================
 
 // Read-only fresh snapshot fetch — does NOT write to D.*
+// Defensive dedup: removes rows with duplicate id from a snapshot array.
+// Rows without an id field are kept (not dropped).
+function dedupeRowsById(rows){
+  var seen={};
+  var out=[];
+  for(var i=0;i<rows.length;i++){
+    var id=rows[i].id;
+    if(id===undefined||id===null){out.push(rows[i]);continue;}
+    if(!seen[id]){seen[id]=true;out.push(rows[i]);}
+  }
+  return out;
+}
+
 async function fetchDataIntegritySnapshot(){
   var snap={customers:[],subscriptions:[],attendances:[],transactions:[],bookings:[]};
   try{
     var res=await Promise.all([
       dbGetAll('customers','order=id',1000),
-      dbGetAll('subscriptions','order=customer_id',1000),
-      dbGetAll('attendances','order=class_date.desc',1000),
-      dbGetAll('transactions','order=date.desc,created_at.desc',1000),
-      dbGetAll('bookings','is_active=eq.true&type=eq.permanent&order=day_of_week,time_slot',1000)
+      dbGetAll('subscriptions','order=customer_id,id',1000),
+      dbGetAll('attendances','order=class_date.desc,id',1000),
+      dbGetAll('transactions','order=date.desc,created_at.desc,id',1000),
+      dbGetAll('bookings','is_active=eq.true&type=eq.permanent&order=day_of_week,time_slot,id',1000)
     ]);
-    snap.customers   = res[0]||[];
-    snap.subscriptions = res[1]||[];
-    snap.attendances = res[2]||[];
-    snap.transactions = res[3]||[];
-    snap.bookings    = res[4]||[];
+    snap.customers    = dedupeRowsById(res[0]||[]);
+    snap.subscriptions = dedupeRowsById(res[1]||[]);
+    snap.attendances  = dedupeRowsById(res[2]||[]);
+    snap.transactions = dedupeRowsById(res[3]||[]);
+    snap.bookings     = dedupeRowsById(res[4]||[]);
   }catch(e){
     throw new Error('Snapshot yüklənərkən xəta: '+e.message);
   }
