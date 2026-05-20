@@ -1091,7 +1091,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: data-integrity-fresh-snapshot-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: data-integrity-fresh-snapshot-v1-hotfix2</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -7588,9 +7588,9 @@ async function fetchDataIntegritySnapshot(){
   var snap={customers:[],subscriptions:[],attendances:[],transactions:[],bookings:[]};
   try{
     var res=await Promise.all([
-      dbGetAll('customers','order=id',2000),
-      dbGetAll('subscriptions','order=customer_id',2000),
-      dbGetAll('attendances','order=class_date.desc',5000),
+      dbGetAll('customers','order=id',1000),
+      dbGetAll('subscriptions','order=customer_id',1000),
+      dbGetAll('attendances','order=class_date.desc',1000),
       dbGetAll('transactions','order=date.desc,created_at.desc',1000),
       dbGetAll('bookings','is_active=eq.true&type=eq.permanent&order=day_of_week,time_slot',1000)
     ]);
