@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — owner-customer-movement-v1-hotfix1</title>
+<title>Erge Pilates — owner-customer-movement-v1-hotfix2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1094,7 +1094,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: owner-customer-movement-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: owner-customer-movement-v1-hotfix2</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -5396,7 +5396,10 @@ function movDayDiff(a,b){
 // Calculate all movement metrics from D.* caches for given YYYY-MM
 function calcMovement(ym){
   var monthPrefix=ym+'-';         // e.g. "2026-05-"
+  var monthStart=ym+'-01';        // e.g. "2026-05-01"
   var monthEnd=movMonthEnd(ym);   // e.g. "2026-05-31"
+  var today=td();
+  var analysisEnd=today<monthEnd?today:monthEnd; // min(monthEnd, today)
 
   var subs=D.subscriptions||[];
   var atts=D.attendances||[];
@@ -5405,6 +5408,10 @@ function calcMovement(ym){
   // Build customer name map
   var custMap={};
   for(var i=0;i<custs.length;i++)custMap[custs[i].id]=custs[i].name||custs[i].id;
+
+  // Build subscription id → object map
+  var subMap={};
+  for(var i=0;i<subs.length;i++)subMap[subs[i].id]=subs[i];
 
   // ── All non-partner studio subscriptions (no is_active filter) ──
   var studioPSubs=[];
@@ -5464,40 +5471,51 @@ function calcMovement(ym){
   }
   renewed.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
 
-  // ── Metric 4: Lost candidates ──
-  // Rules (all scoped to the selected month — future renewals are ignored):
-  //   1. Customer has at least one non-partner studio sub with start_date <= monthEnd
-  //   2. Latest such sub (by start_date, as-of monthEnd) has end_date present and <= monthEnd
-  //   3. No non-partner studio sub exists with start_date <= monthEnd AND
-  //      (end_date > monthEnd OR status=pending) — i.e. no open/covering sub as of month end
-  //   Subs starting AFTER monthEnd are ignored entirely for this month's calculation.
-  var lost=[];
-  for(var ci=0;ci<custIds.length;ci++){
-    var cid=custIds[ci];
-    var cSubs=studioSubsByCust[cid]; // sorted asc by start_date
-    // Filter: only subs that started on or before monthEnd
-    var asOfSubs=[];
-    for(var si=0;si<cSubs.length;si++){
-      if(cSubs[si].start_date&&cSubs[si].start_date<=monthEnd)asOfSubs.push(cSubs[si]);
+  // ── Metric 4: Yenilənmə riski ──
+  // Customers who actually attended in the selected month on a non-partner studio sub,
+  // whose sub expired or was completed by analysisEnd, and who have no later studio sub.
+  // Key: must have a real attendance in the month — NOT just any historical subscription.
+  var riskSet={};
+  var renewalRisk=[];
+  for(var i=0;i<atts.length;i++){
+    var _a=atts[i];
+    // Attendance must fall within selected month
+    if(!_a.class_date||_a.class_date<monthStart||_a.class_date>monthEnd)continue;
+    // Must be linked to a subscription
+    if(!_a.subscription_id)continue;
+    var _sub=subMap[_a.subscription_id];
+    // Subscription must qualify as a non-partner studio sub
+    if(!_sub||!movIsStudioSub(_sub))continue;
+    var _cid=_a.customer_id;
+    // Each customer counted at most once
+    if(riskSet[_cid])continue;
+    // Subscription must be ended or completed by analysisEnd
+    var _endedByDate=_sub.end_date&&_sub.end_date<=analysisEnd;
+    var _completedByCount=false;
+    if(!_endedByDate){
+      var _sessTotal=parseInt(_sub.sessions_total)||0;
+      if(_sessTotal>0){
+        var _usedCount=0;
+        for(var j=0;j<atts.length;j++){
+          if(atts[j].subscription_id===_sub.id&&atts[j].class_date<=analysisEnd)_usedCount++;
+        }
+        _completedByCount=_usedCount>=_sessTotal;
+      }
     }
-    if(!asOfSubs.length)continue;
-    // Latest as-of-month-end sub
-    var latestAsOf=asOfSubs[asOfSubs.length-1];
-    // Latest sub's end_date must be present and <= monthEnd
-    if(!latestAsOf.end_date||latestAsOf.end_date>monthEnd)continue;
-    // Check: no sub (within asOfSubs) is open/covering as of monthEnd
-    var hasOpenSub=false;
-    for(var si=0;si<asOfSubs.length;si++){
-      var cs=asOfSubs[si];
-      // Active sub extending beyond month end
-      if(cs.end_date&&cs.end_date>monthEnd){hasOpenSub=true;break;}
-      // Pending sub (not yet activated; activation could push end_date beyond monthEnd)
-      if(cs.status==='pending'){hasOpenSub=true;break;}
+    if(!_endedByDate&&!_completedByCount)continue;
+    // No later non-partner studio sub for same customer (start_date > this sub AND <= analysisEnd)
+    var _custSS=studioSubsByCust[_cid]||[];
+    var _hasLater=false;
+    for(var j=0;j<_custSS.length;j++){
+      var _cs=_custSS[j];
+      if(_cs.id===_sub.id)continue;
+      if(_cs.start_date&&_cs.start_date>_sub.start_date&&_cs.start_date<=analysisEnd){_hasLater=true;break;}
     }
-    if(hasOpenSub)continue;
-    lost.push({cid:cid,name:custMap[cid]||cid,lastEnd:latestAsOf.end_date,hasBron:false});
+    if(_hasLater)continue;
+    riskSet[_cid]=true;
+    renewalRisk.push({cid:_cid,name:custMap[_cid]||_cid,lastEnd:_sub.end_date,hasBron:false});
   }
-  lost.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
+  renewalRisk.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
 
   // ── Metric 2: New studio single-entry customers ──
   // Customer whose earliest ROTG/ROTI attendance class_date falls in selected month
@@ -5537,22 +5555,29 @@ function calcMovement(ym){
   }
   newPartner.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
 
-  // ── Metric 6: Single/Partner → Studio Sub conversion ──
-  // Customers who appear in newSubs (first studio sub in this month)
-  // AND who had prior studio single (ROTG/ROTI) OR partner (ROF/RPP/RPS) attendance
-  // before the selected month (class_date < monthPrefix first day)
-  var monthFirst=ym+'-01';
+  // ── Metric 6: S/P → Studio Sub conversion ──
+  // Any non-partner studio sub starting in selected month WHERE customer had
+  // ROTG/ROTI/ROF/RPP/RPS attendance with class_date <= sub.start_date (same-day inclusive).
+  // Not restricted to first-ever sub — covers all subs starting this month.
+  // Deduplicated by customer_id.
+  var convertedSet={};
   var converted=[];
-  for(var i=0;i<newSubs.length;i++){
-    var ns=newSubs[i];
-    var hadPriorSP=false;
+  for(var i=0;i<studioPSubs.length;i++){
+    var _ns=studioPSubs[i];
+    if(!_ns.start_date||_ns.start_date.indexOf(monthPrefix)!==0)continue;
+    var _cid=_ns.customer_id;
+    if(convertedSet[_cid])continue; // already captured via an earlier sub this month
+    var _hadSP=false;
     for(var j=0;j<atts.length;j++){
-      var a=atts[j];
-      if(a.customer_id!==ns.cid)continue;
-      if(a.class_date>=monthFirst)continue;
-      if(MOV_STUDIO_SINGLE_IDS.indexOf(a.program_id)>=0||MOV_PARTNER_IDS.indexOf(a.program_id)>=0){hadPriorSP=true;break;}
+      var _att=atts[j];
+      if(_att.customer_id!==_cid)continue;
+      if(_att.class_date>_ns.start_date)continue; // attendance after sub start → skip
+      if(MOV_STUDIO_SINGLE_IDS.indexOf(_att.program_id)>=0||MOV_PARTNER_IDS.indexOf(_att.program_id)>=0){_hadSP=true;break;}
     }
-    if(hadPriorSP)converted.push({cid:ns.cid,name:ns.name,firstSubStart:ns.startDate});
+    if(_hadSP){
+      convertedSet[_cid]=true;
+      converted.push({cid:_cid,name:custMap[_cid]||_cid,firstSubStart:_ns.start_date});
+    }
   }
   converted.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
 
@@ -5560,7 +5585,7 @@ function calcMovement(ym){
     ym:ym,
     newSubs:newSubs,
     renewed:renewed,
-    lost:lost,         // hasBron populated later via async fetch
+    lost:renewalRisk,    // key kept for UI/booking-fetch compatibility
     newSingle:newSingle,
     newPartner:newPartner,
     converted:converted
@@ -5666,7 +5691,7 @@ function rMovement(){
   h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:16px">'
     +'<div class="scard"><div class="snum" style="color:#1D9E75">'+d.newSubs.length+'</div><div class="slbl">Yeni abunə</div></div>'
     +'<div class="scard"><div class="snum" style="color:#3B7DD8">'+d.renewed.length+'</div><div class="slbl">Yenilənmə</div></div>'
-    +'<div class="scard"><div class="snum" style="color:#E53935">'+d.lost.length+'</div><div class="slbl">İtki namizədi</div></div>'
+    +'<div class="scard"><div class="snum" style="color:#E53935">'+d.lost.length+'</div><div class="slbl">Yenilənmə riski</div></div>'
     +'<div class="scard"><div class="snum" style="color:#6A1B9A">'+d.newSingle.length+'</div><div class="slbl">Yeni tək giriş</div></div>'
     +'<div class="scard"><div class="snum" style="color:#E65100">'+d.newPartner.length+'</div><div class="slbl">Yeni partner</div></div>'
     +'<div class="scard"><div class="snum" style="color:#0F6E56">'+d.converted.length+'</div><div class="slbl">S/P→Abunə kecid</div></div>'
@@ -5707,10 +5732,11 @@ function rMovement(){
     return r;
   });
 
-  // ── İtki Namizədləri ──
-  h+=rMovSection('lost','🔴 İtki Namizədləri',d.lost.length,function(){
-    if(!d.lost.length)return'<div class="empty">Bu ay itki namizədi yoxdur</div>';
-    var r='<div class="al al-y" style="margin-bottom:8px;font-size:12px">⚠️ Bu siyah yalnız review üçündür. DB statusu dəyişdirilmir. '
+  // ── Yenilənmə riski ──
+  h+=rMovSection('lost','🔴 Yenilənmə riski',d.lost.length,function(){
+    if(!d.lost.length)return'<div class="empty">Bu ay yenilənmə riski olan müştəri yoxdur</div>';
+    var r='<div style="font-size:11px;color:#888;margin-bottom:6px">Seçilmiş ayda məşqə gəlib, paketi bitən/tamamlanan və yenilənməyən müştərilər</div>';
+    r+='<div class="al al-y" style="margin-bottom:8px;font-size:12px">⚠️ Bu siyah yalnız review üçündür. DB statusu dəyişdirilmir. '
       +(lostWithBron?' — <b>'+lostWithBron+' müştərinin aktiv bronu saxlanılır.</b>':'')+'</div>';
     for(var i=0;i<d.lost.length;i++){
       var x=d.lost[i];
@@ -5750,7 +5776,7 @@ function rMovement(){
   // ── S/P → Abunəlik Konversiyası ──
   h+=rMovSection('converted','🌱 S/P → Abunəlik Keçidi',d.converted.length,function(){
     if(!d.converted.length)return'<div class="empty">Bu ay konversiya yoxdur</div>';
-    var r='<div style="font-size:11px;color:#888;margin-bottom:6px">Əvvəl tək giriş/partner, bu ay ilk dəfə studio abunəliyi açanlar</div>';
+    var r='<div style="font-size:11px;color:#888;margin-bottom:6px">Əvvəl tək giriş/partner, bu ay studio abunəliyi açanlar (eyni günlük giriş daxildir)</div>';
     for(var i=0;i<d.converted.length;i++){
       var x=d.converted[i];
       r+='<div class="attitem"><span style="font-weight:500;font-size:13px">'+x.name+'</span>'
