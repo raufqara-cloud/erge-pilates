@@ -1093,7 +1093,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-management-filters-renewal-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-management-filter-summary-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -2800,6 +2800,7 @@ function rBronSabit(){
     +'<button class="btn btn-g btn-sm" onclick="S._bronNewCustId=null;S._bronNewCustName=null;S.showAddBron=true;render()" style="margin-left:auto">+ Yeni bron</button>'
     +'</div>';
   h+='</div>';
+  h+=rBronSabitSlotSummary();
   h+='<div id="sabit-list">'+rBronSabitList()+'</div>';
   return h;
 }
@@ -2879,6 +2880,90 @@ function rBronSabitList(){
     }
     h+='</div></div>';
   }
+  return h;
+}
+
+function rBronSabitSlotSummary(){
+  if(!S.bronData)return'';
+  var hasDays=S.bronSabitDays.length>0;
+  var hasTimes=S.bronSabitTimes.length>0;
+  if(!hasDays&&!hasTimes)return'';
+
+  // Build {dow, time} pairs according to filter combination
+  var pairs=[];
+  var di,ti,dv,tv,dtimes,vi,pi;
+
+  if(hasDays&&hasTimes){
+    // Cross-product of selected days × selected times
+    for(di=0;di<S.bronSabitDays.length;di++){
+      for(ti=0;ti<S.bronSabitTimes.length;ti++){
+        pairs.push({dow:S.bronSabitDays[di],time:S.bronSabitTimes[ti]});
+      }
+    }
+  } else if(hasDays&&!hasTimes){
+    // Selected day(s): all valid times for each day, will filter to count>0 below
+    for(di=0;di<S.bronSabitDays.length;di++){
+      dv=S.bronSabitDays[di];
+      dtimes=(dv===6)?SAT_TIMES:TIMES;
+      for(ti=0;ti<dtimes.length;ti++){
+        pairs.push({dow:dv,time:dtimes[ti]});
+      }
+    }
+  } else {
+    // Only times selected: show each selected time across all Mon–Sat days
+    for(dv=1;dv<=6;dv++){
+      for(ti=0;ti<S.bronSabitTimes.length;ti++){
+        tv=S.bronSabitTimes[ti];
+        dtimes=(dv===6)?SAT_TIMES:TIMES;
+        var valid=false;
+        for(vi=0;vi<dtimes.length;vi++){if(dtimes[vi]===tv){valid=true;break;}}
+        if(valid)pairs.push({dow:dv,time:tv});
+      }
+    }
+  }
+
+  // Sort: dow asc, time asc
+  pairs.sort(function(a,b){return a.dow!==b.dow?a.dow-b.dow:a.time<b.time?-1:a.time>b.time?1:0;});
+
+  // Count permanent bookings per dow+time from S.bronData
+  var counts={};
+  for(var i=0;i<S.bronData.length;i++){
+    var b=S.bronData[i];
+    var ck=b.day_of_week+'|'+b.time_slot;
+    counts[ck]=(counts[ck]||0)+1;
+  }
+
+  // If only days filter (no times): skip pairs with 0 bookings
+  if(hasDays&&!hasTimes){
+    var filt=[];
+    for(pi=0;pi<pairs.length;pi++){
+      if((counts[pairs[pi].dow+'|'+pairs[pi].time]||0)>0)filt.push(pairs[pi]);
+    }
+    pairs=filt;
+  }
+
+  if(!pairs.length)return'';
+
+  var h='<div style="margin-bottom:10px">'
+    +'<div style="font-size:11px;font-weight:700;color:#555;margin-bottom:6px;letter-spacing:0.3px">📊 Slot xülasəsi</div>'
+    +'<div style="display:flex;flex-wrap:wrap;gap:5px">';
+
+  for(pi=0;pi<pairs.length;pi++){
+    var p=pairs[pi];
+    var booked=counts[p.dow+'|'+p.time]||0;
+    var free=MAX_PER_SLOT-booked;
+    var bg,col,lbl;
+    if(free<=0){bg='#FFEBEE';col='#C62828';lbl='Tam dolu';}
+    else if(free<=2){bg='#FFF8E1';col='#E65100';lbl=free+' boş';}
+    else{bg='#E8F5E9';col='#1B5E20';lbl=free+' boş';}
+    h+='<div style="background:'+bg+';border-radius:8px;padding:5px 11px;font-size:11px;font-weight:600;color:'+col+';white-space:nowrap">'
+      +DAYS_SHORT[p.dow-1]+' <strong>'+p.time+'</strong>'
+      +' <span style="opacity:0.7;font-weight:500">'+booked+'/'+MAX_PER_SLOT+'</span>'
+      +' · '+lbl
+      +'</div>';
+  }
+
+  h+='</div></div>';
   return h;
 }
 
