@@ -1093,7 +1093,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: bron-block-analysis-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: paid-attendance-delete-guard-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -6340,6 +6340,33 @@ async function deleteAtt(attId, subId, attDate){
   var _delCustLabel=_delAttObj?(_delAttObj.customer_name||_delAttObj.customer_id||'?'):'?';
   var _delProgLabel=_delAttObj?(_delAttObj.program_name||_delAttObj.program_id||'?'):'?';
   var _delTimeLabel=_delAttObj&&_delAttObj.class_time?(' '+_delAttObj.class_time):'';
+  // paid-attendance-delete-guard-v1: block deletion if a linked paid kassa/receivable transaction exists
+  var _isSubAtt=localSubId&&localSubId!=='null'&&localSubId!=='undefined';
+  if(!_isSubAtt&&_delAttObj&&_delAttObj.customer_id&&_delAttObj.class_date){
+    S.saving=true;render();
+    try{
+      // Fetch income txns for same customer+date with no subscription_id; filter category client-side to avoid URL encoding issues with Azerbaijani text
+      var _txnRaw=await dbGet('transactions',
+        'customer_id=eq.'+_delAttObj.customer_id+
+        '&date=eq.'+_delAttObj.class_date+
+        '&subscription_id=is.null'+
+        '&type=eq.income'+
+        '&limit=20'
+      );
+      var _paidCats=['Tək giriş','Partner giriş'];
+      var _txnMatch=(_txnRaw||[]).filter(function(t){return _paidCats.indexOf(t.category)>-1;});
+      if(_txnMatch.length>0){
+        S.saving=false;render();
+        alert('Bu davamiyyətə bağlı kassa/alacaq əməliyyatı var. Əvvəlcə kassa əməliyyatını silin və ya düzəldin.');
+        return;
+      }
+    }catch(e){
+      S.saving=false;render();
+      alert('Əməliyyat yoxlanarkən xəta baş verdi. Zəhmət olmasa yenidən cəhd edin.');
+      return;
+    }
+    S.saving=false;
+  }
   S.saving=true;render();
   try{
     var r=await fetch(BASE+'/attendances?id=eq.'+localAttId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
