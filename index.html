@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — data-integrity-fresh-snapshot-v1</title>
+<title>Erge Pilates — owner-customer-movement-v1-hotfix1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -210,6 +210,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   selLead:null,showAddLead:false,leadLostModal:null,
   commRulesCache:null,commRulesLoading:false,showCommRuleModal:false,commRuleModal:null,
   remainingDisplayCache:null,remainingDisplayLoading:false,
+  movData:null,movLoading:false,movExpanded:{},
   currentUser:null,appUsersData:null,showLoginModal:true};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
@@ -1093,7 +1094,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: paid-attendance-delete-guard-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: owner-customer-movement-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -5359,12 +5360,419 @@ async function fetchReport(month){
   S.reportLoading=false;render();
 }
 
+// ── CUSTOMER MOVEMENT REPORT ────────────────────────────────────────────────
+
+// Studio single program IDs (hardcoded for safety — avoids sessions_total edge cases)
+var MOV_STUDIO_SINGLE_IDS=['ROTG','ROTI'];
+// Partner program IDs (same as PARTNER_PROG_IDS but explicitly scoped here)
+var MOV_PARTNER_IDS=['ROF','RPP','RPS'];
+// Non-partner studio sub exclusion list
+var MOV_EXCL_PROG_IDS=['ROF','RPP','RPS','ROTG','ROTI','RTEST'];
+
+// Returns true if sub qualifies as a non-partner studio subscription
+// is_active/status NOT checked here — callers apply context-specific filters
+function movIsStudioSub(sub){
+  if(!sub)return false;
+  if(sub.is_partner)return false;
+  if(MOV_EXCL_PROG_IDS.indexOf(sub.program_id)>=0)return false;
+  if(!(parseInt(sub.sessions_total)>1))return false;
+  if(!sub.start_date)return false;
+  return true;
+}
+
+// Returns YYYY-MM-DD for last day of a YYYY-MM string
+function movMonthEnd(ym){
+  var p=ym.split('-');
+  var y=parseInt(p[0]),m=parseInt(p[1]);
+  var last=new Date(y,m,0); // day 0 of next month = last day of current month
+  return last.getFullYear()+'-'+(String(last.getMonth()+1).padStart(2,'0'))+'-'+String(last.getDate()).padStart(2,'0');
+}
+
+// Day difference between two YYYY-MM-DD strings (b - a)
+function movDayDiff(a,b){
+  return Math.round((new Date(b)-new Date(a))/(1000*86400));
+}
+
+// Calculate all movement metrics from D.* caches for given YYYY-MM
+function calcMovement(ym){
+  var monthPrefix=ym+'-';         // e.g. "2026-05-"
+  var monthEnd=movMonthEnd(ym);   // e.g. "2026-05-31"
+
+  var subs=D.subscriptions||[];
+  var atts=D.attendances||[];
+  var custs=D.customers||[];
+
+  // Build customer name map
+  var custMap={};
+  for(var i=0;i<custs.length;i++)custMap[custs[i].id]=custs[i].name||custs[i].id;
+
+  // ── All non-partner studio subscriptions (no is_active filter) ──
+  var studioPSubs=[];
+  for(var i=0;i<subs.length;i++){if(movIsStudioSub(subs[i]))studioPSubs.push(subs[i]);}
+
+  // Group studio subs by customer
+  var studioSubsByCust={};
+  for(var i=0;i<studioPSubs.length;i++){
+    var s=studioPSubs[i];
+    if(!studioSubsByCust[s.customer_id])studioSubsByCust[s.customer_id]=[];
+    studioSubsByCust[s.customer_id].push(s);
+  }
+  // Sort each customer's subs by start_date ascending
+  var custIds=Object.keys(studioSubsByCust);
+  for(var i=0;i<custIds.length;i++){
+    studioSubsByCust[custIds[i]].sort(function(a,b){return(a.start_date||'').localeCompare(b.start_date||'');});
+  }
+
+  // ── Metric 1: New subscription customers ──
+  // Customer whose earliest non-partner studio sub start_date falls in selected month
+  var newSubs=[];
+  for(var ci=0;ci<custIds.length;ci++){
+    var cid=custIds[ci];
+    var cSubs=studioSubsByCust[cid];
+    var earliest=cSubs[0]; // sorted asc, first = earliest
+    if(earliest.start_date&&earliest.start_date.indexOf(monthPrefix)===0){
+      newSubs.push({cid:cid,name:custMap[cid]||cid,subId:earliest.id,startDate:earliest.start_date,progId:earliest.program_id});
+    }
+  }
+  newSubs.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
+
+  // ── Metric 5: Renewed customers ──
+  // Customer has a non-partner studio sub starting in this month AND had a prior one
+  var renewed=[];
+  for(var ci=0;ci<custIds.length;ci++){
+    var cid=custIds[ci];
+    var cSubs=studioSubsByCust[cid];
+    // Find all subs starting this month
+    for(var si=0;si<cSubs.length;si++){
+      var ns=cSubs[si];
+      if(!ns.start_date||ns.start_date.indexOf(monthPrefix)!==0)continue;
+      // Find the latest prior sub (start_date < this month)
+      var prevSub=null;
+      for(var pi=si-1;pi>=0;pi--){
+        if(cSubs[pi].start_date&&cSubs[pi].start_date<ns.start_date){prevSub=cSubs[pi];break;}
+      }
+      if(!prevSub)continue; // no prior sub → this is "new", handled in metric 1
+      // Calculate gap
+      var gap=movDayDiff(prevSub.end_date,ns.start_date);
+      var bucket;
+      if(gap<=0)bucket='ontime';
+      else if(gap<=7)bucket='week';
+      else if(gap<=30)bucket='month';
+      else bucket='reactivation';
+      renewed.push({cid:cid,name:custMap[cid]||cid,prevEnd:prevSub.end_date,newStart:ns.start_date,gap:gap,bucket:bucket});
+    }
+  }
+  renewed.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
+
+  // ── Metric 4: Lost candidates ──
+  // Rules (all scoped to the selected month — future renewals are ignored):
+  //   1. Customer has at least one non-partner studio sub with start_date <= monthEnd
+  //   2. Latest such sub (by start_date, as-of monthEnd) has end_date present and <= monthEnd
+  //   3. No non-partner studio sub exists with start_date <= monthEnd AND
+  //      (end_date > monthEnd OR status=pending) — i.e. no open/covering sub as of month end
+  //   Subs starting AFTER monthEnd are ignored entirely for this month's calculation.
+  var lost=[];
+  for(var ci=0;ci<custIds.length;ci++){
+    var cid=custIds[ci];
+    var cSubs=studioSubsByCust[cid]; // sorted asc by start_date
+    // Filter: only subs that started on or before monthEnd
+    var asOfSubs=[];
+    for(var si=0;si<cSubs.length;si++){
+      if(cSubs[si].start_date&&cSubs[si].start_date<=monthEnd)asOfSubs.push(cSubs[si]);
+    }
+    if(!asOfSubs.length)continue;
+    // Latest as-of-month-end sub
+    var latestAsOf=asOfSubs[asOfSubs.length-1];
+    // Latest sub's end_date must be present and <= monthEnd
+    if(!latestAsOf.end_date||latestAsOf.end_date>monthEnd)continue;
+    // Check: no sub (within asOfSubs) is open/covering as of monthEnd
+    var hasOpenSub=false;
+    for(var si=0;si<asOfSubs.length;si++){
+      var cs=asOfSubs[si];
+      // Active sub extending beyond month end
+      if(cs.end_date&&cs.end_date>monthEnd){hasOpenSub=true;break;}
+      // Pending sub (not yet activated; activation could push end_date beyond monthEnd)
+      if(cs.status==='pending'){hasOpenSub=true;break;}
+    }
+    if(hasOpenSub)continue;
+    lost.push({cid:cid,name:custMap[cid]||cid,lastEnd:latestAsOf.end_date,hasBron:false});
+  }
+  lost.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
+
+  // ── Metric 2: New studio single-entry customers ──
+  // Customer whose earliest ROTG/ROTI attendance class_date falls in selected month
+  var singleAttByCust={};
+  for(var i=0;i<atts.length;i++){
+    var a=atts[i];
+    if(MOV_STUDIO_SINGLE_IDS.indexOf(a.program_id)<0)continue;
+    if(!singleAttByCust[a.customer_id]||a.class_date<singleAttByCust[a.customer_id])
+      singleAttByCust[a.customer_id]=a.class_date;
+  }
+  var newSingle=[];
+  var singleCids=Object.keys(singleAttByCust);
+  for(var i=0;i<singleCids.length;i++){
+    var cid=singleCids[i];
+    var earliest=singleAttByCust[cid];
+    if(earliest&&earliest.indexOf(monthPrefix)===0)
+      newSingle.push({cid:cid,name:custMap[cid]||cid,firstDate:earliest});
+  }
+  newSingle.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
+
+  // ── Metric 3: New partner customers ──
+  // Customer whose earliest ROF/RPP/RPS attendance class_date falls in selected month
+  var partnerAttByCust={};
+  for(var i=0;i<atts.length;i++){
+    var a=atts[i];
+    if(MOV_PARTNER_IDS.indexOf(a.program_id)<0)continue;
+    if(!partnerAttByCust[a.customer_id]||a.class_date<partnerAttByCust[a.customer_id])
+      partnerAttByCust[a.customer_id]=a.class_date;
+  }
+  var newPartner=[];
+  var partnerCids=Object.keys(partnerAttByCust);
+  for(var i=0;i<partnerCids.length;i++){
+    var cid=partnerCids[i];
+    var earliest=partnerAttByCust[cid];
+    if(earliest&&earliest.indexOf(monthPrefix)===0)
+      newPartner.push({cid:cid,name:custMap[cid]||cid,firstDate:earliest});
+  }
+  newPartner.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
+
+  // ── Metric 6: Single/Partner → Studio Sub conversion ──
+  // Customers who appear in newSubs (first studio sub in this month)
+  // AND who had prior studio single (ROTG/ROTI) OR partner (ROF/RPP/RPS) attendance
+  // before the selected month (class_date < monthPrefix first day)
+  var monthFirst=ym+'-01';
+  var converted=[];
+  for(var i=0;i<newSubs.length;i++){
+    var ns=newSubs[i];
+    var hadPriorSP=false;
+    for(var j=0;j<atts.length;j++){
+      var a=atts[j];
+      if(a.customer_id!==ns.cid)continue;
+      if(a.class_date>=monthFirst)continue;
+      if(MOV_STUDIO_SINGLE_IDS.indexOf(a.program_id)>=0||MOV_PARTNER_IDS.indexOf(a.program_id)>=0){hadPriorSP=true;break;}
+    }
+    if(hadPriorSP)converted.push({cid:ns.cid,name:ns.name,firstSubStart:ns.startDate});
+  }
+  converted.sort(function(a,b){return(a.name||'').localeCompare(b.name||'');});
+
+  return {
+    ym:ym,
+    newSubs:newSubs,
+    renewed:renewed,
+    lost:lost,         // hasBron populated later via async fetch
+    newSingle:newSingle,
+    newPartner:newPartner,
+    converted:converted
+  };
+}
+
+// Async wrapper: calculates movement then does narrow booking fetch for lost candidates
+async function fetchMovement(ym){
+  if(S.movLoading)return;
+  S.movLoading=true;render();
+  try{
+    var data=calcMovement(ym);
+    // Narrow booking fetch for lost candidates only
+    if(data.lost.length>0){
+      var lostIds=data.lost.map(function(l){return l.cid;});
+      // Supabase: customer_id=in.(id1,id2,...) with is_active=true permanent bookings
+      var q='is_active=eq.true&type=eq.permanent&customer_id=in.('+lostIds.join(',')+')'
+           +'&select=customer_id&limit=200';
+      var bronRows=await dbGet('bookings',q);
+      var bronSet={};
+      if(bronRows&&bronRows.length){
+        for(var i=0;i<bronRows.length;i++)bronSet[bronRows[i].customer_id]=true;
+      }
+      for(var i=0;i<data.lost.length;i++){
+        data.lost[i].hasBron=!!bronSet[data.lost[i].cid];
+      }
+    }
+    S.movData=data;
+  }catch(e){
+    alert('Müştəri hərəkəti xətası: '+e.message);
+    S.movData=null;
+  }
+  S.movLoading=false;render();
+}
+
+function rMovSection(key,title,count,renderFn){
+  var open=!!S.movExpanded[key];
+  var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:10px;margin-bottom:8px;overflow:hidden">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 14px;cursor:pointer;user-select:none" '
+    +'onclick="S.movExpanded[\''+key+'\']=!S.movExpanded[\''+key+'\'];render()">';
+  h+='<span style="font-weight:600;font-size:13px">'+title+'</span>';
+  h+='<span style="display:flex;align-items:center;gap:8px">'
+    +'<span class="badge b-blue" style="font-size:12px;padding:3px 10px">'+count+'</span>'
+    +'<span style="color:#aaa;font-size:12px">'+(open?'▲':'▼')+'</span>'
+    +'</span>';
+  h+='</div>';
+  if(open){
+    h+='<div style="border-top:1px solid #f0f0f0;padding:10px 14px">';
+    h+=renderFn();
+    h+='</div>';
+  }
+  h+='</div>';
+  return h;
+}
+
+function rMovement(){
+  var h='';
+  var now=new Date();
+  var curYM=now.getFullYear()+'-'+(String(now.getMonth()+1).padStart(2,'0'));
+  if(!S.reportMonth)S.reportMonth=curYM;
+
+  // Month picker (shared with salary report)
+  var curYear=now.getFullYear();
+  var years=[];for(var y=2023;y<=curYear;y++)years.push(y);
+  var selYear=parseInt(S.reportMonth.split('-')[0]);
+  var selMon=S.reportMonth.split('-')[1];
+  var months=[
+    {v:'01',n:'Yanvar'},{v:'02',n:'Fevral'},{v:'03',n:'Mart'},
+    {v:'04',n:'Aprel'},{v:'05',n:'May'},{v:'06',n:'İyun'},
+    {v:'07',n:'İyul'},{v:'08',n:'Avqust'},{v:'09',n:'Sentyabr'},
+    {v:'10',n:'Oktyabr'},{v:'11',n:'Noyabr'},{v:'12',n:'Dekabr'}
+  ];
+  var yOpts='';for(var i=0;i<years.length;i++)yOpts+='<option value="'+years[i]+'"'+(years[i]===selYear?' selected':'')+'>'+years[i]+'</option>';
+  var mOpts='';for(var i=0;i<months.length;i++)mOpts+='<option value="'+months[i].v+'"'+(months[i].v===selMon?' selected':'')+'>'+months[i].n+'</option>';
+
+  h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">'
+    +'<select class="fs" style="width:100px" id="mov-year" onchange="S.reportMonth=document.getElementById(\'mov-year\').value+\'-\'+document.getElementById(\'mov-mon\').value;S.movData=null;render()">'+yOpts+'</select>'
+    +'<select class="fs" style="width:130px" id="mov-mon" onchange="S.reportMonth=document.getElementById(\'mov-year\').value+\'-\'+document.getElementById(\'mov-mon\').value;S.movData=null;render()">'+mOpts+'</select>'
+    +'<button class="btn btn-g" onclick="fetchMovement(S.reportMonth)">Hesabla</button>'
+    +'</div>';
+
+  if(S.movLoading){
+    h+='<div class="empty"><span class="spin"></span> Hesablanır...</div>';
+    return h;
+  }
+  if(!S.movData){
+    h+='<div class="empty">Ay seçib \"Hesabla\" düyməsinə basın</div>';
+    return h;
+  }
+
+  var d=S.movData;
+
+  // Mismatch warning if data is stale vs selected month
+  if(d.ym!==S.reportMonth){
+    h+='<div class="al al-y">Seçilmiş ay dəyişib. \"Hesabla\" düyməsinə yenidən basın.</div>';
+  }
+
+  // ── Summary cards ──
+  var buckets={ontime:0,week:0,month:0,reactivation:0};
+  for(var i=0;i<d.renewed.length;i++)buckets[d.renewed[i].bucket]++;
+  var lostWithBron=d.lost.filter(function(x){return x.hasBron;}).length;
+
+  h+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:16px">'
+    +'<div class="scard"><div class="snum" style="color:#1D9E75">'+d.newSubs.length+'</div><div class="slbl">Yeni abunə</div></div>'
+    +'<div class="scard"><div class="snum" style="color:#3B7DD8">'+d.renewed.length+'</div><div class="slbl">Yenilənmə</div></div>'
+    +'<div class="scard"><div class="snum" style="color:#E53935">'+d.lost.length+'</div><div class="slbl">İtki namizədi</div></div>'
+    +'<div class="scard"><div class="snum" style="color:#6A1B9A">'+d.newSingle.length+'</div><div class="slbl">Yeni tək giriş</div></div>'
+    +'<div class="scard"><div class="snum" style="color:#E65100">'+d.newPartner.length+'</div><div class="slbl">Yeni partner</div></div>'
+    +'<div class="scard"><div class="snum" style="color:#0F6E56">'+d.converted.length+'</div><div class="slbl">S/P→Abunə kecid</div></div>'
+    +'</div>';
+
+  // ── Yeni Abunəlik ──
+  h+=rMovSection('newSubs','🟢 Yeni Abunəlik Müştəriləri',d.newSubs.length,function(){
+    if(!d.newSubs.length)return'<div class="empty">Bu ay yeni abunəlik müştərisi yoxdur</div>';
+    var r='<div style="font-size:11px;color:#888;margin-bottom:6px">İlk dəfə studio abunəliyi açılan müştərilər</div>';
+    for(var i=0;i<d.newSubs.length;i++){
+      var x=d.newSubs[i];
+      r+='<div class="attitem"><span style="font-weight:500;font-size:13px">'+x.name+'</span>'
+        +'<span style="font-size:11px;color:#888">'+fmt(x.startDate)+'</span></div>';
+    }
+    return r;
+  });
+
+  // ── Yenilənmə ──
+  h+=rMovSection('renewed','🔄 Yenilənmiş Müştərilər',d.renewed.length,function(){
+    if(!d.renewed.length)return'<div class="empty">Bu ay yenilənmə yoxdur</div>';
+    var bucketLabels={ontime:'⚡ Vaxtında / erkən',week:'🟡 1–7 gün sonra',month:'🟠 8–30 gün sonra',reactivation:'🔴 31+ gün (reaktivasiya)'};
+    var bucketOrder=['ontime','week','month','reactivation'];
+    var grouped={ontime:[],week:[],month:[],reactivation:[]};
+    for(var i=0;i<d.renewed.length;i++)grouped[d.renewed[i].bucket].push(d.renewed[i]);
+    var r='';
+    for(var bi=0;bi<bucketOrder.length;bi++){
+      var bk=bucketOrder[bi];
+      var bList=grouped[bk];
+      if(!bList.length)continue;
+      r+='<div style="font-size:11px;font-weight:600;color:#666;margin:8px 0 4px">'+bucketLabels[bk]+' ('+bList.length+')</div>';
+      for(var i=0;i<bList.length;i++){
+        var x=bList[i];
+        var gapTxt=x.gap<=0?'erkən':(x.gap+' gün fasilə');
+        r+='<div class="attitem"><span style="font-weight:500;font-size:13px">'+x.name+'</span>'
+          +'<span style="font-size:11px;color:#888">'+fmt(x.prevEnd)+' → '+fmt(x.newStart)+' <em style="color:#aaa">('+gapTxt+')</em></span></div>';
+      }
+    }
+    return r;
+  });
+
+  // ── İtki Namizədləri ──
+  h+=rMovSection('lost','🔴 İtki Namizədləri',d.lost.length,function(){
+    if(!d.lost.length)return'<div class="empty">Bu ay itki namizədi yoxdur</div>';
+    var r='<div class="al al-y" style="margin-bottom:8px;font-size:12px">⚠️ Bu siyah yalnız review üçündür. DB statusu dəyişdirilmir. '
+      +(lostWithBron?' — <b>'+lostWithBron+' müştərinin aktiv bronu saxlanılır.</b>':'')+'</div>';
+    for(var i=0;i<d.lost.length;i++){
+      var x=d.lost[i];
+      r+='<div class="attitem"><span style="font-weight:500;font-size:13px">'+x.name+'</span>'
+        +'<span style="display:flex;align-items:center;gap:6px">'
+        +(x.hasBron?'<span class="badge b-blue" style="font-size:10px">📅 bron saxlanılıb</span>':'')
+        +'<span style="font-size:11px;color:#888">son: '+fmt(x.lastEnd)+'</span>'
+        +'</span></div>';
+    }
+    return r;
+  });
+
+  // ── Yeni Tək Giriş ──
+  h+=rMovSection('newSingle','🟣 Yeni Tək Giriş Müştəriləri',d.newSingle.length,function(){
+    if(!d.newSingle.length)return'<div class="empty">Bu ay yeni tək giriş müştərisi yoxdur</div>';
+    var r='<div style="font-size:11px;color:#888;margin-bottom:6px">İlk dəfə ROTG/ROTI giriş edən müştərilər</div>';
+    for(var i=0;i<d.newSingle.length;i++){
+      var x=d.newSingle[i];
+      r+='<div class="attitem"><span style="font-weight:500;font-size:13px">'+x.name+'</span>'
+        +'<span style="font-size:11px;color:#888">'+fmt(x.firstDate)+'</span></div>';
+    }
+    return r;
+  });
+
+  // ── Yeni Partner ──
+  h+=rMovSection('newPartner','🟠 Yeni Partner Müştəriləri',d.newPartner.length,function(){
+    if(!d.newPartner.length)return'<div class="empty">Bu ay yeni partner müştərisi yoxdur</div>';
+    var r='<div style="font-size:11px;color:#888;margin-bottom:6px">İlk dəfə ROF/RPP/RPS giriş edən müştərilər</div>';
+    for(var i=0;i<d.newPartner.length;i++){
+      var x=d.newPartner[i];
+      r+='<div class="attitem"><span style="font-weight:500;font-size:13px">'+x.name+'</span>'
+        +'<span style="font-size:11px;color:#888">'+fmt(x.firstDate)+'</span></div>';
+    }
+    return r;
+  });
+
+  // ── S/P → Abunəlik Konversiyası ──
+  h+=rMovSection('converted','🌱 S/P → Abunəlik Keçidi',d.converted.length,function(){
+    if(!d.converted.length)return'<div class="empty">Bu ay konversiya yoxdur</div>';
+    var r='<div style="font-size:11px;color:#888;margin-bottom:6px">Əvvəl tək giriş/partner, bu ay ilk dəfə studio abunəliyi açanlar</div>';
+    for(var i=0;i<d.converted.length;i++){
+      var x=d.converted[i];
+      r+='<div class="attitem"><span style="font-weight:500;font-size:13px">'+x.name+'</span>'
+        +'<span style="font-size:11px;color:#888">abunə: '+fmt(x.firstSubStart)+'</span></div>';
+    }
+    return r;
+  });
+
+  h+='<div style="font-size:11px;color:#bbb;text-align:center;margin-top:10px">Yalnız oxu hesabatıdır. Heç bir məlumat dəyişdirilmir.</div>';
+  return h;
+}
+
+// ── END CUSTOMER MOVEMENT REPORT ────────────────────────────────────────────
+
 function rReport(){
   var now=new Date();
   var curMonth=now.getFullYear()+'-'+(String(now.getMonth()+1).padStart(2,'0'));
   if(!S.reportMonth)S.reportMonth=curMonth;
   // Cashier cannot see salary report — silently redirect to izleme
   if(isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
+  // Cashier cannot see movement report — silently redirect to izleme
+  if(isCashier()&&S.reportTab==='hareket')S.reportTab='izleme';
   // Cashier auto-fetch: if on izleme and data not yet loaded, trigger fresh fetch
   if(S.reportTab==='izleme'&&!S.izlemeData&&!S.izlemeLoading){fetchIzleme(true);}
   
@@ -5372,10 +5780,13 @@ function rReport(){
   var t1=S.reportTab==='salary'?'active':'';
   var t2=S.reportTab==='izleme'?'active':'';
   var t3=S.reportTab==='partner'?'active':'';
+  var t4=S.reportTab==='hareket'?'active':'';
   h+='<div class="tab-row">';
   if(canSeeSalaryReport())h+='<button class="tab '+t1+'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>';
   h+='<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';refreshIzleme()">Müştəri İzləmə</button>'
-    +'<button class="tab '+t3+'" onclick="S.reportTab=\'partner\';render()">Partner Reconciliasiya</button></div>';
+    +'<button class="tab '+t3+'" onclick="S.reportTab=\'partner\';render()">Partner Reconciliasiya</button>';
+  if(canSeeSalaryReport())h+='<button class="tab '+t4+'" onclick="S.reportTab=\'hareket\';render()">Müştəri Hərəkəti</button>';
+  h+='</div>';
   if(S.reportTab==='izleme'){
     h+='<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
       +'<button class="btn btn-g btn-sm" style="font-size:12px;padding:5px 12px" onclick="refreshIzleme()">↻ Yenilə</button>'
@@ -5383,6 +5794,7 @@ function rReport(){
     return h+rIzleme();
   }
   if(S.reportTab==='partner'){return h+rPartnerRecon();}
+  if(S.reportTab==='hareket'){return h+rMovement();}
   // Year/Month selector
   var curYear=now.getFullYear();
   var years=[];
@@ -6750,6 +7162,7 @@ function sv(v){
   // Soft role visibility guards
   if(v==='admin'&&!canSeeAdmin())v='home';
   if(v==='report'&&isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
+  if(v==='report'&&isCashier()&&S.reportTab==='hareket')S.reportTab='izleme';
   S.view=v;S.search='';S.selCust=null;S.selLead=null;
   // Force fresh İzleme data on every Report entry — prevents stale screen cache
   if(v==='report'&&S.reportTab==='izleme'){S.izlemeData=null;fetchIzleme(true);}
