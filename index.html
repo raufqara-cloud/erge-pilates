@@ -182,7 +182,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showTempAdd:false,tempAddSlot:null,
   showMarkAbsent:false,markAbsentBron:null,
   bronSabitSearch:'',bronSabitDay:0,
-  bronSabitDays:[],bronSabitTimes:[],bronSabitRenewal:'all',
+  bronSabitDays:[],bronSabitTimes:[],bronSabitRenewal:'all',bronBlockOpen:false,
   bronBosDays:[],bronBosTimes:[],
   _bronNewCustId:null,_bronNewCustName:null,
   zCloseHistory:null,zCloseLoading:false,showZClose:false,zCloseDate:null,
@@ -1093,7 +1093,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-management-filter-summary-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: bron-block-analysis-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -2801,6 +2801,7 @@ function rBronSabit(){
     +'</div>';
   h+='</div>';
   h+=rBronSabitSlotSummary();
+  h+=rBronBlockAnalysis();
   h+='<div id="sabit-list">'+rBronSabitList()+'</div>';
   return h;
 }
@@ -2966,6 +2967,166 @@ function rBronSabitSlotSummary(){
   h+='</div></div>';
   return h;
 }
+
+// ---- BLOCK FOOTPRINT ANALYSIS (read-only) ----
+
+function getBronBlockFootprint(targetDays,targetTime,anchorDate){
+  if(!S.bronData||!targetDays||!targetDays.length||!targetTime)return[];
+  var mon=getWeekMonday(anchorDate||td());
+  var dowDates={};
+  for(var di=0;di<targetDays.length;di++){var dv=targetDays[di];dowDates[dv]=getNextDateForDow(mon,dv);}
+  var custMap={};
+  for(var i=0;i<S.bronData.length;i++){
+    var b=S.bronData[i];
+    if(b.time_slot!==targetTime)continue;
+    if(targetDays.indexOf(b.day_of_week)<0)continue;
+    var chk=dowDates[b.day_of_week];
+    if(chk){if(b.valid_from&&b.valid_from>chk)continue;if(b.valid_until&&b.valid_until<chk)continue;}
+    if(!custMap[b.customer_id]){custMap[b.customer_id]={custId:b.customer_id,custName:b.customer_name,days:[],firstBron:b};}
+    custMap[b.customer_id].days.push(b.day_of_week);
+  }
+  var result=[];
+  var cids=Object.keys(custMap);
+  for(var ci=0;ci<cids.length;ci++){
+    var e=custMap[cids[ci]];
+    e.days.sort(function(a,b){return a-b;});
+    var src=getBookingSource(e.firstBron,e.custId);
+    var bst=getCustBronStatus(e.custId);
+    result.push({custId:e.custId,custName:e.custName,days:e.days,source:src,subStatus:bst.type,subTxt:bst.txt});
+  }
+  return result;
+}
+
+function classifyBronBlockFootprint(footprint,targetDays){
+  var days=targetDays.slice().sort(function(a,b){return a-b;});
+  var d0=days[0],d1=days[1],d2=days[2];
+  var three=[];
+  var two={};two[d0+'|'+d1]=[];two[d0+'|'+d2]=[];two[d1+'|'+d2]=[];
+  var one={};one[d0]=[];one[d1]=[];one[d2]=[];
+  var occ={};occ[d0]=0;occ[d1]=0;occ[d2]=0;
+  for(var i=0;i<footprint.length;i++){
+    var f=footprint[i];var fd=f.days;
+    for(var di=0;di<fd.length;di++){if(occ[fd[di]]!==undefined)occ[fd[di]]++;}
+    if(fd.length>=3){three.push(f);}
+    else if(fd.length===2){var k=fd[0]+'|'+fd[1];if(two[k]!==undefined)two[k].push(f);}
+    else if(fd.length===1){if(one[fd[0]]!==undefined)one[fd[0]].push(f);}
+  }
+  var maxOcc=Math.max(occ[d0],occ[d1],occ[d2]);
+  var minOcc=Math.min(occ[d0],occ[d1],occ[d2]);
+  return{three:three,two:two,one:one,occ:occ,days:days,maxOcc:maxOcc,minOcc:minOcc,imbalance:maxOcc-minOcc};
+}
+
+function rBronBlockAnalysis(){
+  if(!S.bronData)return'';
+  var selDays=S.bronSabitDays;
+  var selTimes=S.bronSabitTimes;
+  if(selDays.length!==3||selTimes.length!==1){
+    if(selDays.length>0||selTimes.length>0){
+      return'<div style="margin-bottom:10px;padding:8px 12px;background:#f5f5f5;border-radius:8px;font-size:11px;color:#999">Blok analizi: 3 gun + 1 saat secin (mes. B.e + Cer + Cum / 19:00)</div>';
+    }
+    return'';
+  }
+  var targetTime=selTimes[0];
+  var anchorDate=S.bronSelDate||td();
+  var footprint=getBronBlockFootprint(selDays,targetTime,anchorDate);
+  var cls=classifyBronBlockFootprint(footprint,selDays);
+  var days=cls.days;
+  var d0=days[0],d1=days[1],d2=days[2];
+  var pairKeys=[d0+'|'+d1,d0+'|'+d2,d1+'|'+d2];
+  var pairLbls={};
+  pairLbls[d0+'|'+d1]=DAYS_SHORT[d0-1]+' + '+DAYS_SHORT[d1-1];
+  pairLbls[d0+'|'+d2]=DAYS_SHORT[d0-1]+' + '+DAYS_SHORT[d2-1];
+  pairLbls[d1+'|'+d2]=DAYS_SHORT[d1-1]+' + '+DAYS_SHORT[d2-1];
+  var open=S.bronBlockOpen;
+  var headerTitle=DAYS_SHORT[d0-1]+' + '+DAYS_SHORT[d1-1]+' + '+DAYS_SHORT[d2-1]+' / '+targetTime;
+  var h='';
+  h+='<div style="margin-bottom:10px;border:1px solid #d4eae0;border-radius:10px;background:#f7fbf9">';
+  h+='<div onclick="S.bronBlockOpen=!S.bronBlockOpen;render()" style="display:flex;align-items:center;justify-content:space-between;padding:9px 13px;cursor:pointer;user-select:none">';
+  h+='<span style="font-size:12px;font-weight:700;color:#1D9E75">Blok Analizi: '+headerTitle+'</span>';
+  h+='<span style="font-size:12px;color:#888">'+(open?'&#9650;':'&#9660;')+'</span>';
+  h+='</div>';
+  if(!open){h+='</div>';return h;}
+  h+='<div style="padding:0 13px 12px 13px">';
+  h+='<div style="font-size:11px;font-weight:700;color:#555;margin-bottom:6px">Gunluk doldurulma</div>';
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">';
+  for(var di=0;di<days.length;di++){
+    var dv=days[di];
+    var booked=cls.occ[dv]||0;
+    var free=MAX_PER_SLOT-booked;
+    var bg2,col2,lbl2;
+    if(free<=0){bg2='#FFEBEE';col2='#C62828';lbl2='Dolu';}
+    else if(free<=2){bg2='#FFF8E1';col2='#E65100';lbl2=free+' bos';}
+    else{bg2='#E8F5E9';col2='#1B5E20';lbl2=free+' bos';}
+    h+='<div style="background:'+bg2+';border-radius:8px;padding:6px 12px;text-align:center;min-width:80px">';
+    h+='<div style="font-size:11px;font-weight:700;color:'+col2+'">'+DAYS_SHORT[dv-1]+' '+targetTime+'</div>';
+    h+='<div style="font-size:13px;font-weight:700;color:'+col2+'">'+booked+'/'+MAX_PER_SLOT+'</div>';
+    h+='<div style="font-size:10px;color:'+col2+'">'+lbl2+'</div>';
+    h+='</div>';
+  }
+  h+='</div>';
+  h+='<div style="font-size:11px;font-weight:700;color:#555;margin-bottom:6px">Mustori paylanmasi</div>';
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<div style="background:#EDE7F6;border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;color:#4A148C">3-slot (her 3 gun): '+cls.three.length+' nefer</div>';
+  for(var pi=0;pi<pairKeys.length;pi++){
+    var pk=pairKeys[pi];
+    var pcount=(cls.two[pk]||[]).length;
+    var pbg=pcount>0?'#E8EAF6':'#F5F5F5';
+    var pcol=pcount>0?'#283593':'#bbb';
+    h+='<div style="background:'+pbg+';border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;color:'+pcol+'">2-slot ('+pairLbls[pk]+'): '+pcount+'</div>';
+  }
+  for(var si=0;si<days.length;si++){
+    var sd=days[si];
+    var scount=(cls.one[sd]||[]).length;
+    var sbg=scount>0?'#E0F2F1':'#F5F5F5';
+    var scol=scount>0?'#004D40':'#bbb';
+    h+='<div style="background:'+sbg+';border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;color:'+scol+'">1-slot ('+DAYS_SHORT[sd-1]+'): '+scount+'</div>';
+  }
+  h+='</div>';
+  if(cls.imbalance>=2){
+    var bottDow=null,bottLoad=0;
+    for(var ii=0;ii<days.length;ii++){if(cls.occ[days[ii]]>bottLoad){bottLoad=cls.occ[days[ii]];bottDow=days[ii];}}
+    h+='<div style="background:#FFF8E1;border-left:3px solid #F9A825;border-radius:0 8px 8px 0;padding:7px 11px;font-size:11px;color:#5D4037;margin-bottom:8px">';
+    h+='Yuk imbalansi: '+DAYS_SHORT[bottDow-1]+' gununde en yuksek yuk ('+bottLoad+'/'+MAX_PER_SLOT+'). Ferq: '+cls.imbalance+' yer.';
+    h+='</div>';
+  }
+  var hasBottleneck=cls.maxOcc>=MAX_PER_SLOT;
+  var hasFreeElsewhere=cls.minOcc<MAX_PER_SLOT;
+  if(cls.imbalance>=2||(hasBottleneck&&hasFreeElsewhere)){
+    h+='<div style="background:#E8F5E9;border-left:3px solid #1D9E75;border-radius:0 8px 8px 0;padding:7px 11px;font-size:11px;color:#1B5E20;margin-bottom:8px">';
+    h+='Potensial optimallasdirma siqnali: daha balansli 2-gunluk paylanma ile elave yer acila biler. Operator manual yoxlamalidir.';
+    h+='</div>';
+  }
+  if(footprint.length>0){
+    h+='<div style="font-size:11px;font-weight:700;color:#555;margin-bottom:5px">Musteriler ('+footprint.length+')</div>';
+    h+='<div style="max-height:180px;overflow-y:auto;border:1px solid #e8f0ec;border-radius:8px">';
+    for(var fi=0;fi<footprint.length;fi++){
+      var fp=footprint[fi];
+      var fpDays=fp.days.map(function(d){return DAYS_SHORT[d-1];}).join(' + ');
+      var src=fp.source;
+      var srcBg=src==='partner'?'#EDE7F6':src==='single'?'#E3F2FD':'#E8F5E9';
+      var srcCol=src==='partner'?'#6A1B9A':src==='single'?'#0D47A1':'#1B5E20';
+      var srcLbl=src==='partner'?'Partner':src==='single'?'Tek':'Studio';
+      var st=fp.subStatus;
+      var stBg=st==='ok'?'#E8F5E9':st==='warn'?'#FFF8E1':st==='grace'?'#FFF3E0':st==='pending'?'#E3F2FD':'#F5F5F5';
+      var stCol=st==='ok'?'#2E7D32':st==='warn'?'#E65100':st==='grace'?'#BF360C':st==='pending'?'#1565C0':'#757575';
+      var stLbl=st==='ok'?'Aktiv':st==='warn'?'Az qaldi':st==='grace'?'Bitib':st==='pending'?'Pending':'Sub yox';
+      var rowBg=fi%2===0?'#fff':'#f7fbf9';
+      h+='<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;background:'+rowBg+';font-size:11px;border-bottom:1px solid #f0f0f0;flex-wrap:wrap">';
+      h+='<span style="flex:1;min-width:100px;font-weight:600;color:#333">'+escHtml(fp.custName||fp.custId)+'</span>';
+      h+='<span style="color:#666;font-size:10px">'+fpDays+'</span>';
+      h+='<span style="font-size:9px;background:'+srcBg+';color:'+srcCol+';border-radius:10px;padding:1px 6px;font-weight:700">'+srcLbl+'</span>';
+      h+='<span style="font-size:9px;background:'+stBg+';color:'+stCol+';border-radius:10px;padding:1px 6px">'+stLbl+'</span>';
+      h+='</div>';
+    }
+    h+='</div>';
+  }else{
+    h+='<div style="font-size:11px;color:#aaa;text-align:center;padding:8px">Bu blokda sabit bron tapilmadi.</div>';
+  }
+  h+='</div></div>';
+  return h;
+}
+
+// ---- END BLOCK FOOTPRINT ANALYSIS ----
 
 function rBronBos(){
   var selDate=S.bronSelDate||td();
