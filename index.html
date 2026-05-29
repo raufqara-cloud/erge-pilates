@@ -1124,7 +1124,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-waitlist-conversion-ux-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-waitlist-conversion-ux-v1-hotfix2</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -2073,6 +2073,7 @@ async function submitAddWaitlist(){
       if(!S.waitlistData)S.waitlistData=[];
       S.waitlistData.push(row);
     }
+    emitBronSync('waitlist_create');
     S.showAddWaitlist=false;
     logAudit('waitlist',wlId,'create',
       escHtml(custName)+' — '+DAYS_AZ[slot.dow-1]+' '+slot.time+' gözləmə siyahısına əlavə edildi',
@@ -2114,6 +2115,7 @@ async function updateWaitlistStatus(wlId, newStatus){
         return w.status==='active'||w.status==='contacted';
       });
     }
+    emitBronSync('waitlist_status');
     var actionLabel=newStatus==='cancel'?'cancel':'edit';
     logAudit('waitlist',wlId,actionLabel,
       escHtml(entry.customer_name||'?')+' gözləmə statusu: '+oldStatus+' → '+updated.status,
@@ -2129,7 +2131,7 @@ async function updateWaitlistStatus(wlId, newStatus){
 function rWaitlistPanel(dow, time, dateStr){
   var wl=getSlotWaitlist(dow,time,dateStr);
   if(wl.length===0)return'';
-  var h='<div class="slabel" style="color:#B45309;margin-top:8px">⏳ GÖZLƏMƏ SİYAHISI ('+wl.length+')</div>';
+  var h='';
   for(var i=0;i<wl.length;i++){
     var w=wl[i];
     var isContacted=w.status==='contacted';
@@ -2149,6 +2151,8 @@ function rWaitlistPanel(dow, time, dateStr){
       h+='<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FEF3C7;color:#B45309" '
         +'onclick="updateWaitlistStatus(\''+escQ(w.id)+'\',\'contacted\')">Əlaqə saxlandı</button>';
     }
+    h+='<button class="btn btn-g btn-sm" style="font-size:11px" '
+      +'onclick="convertWaitlistToBron(\''+escQ(w.id)+'\')">&#9889; Bronlaşdır</button>';
     h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" '
       +'onclick="updateWaitlistStatus(\''+escQ(w.id)+'\',\'cancel\')">Ləğv et</button>';
     h+='</div></div>';
@@ -2573,6 +2577,7 @@ async function submitAddBron(){
         'Sabit bron yaradıldı — '+(cust?cust.name:custId)+' — '+(DAYS_AZ[S.selBronDay-1]||'')+' '+(S.selBronTime||''),
         null,{type:'permanent',customer_id:bron.customer_id,customer_name:bron.customer_name,day_of_week:bron.day_of_week,time_slot:bron.time_slot,valid_from:bron.valid_from||null,source_flow:'submitAddBron'});
       S.bronData.push(bron);
+      emitBronSync('booking_create');
     } else {
       // Temp - add as exception
       var eid='EX'+Date.now();
@@ -2587,6 +2592,7 @@ async function submitAddBron(){
         null,{type:'temp_add',booking_id:null,temp_customer_id:ex.temp_customer_id,temp_customer_name:ex.temp_customer_name,exception_date:ex.exception_date,day_of_week:ex.day_of_week,time_slot:ex.time_slot,source_flow:'submitAddBron'});
       if(!S.bronExceptions)S.bronExceptions=[];
       S.bronExceptions.push(ex);
+      emitBronSync('temp_add_create');
     }
     S.showAddBron=false;
   }catch(e){alert('Xeta: '+e.message);}
@@ -2606,6 +2612,7 @@ async function markAbsent(bronId, date){
       null,{type:'absent',booking_id:bronId,exception_date:date,customer_name:_maBron?_maBron.customer_name:'',day_of_week:_maBron?_maBron.day_of_week:null,time_slot:_maBron?_maBron.time_slot:'',source_flow:'markAbsent'});
     if(!S.bronExceptions)S.bronExceptions=[];
     S.bronExceptions.push(ex);
+    emitBronSync('booking_exception_create');
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -2665,6 +2672,7 @@ async function cancelAbsent(exId){
       _caEx?{type:_caEx.type,booking_id:_caEx.booking_id||null,exception_date:_caEx.exception_date,temp_customer_id:_caEx.temp_customer_id||null,temp_customer_name:_caEx.temp_customer_name||null,time_slot:_caEx.time_slot||null}:null,
       null);
     S.bronExceptions=S.bronExceptions.filter(function(e){return e.id!==exId;});
+    emitBronSync('booking_exception_delete');
     invalidateDataIntegrityResults('Bron istisna silindi ('+exId+')');
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -2771,6 +2779,7 @@ async function deleteBron(id){
       _delBron?{customer_id:_delBron.customer_id,customer_name:_delBron.customer_name,day_of_week:_delBron.day_of_week,time_slot:_delBron.time_slot,type:'permanent',is_active:true}:null,
       {is_active:false,valid_until:addDays(td(),-1),source_flow:'deleteBron'});
     if(S.bronData)S.bronData=S.bronData.filter(function(b){return b.id!==id;});
+    emitBronSync('booking_delete');
     invalidateDataIntegrityResults('Bron deaktiv edildi ('+id+')');
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
@@ -3504,72 +3513,32 @@ function wlFilterToggle(arrName,value){
   render();
 }
 
-function rBronGozle(){
-  if(!S.waitlistData&&!S.waitlistLoading){fetchWaitlist();}
-  var h='';
-  if(S.waitlistLoading&&!S.waitlistData){
-    return h+'<div class="empty"><span class="spin"></span> Yüklənir...</div>';
-  }
-  var f=S.wlFilter;
+function getFilteredWaitlistRows(){
+  var f=S.wlFilter||{search:'',days:[],times:[],status:'all',scope:'all'};
   var q=normQ((f.search||'').trim());
-  var hasDays=f.days.length>0;
-  var hasTimes=f.times.length>0;
-  var d,ti,dv,tv,sel,tsel;
-  // Filter panel
-  h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px 14px;margin-bottom:12px">';
-  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
-  h+='<div class="sbar" style="flex:1;min-width:160px;margin-bottom:0"><span class="sicon">&#128269;</span>';
-  h+='<input placeholder="Müştəri adı və ya ID..." value="'+escHtml(f.search||'')+'" ';
-  h+='oninput="S.wlFilter.search=this.value;render()" style="background:none;border:none;outline:none;width:100%;font-size:13px"></div>';
-  h+='<select class="fs" style="width:auto;padding:7px 10px;font-size:12px" onchange="S.wlFilter.status=this.value;render()">';
-  h+='<option value="all"'+(f.status==='all'?' selected':'')+'>Hamısı</option>';
-  h+='<option value="active"'+(f.status==='active'?' selected':'')+'>Gözləyir</option>';
-  h+='<option value="contacted"'+(f.status==='contacted'?' selected':'')+'>Əlaqə saxlandı</option>';
-  h+='</select>';
-  h+='<select class="fs" style="width:auto;padding:7px 10px;font-size:12px" onchange="S.wlFilter.scope=this.value;render()">';
-  h+='<option value="all"'+(f.scope==='all'?' selected':'')+'>Daimi + Tarix</option>';
-  h+='<option value="recurring"'+(f.scope==='recurring'?' selected':'')+'>Yalnız Daimi</option>';
-  h+='<option value="specific_date"'+(f.scope==='specific_date'?' selected':'')+'>Yalnız Tarix</option>';
-  h+='</select>';
-  h+='</div>';
-  h+='<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:7px">';
-  h+='<span style="font-size:11px;color:#888;min-width:32px">Gün:</span>';
-  for(d=0;d<6;d++){dv=d+1;sel=f.days.indexOf(dv)>=0;
-    h+='<button onclick="wlFilterToggle(\'days\','+dv+')" style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid '+(sel?'#B45309':'#ddd')+';background:'+(sel?'#B45309':'#fff')+';color:'+(sel?'#fff':'#555')+'">'+DAYS_SHORT[d]+'</button>';
-  }
-  h+='</div>';
-  h+='<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:8px">';
-  h+='<span style="font-size:11px;color:#888;min-width:32px">Saat:</span>';
-  for(ti=0;ti<TIMES.length;ti++){tv=TIMES[ti];tsel=f.times.indexOf(tv)>=0;
-    h+='<button onclick="wlFilterToggle(\'times\',\''+tv+'\')" style="padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid '+(tsel?'#B45309':'#ddd')+';background:'+(tsel?'#B45309':'#fff')+';color:'+(tsel?'#fff':'#555')+'">'+tv+'</button>';
-  }
-  h+='</div>';
-  h+='<div style="display:flex;gap:8px;align-items:center">';
-  h+='<button class="btn btn-gray btn-sm" onclick="resetWlFilter()" style="font-size:11px">&#10005; Sıfırla</button>';
-  h+='<button class="btn btn-g btn-sm" onclick="S.showAddWaitlistGeneral=true;S.waitlistCustSearch=\'\';S.waitlistSelCustId=null;S.waitlistSelCustName=null;render()" style="margin-left:auto">+ Gözləməyə əlavə et</button>';
-  h+='</div>';
-  h+='</div>';
-  // Apply filters + sort
+  var qRaw=(f.search||'').trim().toLowerCase();
+  var hasDays=f.days&&f.days.length>0;
+  var hasTimes=f.times&&f.times.length>0;
   var wl=(S.waitlistData||[]).filter(function(w){
     if(f.status!=='all'&&w.status!==f.status)return false;
     if(f.scope!=='all'&&w.scope!==f.scope)return false;
     if(hasDays&&f.days.indexOf(w.day_of_week)<0)return false;
     if(hasTimes&&f.times.indexOf(w.time_slot)<0)return false;
-    if(q&&normQ(w.customer_name||'').indexOf(q)<0&&(w.customer_id||'').toLowerCase().indexOf((f.search||'').trim().toLowerCase())<0)return false;
+    if(q&&normQ(w.customer_name||'').indexOf(q)<0&&(w.customer_id||'').toLowerCase().indexOf(qRaw)<0)return false;
     return true;
   });
-  var sorted=wl.slice().sort(function(a,b){
+  return wl.slice().sort(function(a,b){
     var sa=a.status==='active'?0:1;var sb=b.status==='active'?0:1;
     if(sa!==sb)return sa-sb;
     if(a.day_of_week!==b.day_of_week)return a.day_of_week-b.day_of_week;
     if(a.time_slot!==b.time_slot)return(a.time_slot||'').localeCompare(b.time_slot||'');
     return(a.created_at||'').localeCompare(b.created_at||'');
   });
-  if(!sorted.length){
-    h+='<div class="empty">Şərtə uyğun gözləmə qeydi yoxdur.</div>';
-    return h;
-  }
-  h+='<div style="padding:4px 0">';
+}
+function rWlListHtml(){
+  var sorted=getFilteredWaitlistRows();
+  if(!sorted.length)return'<div class="empty">Şərtə uyğun gözləmə qeydi yoxdur.</div>';
+  var h='<div style="padding:4px 0">';
   for(var i=0;i<sorted.length;i++){
     var w=sorted[i];
     var isContacted=w.status==='contacted';
@@ -3589,19 +3558,56 @@ function rBronGozle(){
       +(w.note?'<span class="badge" style="background:#F3F4F6;color:#555;font-size:10px">'+escHtml(w.note)+'</span>':'')
       +(w.created_by_name&&w.created_by_name!=='Unknown'?'<span class="badge" style="background:#F3F4F6;color:#777;font-size:10px">&#128100; '+escHtml(w.created_by_name)+'</span>':'')
       +(w.created_at?'<span class="badge" style="background:#F3F4F6;color:#aaa;font-size:10px">'+escHtml(formatBakuDateTime(w.created_at))+'</span>':'')
-      +'</div></div>'
-      +'<div class="bron-row-actions">';
+      +'</div></div><div class="bron-row-actions">';
     if(!isContacted){
-      h+='<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FEF3C7;color:#B45309" '
-        +'onclick="updateWaitlistStatus(\''+escQ(w.id)+'\',\'contacted\')">Əlaqə saxlandı</button>';
+      h+='<button class="btn btn-gray btn-sm" style="font-size:11px;background:#FEF3C7;color:#B45309" onclick="updateWaitlistStatus(\''+escQ(w.id)+'\',\'contacted\')">Əlaqə saxlandı</button>';
     }
-    h+='<button class="btn btn-g btn-sm" style="font-size:11px" '
-      +'onclick="convertWaitlistToBron(\''+escQ(w.id)+'\')">&#9889; Bronlaşdır</button>';
-    h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" '
-      +'onclick="updateWaitlistStatus(\''+escQ(w.id)+'\',\'cancel\')">Ləğv et</button>';
+    h+='<button class="btn btn-g btn-sm" style="font-size:11px" onclick="convertWaitlistToBron(\''+escQ(w.id)+'\')">&#9889; Bronlaşdır</button>';
+    h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#C62828" onclick="updateWaitlistStatus(\''+escQ(w.id)+'\',\'cancel\')">Ləğv et</button>';
     h+='</div></div>';
   }
   h+='</div>';
+  return h;
+}
+function wlSearchUpdate(val){
+  S.wlFilter.search=val;
+  var el=document.getElementById('wl-list');
+  if(el)el.innerHTML=rWlListHtml();
+  else render();
+}
+function rBronGozle(){
+  if(!S.waitlistData&&!S.waitlistLoading){fetchWaitlist();}
+  var h='';
+  if(S.waitlistLoading&&!S.waitlistData){
+    return h+'<div class="empty"><span class="spin"></span> Yüklənir...</div>';
+  }
+  var f=S.wlFilter;
+  var d,ti,dv,tv,sel,tsel;
+  h+='<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:12px 14px;margin-bottom:12px">';
+  h+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<div class="sbar" style="flex:1;min-width:160px;margin-bottom:0"><span class="sicon">&#128269;</span>';
+  h+='<input id="wl-search" placeholder="Müştəri adı və ya ID..." value="'+escHtml(f.search||'')+'" oninput="wlSearchUpdate(this.value)" style="background:none;border:none;outline:none;width:100%;font-size:13px"></div>';
+  h+='<select class="fs" style="width:auto;padding:7px 10px;font-size:12px" onchange="S.wlFilter.status=this.value;render()">';
+  h+='<option value="all"'+(f.status==='all'?' selected':'')+'>Hamısı</option>';
+  h+='<option value="active"'+(f.status==='active'?' selected':'')+'>Gözləyir</option>';
+  h+='<option value="contacted"'+(f.status==='contacted'?' selected':'')+'>Əlaqə saxlandı</option>';
+  h+='</select>';
+  h+='<select class="fs" style="width:auto;padding:7px 10px;font-size:12px" onchange="S.wlFilter.scope=this.value;render()">';
+  h+='<option value="all"'+(f.scope==='all'?' selected':'')+'>Daimi + Tarix</option>';
+  h+='<option value="recurring"'+(f.scope==='recurring'?' selected':'')+'>Yalnız Daimi</option>';
+  h+='<option value="specific_date"'+(f.scope==='specific_date'?' selected':'')+'>Yalnız Tarix</option>';
+  h+='</select></div>';
+  h+='<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:7px"><span style="font-size:11px;color:#888;min-width:32px">Gün:</span>';
+  for(d=0;d<6;d++){dv=d+1;sel=f.days.indexOf(dv)>=0;h+='<button onclick="wlFilterToggle(\'days\','+dv+')" style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid '+(sel?'#B45309':'#ddd')+';background:'+(sel?'#B45309':'#fff')+';color:'+(sel?'#fff':'#555')+'">'+DAYS_SHORT[d]+'</button>';}
+  h+='</div>';
+  h+='<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><span style="font-size:11px;color:#888;min-width:32px">Saat:</span>';
+  for(ti=0;ti<TIMES.length;ti++){tv=TIMES[ti];tsel=f.times.indexOf(tv)>=0;h+='<button onclick="wlFilterToggle(\'times\',\''+tv+'\')" style="padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid '+(tsel?'#B45309':'#ddd')+';background:'+(tsel?'#B45309':'#fff')+';color:'+(tsel?'#fff':'#555')+'">'+tv+'</button>';}
+  h+='</div>';
+  h+='<div style="display:flex;gap:8px;align-items:center">';
+  h+='<button class="btn btn-gray btn-sm" onclick="resetWlFilter()" style="font-size:11px">&#10005; Sıfırla</button>';
+  h+='<button class="btn btn-g btn-sm" onclick="S.showAddWaitlistGeneral=true;S.waitlistCustSearch=\'\';S.waitlistSelCustId=null;S.waitlistSelCustName=null;render()" style="margin-left:auto">+ Gözləməyə əlavə et</button>';
+  h+='</div></div>';
+  h+='<div id="wl-list">'+rWlListHtml()+'</div>';
   return h;
 }
 
@@ -4385,6 +4391,50 @@ function rModalNewSabitBron(){
     +'</div></div></div>';
 }
 
+
+// ── BOOKING SLOT CAPACITY GUARD (slot-waitlist-conversion-ux-v1-hotfix2) ──
+// Checks booking occupancy, not attendance rows. This matches getSlotCount():
+// permanent bookings - absents + temp_add + trial_add. Fail-closed on live DB error.
+async function checkBookingSlotCapacity(dow,time,dateStr){
+  if(!dow||!time||!dateStr)return{ok:false,msg:'Slot tutumu yoxlaması üçün gün, saat və tarix natamamdır.'};
+  try{
+    if(S.bronData&&S.bronExceptions){
+      var localCnt=getSlotCount(dow,time,dateStr);
+      if(localCnt>=MAX_PER_SLOT)return{ok:false,msg:'Bu slot tam doludur ('+localCnt+'/'+MAX_PER_SLOT+').'};
+    }
+  }catch(e){}
+  try{
+    var encTime=encodeURIComponent(time);
+    var dbBrons=await dbGet('bookings','day_of_week=eq.'+dow+'&time_slot=eq.'+encTime+'&type=eq.permanent&is_active=eq.true&select=id,valid_from,valid_until,is_active&limit=50');
+    var activeIds=[];
+    if(dbBrons){
+      for(var i=0;i<dbBrons.length;i++){
+        var b=dbBrons[i];
+        if(b.is_active===false)continue;
+        if(b.valid_from&&dateStr<b.valid_from)continue;
+        if(b.valid_until&&dateStr>b.valid_until)continue;
+        activeIds.push(b.id);
+      }
+    }
+    var cnt=activeIds.length;
+    var idMap={};
+    for(var ai=0;ai<activeIds.length;ai++)idMap[activeIds[ai]]=true;
+    var exs=await dbGet('booking_exceptions','exception_date=eq.'+dateStr+'&select=id,type,booking_id,day_of_week,time_slot,is_active&limit=200');
+    if(exs){
+      for(var xi=0;xi<exs.length;xi++){
+        var ex=exs[xi];
+        if(ex.is_active===false)continue;
+        if(ex.type==='absent'&&ex.booking_id&&idMap[ex.booking_id])cnt--;
+        else if((ex.type==='temp_add'||ex.type==='trial_add')&&ex.day_of_week===dow&&ex.time_slot===time)cnt++;
+      }
+    }
+    if(cnt>=MAX_PER_SLOT)return{ok:false,msg:'Bu slot tam doludur ('+cnt+'/'+MAX_PER_SLOT+').'};
+    return{ok:true,count:cnt};
+  }catch(e){
+    return{ok:false,msg:'Slot tutumu canlı yoxlaması tamamlanmadı. İnternet/DB bağlantısını yoxlayıb yenidən cəhd edin.'};
+  }
+}
+
 // ── BOOKING GUARD HELPERS (slot-waitlist-conversion-ux-v1) ──
 // Returns {ok:true} or {ok:false, msg:string}
 // Runs all permanent-booking guards for a given custId+day+time+source (no DOM reading)
@@ -4432,11 +4482,9 @@ async function checkPermanentBronGuards(custId, day, time, source, fromDate){
       if(xdow===day)return{ok:false,msg:'Bu müştərinin həmin gün üzrə gələcək tarixdə artıq müvəqqəti bronu var.'};
     }
   }
-  // Slot capacity
-  var slotCount=getSlotCount(day,time,checkDate);
-  if(slotCount>=MAX_PER_SLOT){
-    return{ok:false,msg:'Bu slot tam doludur ('+slotCount+'/'+MAX_PER_SLOT+').'};
-  }
+  // Slot capacity — local + live DB, fail-closed
+  var cap=await checkBookingSlotCapacity(day,time,checkDate);
+  if(!cap.ok)return cap;
   // Live DB checks
   try{
     var dbBron=await dbGet('bookings','customer_id=eq.'+custId+'&day_of_week=eq.'+day+'&type=eq.permanent&select=id,is_active&limit=5');
@@ -4461,6 +4509,8 @@ async function checkPermanentBronGuards(custId, day, time, source, fromDate){
 async function checkTempAddGuards(custId, slot){
   if(!custId)return{ok:false,msg:'Müştəri seçin'};
   if(!slot||!slot.date||!slot.time||!slot.dow)return{ok:false,msg:'Slot məlumatı natamamdır.'};
+  var cap=await checkBookingSlotCapacity(slot.dow,slot.time,slot.date);
+  if(!cap.ok)return cap;
   if(hasCustomerTempAddOnDate(custId,slot.date))return{ok:false,msg:'Bu müştərinin həmin tarixdə artıq müvəqqəti bronu var.'};
   if(hasCustomerActiveBookingOnDate(custId,slot.date))return{ok:false,msg:'Bu müştərinin həmin tarixə aktiv sabit bronu var. Müvəqqəti bron əlavə etmək olmaz.'};
   // Weekly limit
@@ -4532,6 +4582,7 @@ async function convertWaitlistToBron(wlId){
     try{
       await dbPost('bookings',bron);
       if(S.bronData)S.bronData.push(bron);
+      emitBronSync('booking_create_from_waitlist');
       logAudit('booking',bron.id,'create',
         'Sabit bron yaradıldı (gözləmədən) — '+escHtml(cust.name)+' — '+DAYS_AZ[entry.day_of_week-1]+' '+entry.time_slot,
         null,{type:'permanent',customer_id:custId,customer_name:cust.name,day_of_week:entry.day_of_week,time_slot:entry.time_slot,source_flow:'convertWaitlistToBron'});
@@ -4541,6 +4592,7 @@ async function convertWaitlistToBron(wlId){
       var wlPatch=Object.assign({},getUpdatedByMeta(),{status:'converted',converted_booking_id:bid,updated_at:new Date().toISOString()});
       await dbPatch('slot_waitlist','id=eq.'+wlId,wlPatch);
       if(S.waitlistData)S.waitlistData=S.waitlistData.filter(function(w){return w.id!==wlId;});
+      emitBronSync('waitlist_converted');
       logAudit('waitlist',wlId,'edit',
         escHtml(custName)+' gözləmə → bronlaşdırıldı (sabit)',
         {customer_id:custId,customer_name:custName,day_of_week:entry.day_of_week,time_slot:entry.time_slot,scope:'recurring',status:entry.status,source_flow:'convertWaitlistToBron'},
@@ -4572,6 +4624,7 @@ async function convertWaitlistToBron(wlId){
       await dbPost('booking_exceptions',ex);
       if(!S.bronExceptions)S.bronExceptions=[];
       S.bronExceptions.push(ex);
+      emitBronSync('temp_add_from_waitlist');
       logAudit('booking',ex.id,'create',
         'Müvəqqəti bron yaradıldı (gözləmədən) — '+escHtml(cust.name)+' — '+ex.exception_date+' '+ex.time_slot,
         null,{type:'temp_add',temp_customer_id:custId,temp_customer_name:cust.name,exception_date:ex.exception_date,day_of_week:ex.day_of_week,time_slot:ex.time_slot,source_flow:'convertWaitlistToBron'});
@@ -4581,6 +4634,7 @@ async function convertWaitlistToBron(wlId){
       var wlPatch2=Object.assign({},getUpdatedByMeta(),{status:'converted',converted_exception_id:eid,updated_at:new Date().toISOString()});
       await dbPatch('slot_waitlist','id=eq.'+wlId,wlPatch2);
       if(S.waitlistData)S.waitlistData=S.waitlistData.filter(function(w){return w.id!==wlId;});
+      emitBronSync('waitlist_converted');
       logAudit('waitlist',wlId,'edit',
         escHtml(custName)+' gözləmə → müvəqqəti bron ('+entry.desired_date+')',
         {customer_id:custId,customer_name:custName,day_of_week:entry.day_of_week,time_slot:entry.time_slot,scope:'specific_date',desired_date:entry.desired_date,status:entry.status,source_flow:'convertWaitlistToBron'},
@@ -4717,6 +4771,7 @@ async function submitNewSabitBron(){
       'Sabit bron yaradıldı — '+(cust?cust.name:custId)+' — '+DAYS_AZ[day-1]+' '+time,
       null,{type:'permanent',customer_id:bron.customer_id,customer_name:bron.customer_name,day_of_week:bron.day_of_week,time_slot:bron.time_slot,valid_from:bron.valid_from||null,note:bron.note,source_flow:'submitNewSabitBron'});
     S.bronData.push(bron);
+    emitBronSync('booking_create_new_sabit');
     S.showAddBron=false;S._bronNewCustId=null;S._bronNewCustName=null;
   }catch(e){alert('Xəta: '+e.message);}
   S.saving=false;render();
@@ -11342,6 +11397,25 @@ async function submitSelfPinChange(){
   }catch(e){S._selfPinErr='Xəta: '+e.message;S.saving=false;render();return;}
   S.saving=false;render();
 }
+
+
+// ── CROSS-TAB BRON/WAITLIST SYNC (slot-waitlist-conversion-ux-v1-hotfix2) ──
+function emitBronSync(reason){
+  try{localStorage.setItem('erge_bron_sync',JSON.stringify({ts:Date.now(),reason:reason||'bron_change'}));}catch(e){}
+}
+async function handleBronSyncEvent(){
+  if(S.loading||!S.currentUser)return;
+  var should=(S.view==='bron')||(S.view==='cust'&&S.custSection==='bron');
+  if(!should)return;
+  S.bronData=null;S.bronExceptions=null;S.waitlistData=null;
+  render();
+  try{
+    await fetchBron();
+    await fetchExceptions(S.view==='bron'?(S.bronSelDate||td()):td());
+    await fetchWaitlist();
+  }catch(e){}
+}
+window.addEventListener('storage',function(e){if(e.key==='erge_bron_sync')handleBronSyncEvent();});
 
 initApp();
 </script>
