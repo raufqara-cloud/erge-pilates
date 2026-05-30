@@ -1124,7 +1124,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-waitlist-conversion-ux-v1-hotfix2</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-waitlist-conversion-ux-v1-hotfix2-capacityfix-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -4419,11 +4419,10 @@ async function checkBookingSlotCapacity(dow,time,dateStr){
     var cnt=activeIds.length;
     var idMap={};
     for(var ai=0;ai<activeIds.length;ai++)idMap[activeIds[ai]]=true;
-    var exs=await dbGet('booking_exceptions','exception_date=eq.'+dateStr+'&select=id,type,booking_id,day_of_week,time_slot,is_active&limit=200');
+    var exs=await dbGet('booking_exceptions','exception_date=eq.'+dateStr+'&select=id,type,booking_id,day_of_week,time_slot&limit=200');
     if(exs){
       for(var xi=0;xi<exs.length;xi++){
         var ex=exs[xi];
-        if(ex.is_active===false)continue;
         if(ex.type==='absent'&&ex.booking_id&&idMap[ex.booking_id])cnt--;
         else if((ex.type==='temp_add'||ex.type==='trial_add')&&ex.day_of_week===dow&&ex.time_slot===time)cnt++;
       }
