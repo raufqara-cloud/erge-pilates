@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — owner-customer-movement-v1-hotfix2</title>
+<title>Erge Pilates — temp-bron-candidates-v1-hotfix1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -219,7 +219,7 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   // ── WAITLIST FILTER + GENERAL ADD (slot-waitlist-conversion-ux-v1) ──
   wlFilter:{search:'',days:[],times:[],status:'all',scope:'all'},
   showAddWaitlistGeneral:false,
-  slotSections:{sabit:true,temp:true,trial:true,waitlist:true}};
+  slotSections:{sabit:true,temp:true,trial:true,waitlist:true,candidates:false}};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -1124,7 +1124,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: slot-waitlist-conversion-ux-v1-hotfix2-capacityfix-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: temp-bron-candidates-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -3003,7 +3003,7 @@ function rSlotCard(time,dateStr,dow){
 function rSlotDetail(time,dateStr,dow,brons,excs,count){
   var h='';
   var canAdd=count<MAX_PER_SLOT;
-  if(!S.slotSections)S.slotSections={sabit:true,temp:true,trial:true,waitlist:true};
+  if(!S.slotSections)S.slotSections={sabit:true,temp:true,trial:true,waitlist:true,candidates:false};
   var _ss=S.slotSections;
 
   // --- Sabit bronlar ---
@@ -3116,6 +3116,9 @@ function rSlotDetail(time,dateStr,dow,brons,excs,count){
       +'<span style="color:#aaa;font-size:12px">'+(_ss.waitlist?'▲':'▼')+'</span></div>';
     if(_ss.waitlist){h+=rWaitlistPanel(dow,time,dateStr);}
   }
+
+  // Potensial namizədlər panel (temp-bron-candidates-v1)
+  h+=rPotensialNamezedler(dow,time,dateStr);
 
   // Actions
   h+='<div class="slot-actions-bar">';
@@ -3833,10 +3836,15 @@ function rBronBos(){
 function rBronBosRow(fs,showDate){
   var barColor=fs.free>=4?'#1D9E75':fs.free>=2?'#FB8C00':'#E53935';
   var datePart=showDate?'<div style="font-size:11px;color:#888;margin-top:1px">'+fmt(fs.date)+' ('+DAYS_SHORT[fs.dow-1]+')</div>':'';
-  return'<div style="display:flex;align-items:center;gap:12px;padding:13px 16px;background:#fff;border:1px solid #e0f2ea;border-radius:10px;margin-bottom:6px">'
+  var candData=getTempBronCandidates(fs.dow,fs.time,fs.date);
+  var candTotal=candData.strong.length+candData.secondary.length;
+  var candHint=candTotal>0?'<div style="font-size:11px;color:#0369A1;margin-top:4px">🎯 '+candTotal+' potensial namizəd</div>':'';
+  return'<div style="background:#fff;border:1px solid #e0f2ea;border-radius:10px;margin-bottom:6px">'
+    +'<div style="display:flex;align-items:center;gap:12px;padding:13px 16px">'
     +'<div style="min-width:56px">'
     +'<div style="font-size:17px;font-weight:800">'+fs.time+'</div>'
     +datePart
+    +candHint
     +'</div>'
     +'<div style="flex:1">'
     +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'
@@ -3848,7 +3856,176 @@ function rBronBosRow(fs,showDate){
     +'</div></div>'
     +'</div>'
     +'<button class="btn btn-g btn-sm" onclick="openTempAdd(\''+fs.time+'\',\''+fs.date+'\','+fs.dow+')">+ Müştəri yerləşdir</button>'
+    +'</div>'
+    +(candTotal>0?'<div style="padding:0 16px 10px">'+rPotensialNamezedler(fs.dow,fs.time,fs.date)+'</div>':'')
     +'</div>';
+}
+
+// ---- POTENSIAL NAMİZƏDLƏR (temp-bron-candidates-v1) ----
+
+function getTempBronCandidates(dow, time, dateStr){
+  // Returns {strong:[], secondary:[], inferredInstructor:null, inferFailed:bool}
+  var atts=D.attendances||[];
+  var custs=D.customers||[];
+  var result={strong:[],secondary:[],inferredInstructor:null,inferFailed:false};
+  if(!atts.length)return result;
+
+  // Date window: last 30 days
+  var today=td();
+  var cutDate=dateAddDays(today,-30);
+
+  // Helper: is partner or single-entry program (fix: getSingleEntryPrograms returns objects)
+  function isCandidateProgram(progId){
+    if(!progId)return false;
+    if(isPartnerProgId(progId))return true;
+    return getSingleEntryPrograms().some(function(p){return p.id===progId;});
+  }
+
+  // Build set of customers already booked for this specific date (not just same dow)
+  // Uses existing helpers: hasCustomerActiveBookingOnDate and hasCustomerTempAddOnDate
+  function isAlreadyBookedOnDate(custId){
+    return hasCustomerActiveBookingOnDate(custId,dateStr)||hasCustomerTempAddOnDate(custId,dateStr);
+  }
+
+  // --- Strong candidates: same dow + same time, last 30 days, partner/single prog ---
+  var strongMap={};
+  for(var ai=0;ai<atts.length;ai++){
+    var a=atts[ai];
+    if(!a.class_date||a.class_date<cutDate||a.class_date>today)continue;
+    if(!isCandidateProgram(a.program_id))continue;
+    if(getDayOfWeek(a.class_date)!==dow)continue;
+    if(a.class_time!==time)continue;
+    if(isAlreadyBookedOnDate(a.customer_id))continue;
+    var cid=a.customer_id;
+    if(!strongMap[cid]){
+      strongMap[cid]={customer_id:cid,customer_name:a.customer_name||cid,lastDate:a.class_date,lastInstructor:a.instructor_name||null,count:0,type:'strong'};
+    }
+    strongMap[cid].count++;
+    if(a.class_date>strongMap[cid].lastDate){
+      strongMap[cid].lastDate=a.class_date;
+      strongMap[cid].lastInstructor=a.instructor_name||null;
+    }
+  }
+  var strongArr=[];
+  for(var k in strongMap){if(strongMap.hasOwnProperty(k))strongArr.push(strongMap[k]);}
+  strongArr.sort(function(a,b){return a.lastDate<b.lastDate?1:a.lastDate>b.lastDate?-1:b.count-a.count;});
+  result.strong=strongArr;
+
+  // --- Infer target slot instructor from recent attendance history ---
+  var instCount={};
+  for(var ai2=0;ai2<atts.length;ai2++){
+    var a2=atts[ai2];
+    if(!a2.class_date||a2.class_date<cutDate||a2.class_date>today)continue;
+    if(getDayOfWeek(a2.class_date)!==dow)continue;
+    if(a2.class_time!==time)continue;
+    if(!a2.instructor_id)continue;
+    var ikey=a2.instructor_id+':::'+(a2.instructor_name||'');
+    instCount[ikey]=(instCount[ikey]||0)+1;
+  }
+  var bestInst=null;var bestCount=0;var totalInstAtts=0;
+  for(var ik in instCount){
+    if(!instCount.hasOwnProperty(ik))continue;
+    totalInstAtts+=instCount[ik];
+    if(instCount[ik]>bestCount){bestCount=instCount[ik];bestInst=ik;}
+  }
+  // Only infer if dominant instructor covers >= 70% of recent slot attendances
+  if(bestInst&&totalInstAtts>0&&(bestCount/totalInstAtts)>=0.7){
+    var parts=bestInst.split(':::');
+    result.inferredInstructor={id:parts[0],name:parts[1]||parts[0]};
+  } else if(totalInstAtts>0){
+    result.inferFailed=true;
+  }
+
+  // --- Secondary candidates: same inferred instructor, last 30 days, partner/single prog ---
+  if(result.inferredInstructor){
+    var secInstId=result.inferredInstructor.id;
+    var secMap={};
+    for(var ai3=0;ai3<atts.length;ai3++){
+      var a3=atts[ai3];
+      if(!a3.class_date||a3.class_date<cutDate||a3.class_date>today)continue;
+      if(!isCandidateProgram(a3.program_id))continue;
+      if(a3.instructor_id!==secInstId)continue;
+      if(isAlreadyBookedOnDate(a3.customer_id))continue;
+      if(strongMap[a3.customer_id])continue; // already in strong
+      var cid3=a3.customer_id;
+      if(!secMap[cid3]){
+        secMap[cid3]={customer_id:cid3,customer_name:a3.customer_name||cid3,lastDate:a3.class_date,lastInstructor:a3.instructor_name||null,count:0,type:'secondary'};
+      }
+      secMap[cid3].count++;
+      if(a3.class_date>secMap[cid3].lastDate){
+        secMap[cid3].lastDate=a3.class_date;
+        secMap[cid3].lastInstructor=a3.instructor_name||null;
+      }
+    }
+    var secArr=[];
+    for(var k2 in secMap){if(secMap.hasOwnProperty(k2))secArr.push(secMap[k2]);}
+    secArr.sort(function(a,b){return a.lastDate<b.lastDate?1:a.lastDate>b.lastDate?-1:b.count-a.count;});
+    result.secondary=secArr;
+  }
+
+  return result;
+}
+
+function rPotensialNamezedler(dow, time, dateStr){
+  if(!D.attendances){
+    return'<div style="font-size:12px;color:#aaa;padding:8px 0">&#9888; Davamiyyət cache yüklənməyib — namizədlər hesablanmır.</div>';
+  }
+  var attIncomplete=D.attFull===false;
+  var data=getTempBronCandidates(dow,time,dateStr);
+  var all=data.strong.concat(data.secondary);
+  if(!S.slotSections)S.slotSections={sabit:true,temp:true,trial:true,waitlist:true,candidates:false};
+  var _ss=S.slotSections;
+  var isOpen=_ss.candidates===true;
+  var count=all.length;
+
+  var h='<div style="display:flex;align-items:center;cursor:pointer;margin-bottom:4px" onclick="S.slotSections.candidates=!S.slotSections.candidates;render()">'
+    +'<div class="slabel" style="margin:0;flex:1;color:#0369A1">&#127919; POTENSİAL NAMİZƏDLƏR'+(count>0?' ('+count+')':'')+'</div>'
+    +'<span style="color:#aaa;font-size:12px">'+(isOpen?'&#9650;':'&#9660;')+'</span></div>';
+
+  if(!isOpen)return h;
+
+  h+='<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:8px 10px;margin-bottom:6px">';
+
+  if(attIncomplete){
+    h+='<div style="font-size:11px;color:#92400E;margin-bottom:6px">&#9888; Davamiyyət cache tam yüklənməyib — siyahı natamam ola bilər.</div>';
+  }
+
+  if(!all.length){
+    h+='<div style="font-size:12px;color:#aaa;padding:4px 0">Son 30 gün ərzində bu slota uyğun partner/tək giriş müştərisi tapılmadı.</div>';
+  } else {
+    if(data.inferredInstructor){
+      h+='<div style="font-size:11px;color:#0369A1;margin-bottom:6px">&#127991; Trener: <strong>'+escHtml(data.inferredInstructor.name)+'</strong> (son 30 gün əsasında)</div>';
+    } else if(data.inferFailed){
+      h+='<div style="font-size:11px;color:#92400E;margin-bottom:6px">&#9888; Trener təyin edilmədiyi üçün secondary namizəd hesablanmadı.</div>';
+    }
+    var candTime=time;
+    var candDow=dow;
+    var candDate=dateStr;
+    for(var i=0;i<all.length;i++){
+      var c=all[i];
+      var isStrong=c.type==='strong';
+      var badge=isStrong
+        ?'<span style="font-size:10px;background:#0369A1;color:#fff;padding:1px 6px;border-radius:10px;font-weight:600">Exact slot</span>'
+        :'<span style="font-size:10px;background:#7C3AED;color:#fff;padding:1px 6px;border-radius:10px;font-weight:600">Same trainer</span>';
+      var instNote=c.lastInstructor?'<span style="font-size:10px;color:#64748B"> — '+escHtml(c.lastInstructor)+'</span>':'';
+      var custNameJs=JSON.stringify(c.customer_name||'');
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #E0F2FE">'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:13px;font-weight:600;color:#1a1a1a">'+escHtml(c.customer_name)+'</div>'
+        +'<div style="font-size:11px;color:#64748B">Son giriş: '+c.lastDate+instNote+' &nbsp;|&nbsp; Cəmi: '+c.count+'x</div>'
+        +'</div>'
+        +badge
+        +'<button class="btn btn-gray btn-sm" style="font-size:11px;padding:3px 8px" '
+        +'onclick="openTempAdd(\''+escQ(candTime)+'\',\''+candDate+'\','+candDow+');setTimeout(function(){'
+        +'var el=document.getElementById(\'ta-cust-search\');if(el){el.value='+custNameJs+';el.dispatchEvent(new Event(\'input\'));}},120)">Müvəqqəti bron</button>'
+        +'<button class="btn btn-gray btn-sm" style="font-size:11px;padding:3px 8px;color:#B45309" '
+        +'onclick="openAddWaitlist(\''+escQ(candTime)+'\','+candDow+',\''+candDate+'\')">Gözləmə</button>'
+        +'</div>';
+    }
+  }
+
+  h+='</div>';
+  return h;
 }
 
 // ---- FILTER HELPERS ----
