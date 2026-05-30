@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — temp-bron-candidates-v1-hotfix3</title>
+<title>Erge Pilates — temp-bron-candidates-v1-hotfix4</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1124,7 +1124,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: temp-bron-candidates-v1-hotfix3</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: temp-bron-candidates-v1-hotfix4</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -3863,8 +3863,11 @@ function rBronBosRow(fs,showDate){
 
 // ---- CANDIDATE ACTION HELPERS (temp-bron-candidates-v1-hotfix2) ----
 
-async function addCandidateTempBron(custId, custName, dow, time, dateStr){
+async function addCandidateTempBron(custId, dow, time, dateStr){
   if(S.saving)return;
+  var cust=null;
+  for(var i=0;i<(D.customers||[]).length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  var custName=cust?cust.name:custId;
   var guard=await checkTempAddGuards(custId,{dow:dow,time:time,date:dateStr});
   if(!guard.ok){alert(guard.msg);return;}
   S.saving=true;render();
@@ -3872,12 +3875,12 @@ async function addCandidateTempBron(custId, custName, dow, time, dateStr){
     var eid='EX'+Date.now();
     var ex={id:eid,booking_id:null,exception_date:dateStr,
       type:'temp_add',temp_customer_id:custId,
-      temp_customer_name:custName||'',
+      temp_customer_name:custName,
       day_of_week:dow,time_slot:time,
       note:'[source:candidate]'};
     await dbPost('booking_exceptions',ex);
     logAudit('booking',ex.id,'create',
-      'Müvəqqəti bron yaradıldı (namizəd) — '+escHtml(custName||custId)+' — '+dateStr+(time?' '+time:''),
+      'Müvəqqəti bron yaradıldı (namizəd) — '+escHtml(custName)+' — '+dateStr+(time?' '+time:''),
       null,{type:'temp_add',temp_customer_id:custId,temp_customer_name:custName,exception_date:dateStr,day_of_week:dow,time_slot:time,source_flow:'addCandidateTempBron'});
     if(!S.bronExceptions)S.bronExceptions=[];
     S.bronExceptions.push(ex);
@@ -3886,8 +3889,11 @@ async function addCandidateTempBron(custId, custName, dow, time, dateStr){
   S.saving=false;render();
 }
 
-async function addCandidateWaitlist(custId, custName, dow, time){
+async function addCandidateWaitlist(custId, dow, time){
   if(S.saving)return;
+  var cust=null;
+  for(var i=0;i<(D.customers||[]).length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}
+  var custName=cust?cust.name:custId;
   // Local duplicate check: active/contacted recurring waitlist for same dow+time
   if(S.waitlistData){
     for(var i=0;i<S.waitlistData.length;i++){
@@ -4088,7 +4094,7 @@ function rPotensialNamezedler(dow, time, dateStr){
         ?'<span style="font-size:10px;background:#0369A1;color:#fff;padding:1px 6px;border-radius:10px;font-weight:600">Exact slot</span>'
         :'<span style="font-size:10px;background:#7C3AED;color:#fff;padding:1px 6px;border-radius:10px;font-weight:600">Same trainer</span>';
       var instNote=c.lastInstructor?'<span style="font-size:10px;color:#64748B"> — '+escHtml(c.lastInstructor)+'</span>':'';
-      var custNameJs=JSON.stringify(c.customer_name||'');
+      var custNameJs=JSON.stringify(c.customer_name||''); // kept for display only
       h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #E0F2FE">'
         +'<div style="flex:1;min-width:0">'
         +'<div style="font-size:13px;font-weight:600;color:#1a1a1a">'+escHtml(c.customer_name)+'</div>'
@@ -4096,9 +4102,9 @@ function rPotensialNamezedler(dow, time, dateStr){
         +'</div>'
         +badge
         +'<button class="btn btn-gray btn-sm" style="font-size:11px;padding:3px 8px" '
-        +'onclick="addCandidateTempBron(\''+escQ(c.customer_id)+'\','+custNameJs+','+candDow+',\''+escQ(candTime)+'\',\''+candDate+'\')">Müvəqqəti bron</button>'
+        +'onclick="addCandidateTempBron(\''+escQ(c.customer_id)+'\','+candDow+',\''+escQ(candTime)+'\',\''+candDate+'\')">Müvəqqəti bron</button>'
         +'<button class="btn btn-gray btn-sm" style="font-size:11px;padding:3px 8px;color:#B45309" '
-        +'onclick="addCandidateWaitlist(\''+escQ(c.customer_id)+'\','+custNameJs+','+candDow+',\''+escQ(candTime)+'\')">Gözləmə</button>'
+        +'onclick="addCandidateWaitlist(\''+escQ(c.customer_id)+'\','+candDow+',\''+escQ(candTime)+'\')">Gözləmə</button>'
         +'</div>';
     }
   }
