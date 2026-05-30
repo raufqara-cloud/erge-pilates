@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — temp-bron-candidates-v1-hotfix1</title>
+<title>Erge Pilates — temp-bron-candidates-v1-hotfix3</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1124,7 +1124,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: temp-bron-candidates-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: temp-bron-candidates-v1-hotfix3</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -3861,6 +3861,86 @@ function rBronBosRow(fs,showDate){
     +'</div>';
 }
 
+// ---- CANDIDATE ACTION HELPERS (temp-bron-candidates-v1-hotfix2) ----
+
+async function addCandidateTempBron(custId, custName, dow, time, dateStr){
+  if(S.saving)return;
+  var guard=await checkTempAddGuards(custId,{dow:dow,time:time,date:dateStr});
+  if(!guard.ok){alert(guard.msg);return;}
+  S.saving=true;render();
+  try{
+    var eid='EX'+Date.now();
+    var ex={id:eid,booking_id:null,exception_date:dateStr,
+      type:'temp_add',temp_customer_id:custId,
+      temp_customer_name:custName||'',
+      day_of_week:dow,time_slot:time,
+      note:'[source:candidate]'};
+    await dbPost('booking_exceptions',ex);
+    logAudit('booking',ex.id,'create',
+      'Müvəqqəti bron yaradıldı (namizəd) — '+escHtml(custName||custId)+' — '+dateStr+(time?' '+time:''),
+      null,{type:'temp_add',temp_customer_id:custId,temp_customer_name:custName,exception_date:dateStr,day_of_week:dow,time_slot:time,source_flow:'addCandidateTempBron'});
+    if(!S.bronExceptions)S.bronExceptions=[];
+    S.bronExceptions.push(ex);
+    emitBronSync('temp_add_create');
+  }catch(e){alert('Xəta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function addCandidateWaitlist(custId, custName, dow, time){
+  if(S.saving)return;
+  // Local duplicate check: active/contacted recurring waitlist for same dow+time
+  if(S.waitlistData){
+    for(var i=0;i<S.waitlistData.length;i++){
+      var w=S.waitlistData[i];
+      if(w.customer_id===custId&&w.day_of_week===dow&&w.time_slot===time
+        &&w.scope==='recurring'&&(w.status==='active'||w.status==='contacted')){
+        return alert('Bu müştəri artıq bu saat üçün aktiv gözləmə siyahısındadır.');
+      }
+    }
+  }
+  // Live DB duplicate check — fail closed on error
+  try{
+    var dupFilter='customer_id=eq.'+custId
+      +'&day_of_week=eq.'+dow
+      +'&time_slot=eq.'+encodeURIComponent(time)
+      +'&scope=eq.recurring&status=in.(active,contacted)&select=id&limit=1';
+    var dups=await dbGet('slot_waitlist',dupFilter);
+    if(dups&&dups.length>0){
+      return alert('Bu müştəri artıq bu slot üçün aktiv gözləmə siyahısındadır.');
+    }
+  }catch(e){
+    return alert('Dublikat yoxlaması uğursuz oldu. Əməliyyat dayandırıldı.');
+  }
+  S.saving=true;render();
+  try{
+    var wlId='WL'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+    var now=new Date().toISOString();
+    var actor=getActorMeta();
+    var row=Object.assign({
+      id:wlId,
+      customer_id:custId,
+      customer_name:custName,
+      day_of_week:dow,
+      time_slot:time,
+      desired_date:null,
+      scope:'recurring',
+      status:'active',
+      note:null,
+      converted_booking_id:null,
+      converted_exception_id:null,
+      updated_at:now
+    },actor,getUpdatedByMeta());
+    var res=await dbPost('slot_waitlist',row);
+    if(!S.waitlistData)S.waitlistData=[];
+    S.waitlistData.push((res&&res.length>0)?res[0]:row);
+    emitBronSync('waitlist_create');
+    logAudit('waitlist',wlId,'create',
+      escHtml(custName)+' — '+DAYS_AZ[dow-1]+' '+time+' gözləmə siyahısına əlavə edildi (namizəd)',
+      null,{customer_id:custId,customer_name:custName,day_of_week:dow,time_slot:time,scope:'recurring',status:'active',source_flow:'addCandidateWaitlist'});
+  }catch(e){alert('Xəta: gözləmə qeydi saxlanılmadı. '+e);}
+  S.saving=false;render();
+}
+
 // ---- POTENSIAL NAMİZƏDLƏR (temp-bron-candidates-v1) ----
 
 function getTempBronCandidates(dow, time, dateStr){
@@ -4016,10 +4096,9 @@ function rPotensialNamezedler(dow, time, dateStr){
         +'</div>'
         +badge
         +'<button class="btn btn-gray btn-sm" style="font-size:11px;padding:3px 8px" '
-        +'onclick="openTempAdd(\''+escQ(candTime)+'\',\''+candDate+'\','+candDow+');setTimeout(function(){'
-        +'var el=document.getElementById(\'ta-cust-search\');if(el){el.value='+custNameJs+';el.dispatchEvent(new Event(\'input\'));}},120)">Müvəqqəti bron</button>'
+        +'onclick="addCandidateTempBron(\''+escQ(c.customer_id)+'\','+custNameJs+','+candDow+',\''+escQ(candTime)+'\',\''+candDate+'\')">Müvəqqəti bron</button>'
         +'<button class="btn btn-gray btn-sm" style="font-size:11px;padding:3px 8px;color:#B45309" '
-        +'onclick="openAddWaitlist(\''+escQ(candTime)+'\','+candDow+',\''+candDate+'\')">Gözləmə</button>'
+        +'onclick="addCandidateWaitlist(\''+escQ(c.customer_id)+'\','+custNameJs+','+candDow+',\''+escQ(candTime)+'\')">Gözləmə</button>'
         +'</div>';
     }
   }
