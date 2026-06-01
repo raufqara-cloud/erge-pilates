@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — temp-bron-candidates-v1-hotfix4</title>
+<title>Erge Pilates — kassa-refresh-sync-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1124,7 +1124,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: temp-bron-candidates-v1-hotfix4</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: kassa-refresh-sync-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -8324,12 +8324,30 @@ function sv(v){
   if(v==='cust'||v==='att'){S.remainingDisplayCache=null;refreshRemainingDisplay();}
   // Refresh customer list on Müştərilər entry to pick up cross-session profile edits
   if(v==='cust')refreshCustomersLight();
+  // Force fresh Kassa data on tab entry — prevents cross-session stale balances
+  if(v==='kassa')refreshKassa();
   render();
 }
 function ss(v){
   S.search=v;
   // Don't re-render, just filter the visible cards
   filterCards(v);
+}
+// Kassa refresh helpers
+function refreshKassa(){
+  if(S.kassaRefreshing)return;
+  S.kassaData=null;
+  S.kassaRefreshing=true;
+  fetchKassa().then(function(){
+    S.kassaRefreshing=false;
+    if(S.view==='kassa')render();
+  });
+}
+function refreshKassaIfOpen(){
+  // Cross-tab lightweight sync: if current view is Kassa, refresh it
+  if(S.view==='kassa'){
+    refreshKassa();
+  }
 }
 function filterCards(q){
   var nq=norm(q);
@@ -8361,6 +8379,12 @@ function updateKassaFilterInput(field,value,inputId){
     if(el){el.focus();var len=el.value.length;try{el.setSelectionRange(len,len);}catch(e){}}
   },0);
 }
+// Lightweight cross-tab Kassa sync pulse (localStorage-based)
+function pulseCrossTabKassaSync(){
+  try{localStorage.setItem('__ergeKassaSync',Date.now()+'');}catch(e){}
+  // Optional: Listen for storage events to refresh if in Kassa view
+  // window.addEventListener('storage', function(e){if(e.key==='__ergeKassaSync'&&S.view==='kassa')refreshKassaIfOpen();});
+}
 
 async function fetchKassa(){
   S.kassaLoading=true;render();
@@ -8376,7 +8400,10 @@ async function fetchKassa(){
 function rKassa(){
   if(!S.kassaData&&!S.kassaLoading){fetchKassa();}
   var h='<div class="ph"><div class="pt">Kassa</div>'
-    +'<button class="btn btn-g btn-sm" onclick="S.showAddTxn=true;render()">+ Əməliyyat</button></div>';
+    +'<div style="display:flex;gap:8px">'
+    +'<button class="btn btn-g btn-sm" onclick="refreshKassa()" style="padding:5px 10px;font-size:11px"'+(S.kassaRefreshing?' disabled':'')+'>↻ Yenilə</button>'
+    +'<button class="btn btn-g btn-sm" onclick="S.showAddTxn=true;render()">+ Əməliyyat</button>'
+    +'</div></div>';
 
   if(S.kassaLoading)return h+'<div class="empty"><span class="spin"></span> Yüklənir...</div>';
   if(!S.kassaData)return h+'<div class="empty">Yüklənir...</div>';
@@ -8419,7 +8446,7 @@ function rKassa(){
     var gozlenen=faktiki+(balances['ACC005']||0)+(balances['ACC006']||0)-(Math.abs(balances['ACC007']||0));
     h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">';
     h+='<div style="background:#E8F5EE;border:1.5px solid #1D9E75;border-radius:10px;padding:10px 14px;display:flex;align-items:center;justify-content:space-between">'
-      +'<div><div style="font-size:11px;font-weight:600;color:#1D9E75">💰 FACTİKİ NƏĞd</div>'
+      +'<div><div style="font-size:11px;font-weight:600;color:#1D9E75">💰 FAKTİKİ NAĞD</div>'
       +'<div style="font-size:10px;color:#888">Kassa+Yığım+Bank+B.kart</div></div>'
       +'<div style="font-size:20px;font-weight:700;color:'+(faktiki>=0?'#1D9E75':'#C62828')+'">'+(faktiki>=0?'':'-')+Math.abs(faktiki).toFixed(0)+' ₼</div>'
       +'</div>';
@@ -9246,6 +9273,7 @@ async function submitAddTxn(){
     }
     if(txn.subscription_id)await recalcSubscriptionPaid(txn.subscription_id);
     S.showAddTxn=false;
+    pulseCrossTabKassaSync();
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -9327,6 +9355,7 @@ async function submitEditTxn(){
     // subscription_id dəyişmədiyi üçün oldSubId recalc-ı kifayətdir
     if(oldSubId)await recalcSubscriptionPaid(oldSubId);
     S.editTxnId=null;
+    pulseCrossTabKassaSync();
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -9344,6 +9373,7 @@ async function executePending(id){
         }
       }
     }
+    pulseCrossTabKassaSync();
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -9378,6 +9408,7 @@ async function deleteTxn(id){
       fetchCustDetail(S.selCust).then(function(){render();});
     }
     S.reportData=null;S.izlemeData=null;
+    pulseCrossTabKassaSync();
   }catch(e){alert('Xeta: '+e.message);}
   S.saving=false;render();
 }
@@ -11677,6 +11708,7 @@ async function handleBronSyncEvent(){
   }catch(e){}
 }
 window.addEventListener('storage',function(e){if(e.key==='erge_bron_sync')handleBronSyncEvent();});
+window.addEventListener('storage',function(e){if(e.key==='__ergeKassaSync'&&S.view==='kassa')refreshKassaIfOpen();});
 
 initApp();
 </script>
