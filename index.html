@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — kassa-refresh-sync-v1</title>
+<title>Erge Pilates — staff-payroll-link-v1-hotfix1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -277,6 +277,10 @@ function fmtTxnActorHtml(t){
   var h='';
   var cname=t.created_by_name&&t.created_by_name!=='Unknown'?t.created_by_name:'';
   var uname=t.updated_by_name&&t.updated_by_name!=='Unknown'?t.updated_by_name:'';
+  // staff-payroll-link-v1: payee chip for payroll transactions
+  if(t.staff_member_name){
+    h+='<div style="font-size:11px;color:#1D9E75;margin-top:2px;font-weight:500">👤 '+escHtml(t.staff_member_name)+(t.staff_role?' · <span style="color:#888;font-weight:400">'+escHtml(t.staff_role)+'</span>':'')+'</div>';
+  }
   if(cname)h+='<div style="font-size:10px;color:#bbb;margin-top:2px">Yaradan: '+escHtml(cname)+'</div>';
   if(uname)h+='<div style="font-size:10px;color:#bbb;margin-top:1px">Son düzəliş: '+escHtml(uname)+'</div>';
   return h;
@@ -466,7 +470,7 @@ function renderAuditDiff(oldVal, newVal, entityType, action){
       if(!rows.length)return'';
       return'<table style="border-collapse:collapse;margin-top:4px">'+rows.join('')+'</table>';
     }
-    // F) transaction — extended display including customer_id/subscription_id/source_flow
+    // F) transaction — extended display including customer_id/subscription_id/source_flow/staff
     if(entityType==='transaction'){
       var txd=new_||(action==='delete'?old_:null)||old_||{};
       var parts=[];
@@ -476,6 +480,9 @@ function renderAuditDiff(oldVal, newVal, entityType, action){
         var tk=TFIELDS[ti];
         if(txd[tk]!==undefined&&txd[tk]!==null&&String(txd[tk])!=='')parts.push(_chip(TLABELS[tk]||tk,txd[tk]));
       }
+      // staff-payroll-link-v1: payroll staff chips
+      if(txd.staff_member_name)parts.push(_chip('İşçi',txd.staff_member_name));
+      if(txd.staff_role)parts.push(_chip('Rol',txd.staff_role));
       return _chips(parts);
     }
     // G) app_user pin_change — never show PIN/hash; safe metadata only
@@ -1124,7 +1131,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: kassa-refresh-sync-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: staff-payroll-link-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1645,6 +1652,7 @@ function rDetail(){
 }
 
 function rModalAddCust(){
+
   return '<div class="ov" onclick="S.showAddCust=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Yeni Mustəri</div>'
     +'<div class="fg"><label class="fl">Soyad Ad *</label><input class="fi" id="m-name" placeholder="Leyla Əliyeva"></div>'
@@ -7426,8 +7434,115 @@ function rAdmin(){
     h+='</div>';
   }
 
+  // ── İŞÇİLƏR / STAFF (staff-payroll-link-v1) ──
+  if(canSeeAdmin()){
+    if(!S.staffData&&!S.staffLoading){fetchStaffMembers();}
+    var staffBadge=S.staffData?(S.staffData.length+' işçi'):'...';
+    h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+    h+=rAdminAccHdr('staff','👤','İşçilər (Əmək Haqqı)',staffBadge,'b-gray');
+    if(sec.staff){
+      h+='<div style="padding:12px 16px">';
+      h+='<div style="font-size:12px;color:#888;margin-bottom:10px">Əmək haqqı əməliyyatları üçün işçi siyahısı. İnstruktor komissiyası ilə əlaqəsizdir.</div>';
+      h+='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-g btn-sm" onclick="openAddStaff()">+ Yeni işçi</button></div>';
+      if(S.staffLoading){
+        h+='<div style="font-size:12px;color:#aaa"><span class="spin"></span> Yüklənir...</div>';
+      } else if(!S.staffData||!S.staffData.length){
+        h+='<div class="empty">İşçi tapılmadı</div>';
+      } else {
+        for(var si=0;si<S.staffData.length;si++){
+          var sm=S.staffData[si];
+          var smActive=sm.is_active!==false;
+          var linkedInst=null;
+          if(sm.linked_instructor_id){
+            var allInstArr=D._allInstructors||D.instructors||[];
+            for(var li=0;li<allInstArr.length;li++){if(allInstArr[li].id===sm.linked_instructor_id){linkedInst=allInstArr[li];break;}}
+          }
+          h+='<div class="attitem" style="flex-wrap:wrap;gap:6px">'
+            +'<div style="flex:1;min-width:0">'
+            +'<div style="font-size:13px;font-weight:600">'+escHtml(sm.full_name)+'</div>'
+            +'<div style="font-size:11px;color:#888">'+escHtml(sm.role)+(linkedInst?' · '+escHtml(linkedInst.full_name||linkedInst.name||''):'')+'</div>'
+            +(sm.note?'<div style="font-size:11px;color:#aaa">'+escHtml(sm.note)+'</div>':'')
+            +'</div>'
+            +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+            +'<span class="badge '+(smActive?'b-green':'b-gray')+'">'+(smActive?'Aktiv':'Deaktiv')+'</span>'
+            +'<button class="btn btn-gray btn-sm" onclick="openEditStaff(&quot;'+sm.id+'&quot;)">Redaktə</button>'
+            +'<button class="btn '+(smActive?'btn-gray':'btn-g')+' btn-sm" onclick="toggleStaffMember(&quot;'+sm.id+'&quot;,'+(!smActive)+')">'+(smActive?'Deaktiv et':'Aktiv et')+'</button>'
+            +'</div>'
+            +'</div>';
+        }
+      }
+      h+='</div>';
+    }
+    h+='</div>';
+  }
+
+  if(S.showAddStaff)h+=rModalStaff(null);
+  if(S.editStaffId)h+=rModalStaff(S.editStaffId);
+
   return h;
 }
+// ── STAFF MEMBERS CRUD (staff-payroll-link-v1) ──
+function openAddStaff(){S.showAddStaff=true;S.editStaffId=null;render();}
+function openEditStaff(id){S.editStaffId=id;S.showAddStaff=false;render();}
+
+function rModalStaff(editId){
+  var sm=null;
+  if(editId&&S.staffData){for(var i=0;i<S.staffData.length;i++){if(S.staffData[i].id===editId){sm=S.staffData[i];break;}}}
+  var isEdit=!!sm;
+  var allInst=D._allInstructors||D.instructors||[];
+  var instOpts='<option value="">— Əlaqəli instruktor (opsional) —</option>';
+  for(var i=0;i<allInst.length;i++){
+    var ins=allInst[i];
+    instOpts+='<option value="'+escHtml(ins.id)+'"'+(sm&&sm.linked_instructor_id===ins.id?' selected':'')+'>'+escHtml(ins.full_name||ins.name||ins.id)+'</option>';
+  }
+  return '<div class="ov" onclick="S.showAddStaff=false;S.editStaffId=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">'+(isEdit?'✏ İşçi Redaktəsi':'+ Yeni İşçi')+'</div>'
+    +'<div class="fg"><label class="fl">Ad Soyad <span style="color:#C62828">*</span></label><input class="fi" id="sm-name" value="'+escHtml(sm?sm.full_name||'':'')+'"></div>'
+    +'<div class="fg"><label class="fl">Rol / Vəzifə <span style="color:#C62828">*</span></label><input class="fi" id="sm-role" placeholder="məs. Trener, Menecer, Texniki..." value="'+escHtml(sm?sm.role||'':'')+'"></div>'
+    +'<div class="fg"><label class="fl">Əlaqəli instruktor</label><select class="fs" id="sm-inst">'+instOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Qeyd</label><input class="fi" id="sm-note" placeholder="İstəyə görə" value="'+escHtml(sm?sm.note||'':'')+'"></div>'
+    +(isEdit?'<div class="fg"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="sm-active"'+(sm.is_active!==false?' checked':'')+'>  <span>Aktiv</span></label></div>':'')
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddStaff=false;S.editStaffId=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="saveStaffMember(&quot;'+(isEdit?editId:'null')+'&quot;)">Saxla</button></div>'
+    +'</div></div>';
+}
+
+async function saveStaffMember(editId){
+  // editId is 'null' string when adding new (safe check)
+  if(editId==='null')editId=null;
+  var name=(document.getElementById('sm-name').value||'').trim();
+  var role=(document.getElementById('sm-role').value||'').trim();
+  var instId=document.getElementById('sm-inst').value||null;
+  var note=(document.getElementById('sm-note').value||'').trim()||null;
+  if(!name||!role){alert('Ad və rol məcburidir');return;}
+  S.saving=true;render();
+  try{
+    if(editId){
+      var activeCb=document.getElementById('sm-active');
+      var isActive=activeCb?activeCb.checked:true;
+      await dbPatch('staff_members','id=eq.'+encodeURIComponent(editId),{full_name:name,role:role,linked_instructor_id:instId,note:note,is_active:isActive});
+      S.editStaffId=null;
+    } else {
+      var newId='SM'+Date.now();
+      await dbPost('staff_members',{id:newId,full_name:name,role:role,linked_instructor_id:instId,note:note,is_active:true});
+      S.showAddStaff=false;
+    }
+    S.staffData=null; // invalidate cache
+    await fetchStaffMembers();
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function toggleStaffMember(id,newActive){
+  if(!confirm((newActive?'Aktiv':'Deaktiv')+' etmək istədiyinizdən əminsinizmi?'))return;
+  S.saving=true;render();
+  try{
+    await dbPatch('staff_members','id=eq.'+encodeURIComponent(id),{is_active:newActive});
+    if(S.staffData)for(var i=0;i<S.staffData.length;i++){if(S.staffData[i].id===id){S.staffData[i].is_active=newActive;break;}}
+  }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
 function rKassaImport(){
   var imp=S.kassaImport||{};
   var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;padding:16px;margin-bottom:16px">';
@@ -8960,9 +9075,36 @@ async function deleteZClose(id){
 }
 
 var INCOME_CATS=['Abunə haqqı','Tək giriş','Corab satışı','Masaj','Push30','1FIT','Bank komissiya','Təsisçidən borc','Digər gəlir'];
-var EXPENSE_CATS=['Əmək haqqı (işçi)','İcarə','Komunal','Nəqliyyat xərci','Təsərrüfat','Marketinq','Sadələşmiş vergi','İcarə vergisi','Dividend','Əsas vəsait','Təmir','Geri qaytarma','Bank komissiya','Dövriyyə vəsaiti','Təlim / konfrans','Təsisçi borcunu qaytarmaq','Digər xərc'];
+var EXPENSE_CATS=['Əmək haqqı (işçi)','Əmək haqqı (icbari)','İcarə','Komunal','Nəqliyyat xərci','Təsərrüfat','Marketinq','Sadələşmiş vergi','İcarə vergisi','Dividend','Əsas vəsait','Təmir','Geri qaytarma','Bank komissiya','Dövriyyə vəsaiti','Təlim / konfrans','Təsisçi borcunu qaytarmaq','Digər xərc'];
 var BANK_ACCT_ID='ACC003';
 var POS_COMMISSION_PCT=2;
+var PAYROLL_CATS=['Əmək haqqı (işçi)','Əmək haqqı (icbari)'];
+
+// ── STAFF PAYROLL HELPERS (staff-payroll-link-v1) ──
+function isPayrollCategory(cat){return PAYROLL_CATS.indexOf(cat)>=0;}
+
+async function fetchStaffMembers(){
+  if(S.staffLoading)return;
+  S.staffLoading=true;render();
+  try{
+    var rows=await dbGet('staff_members','order=full_name');
+    S.staffData=rows||[];
+  }catch(e){
+    console.warn('[staff] fetchStaffMembers error:',e.message);
+    S.staffData=[];
+  }
+  S.staffLoading=false;render();
+}
+
+function getStaffPickerHtml(selectedId){
+  var staff=(S.staffData||[]).filter(function(m){return m.is_active!==false;});
+  var opts='<option value=\"\">— İşçi seçin —</option>';
+  for(var i=0;i<staff.length;i++){
+    var m=staff[i];
+    opts+='<option value=\"'+escHtml(m.id)+'\"'+(m.id===selectedId?' selected':'')+'>'+escHtml(m.full_name)+' ('+escHtml(m.role)+')</option>';
+  }
+  return opts;
+}
 
 // === ACCOUNT PICKER POLICY HELPERS (kassa-account-picker-policy-v1) ===
 // Real direct payment flows: ACC001 Kassa, ACC003 Bank/POS, ACC004 Biznes kart
@@ -9063,6 +9205,11 @@ function selectCat(id,val){
   if(inp)inp.value=val;
   if(hid)hid.value=val;
   if(list)list.style.display='none';
+  // staff-payroll-link-v1: show/hide staff picker when txn-cat changes
+  if(id==='txn-cat'||id==='et-cat'){
+    var staffRow=document.getElementById(id==='txn-cat'?'txn-staff-row':'et-staff-row');
+    if(staffRow)staffRow.style.display=isPayrollCategory(val)?'block':'none';
+  }
 }
 function updateCatPickerOpts(id,cats){
   var list=document.getElementById(id+'-list');
@@ -9191,6 +9338,8 @@ async function createPosCommission(amount,date,desc){
 }
 
 function rModalAddTxn(){
+  // Lazy load staff members (staff-payroll-link-v1)
+  if(!S.staffData&&!S.staffLoading)fetchStaffMembers();
   var accounts=D.accounts||[];
   // Income/expense: ACC001, ACC003, ACC004, ACC007
   var acctOpts='<option value="">— Hesab seçin —</option>';
@@ -9218,6 +9367,10 @@ function rModalAddTxn(){
     +'<div class="fg"><label class="fl">Hesab</label><select class="fs" id="txn-acct">'+acctOpts+'</select></div>'
     +'<div class="fg" id="txn-to-row" style="display:none"><label class="fl">Hədəf hesab</label><select class="fs" id="txn-to">'+acctOpts2+'</select></div>'
     +'<div class="fg"><label class="fl">Açıqlama</label><input class="fi" id="txn-desc" placeholder="İstəyə görə"></div>'
+    +'<div class="fg" id="txn-staff-row" style="display:none"><label class="fl">İşçi / Ödəniş alacaq <span style=\'color:#C62828\'>*</span></label>'
+    +'<select class="fs" id="txn-staff">'+getStaffPickerHtml('')+'</select>'
+    +(S.staffLoading?'<div style="font-size:11px;color:#aaa"><span class="spin"></span> Yüklənir...</div>':'')
+    +'</div>'
     +'<div class="fg"><label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="checkbox" id="txn-pending"> <span style="color:#856404">Gözləyir (pending) — balansa getmir</span></label></div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddTxn=false;render()">Ləğv et</button>'
     +'<button class="btn btn-g" onclick="submitAddTxn()">Əlavə et</button></div>'
@@ -9230,6 +9383,9 @@ function updateTxnForm(){
   var cats=type==='income'?INCOME_CATS:(type==='expense'?EXPENSE_CATS:['Transfer']);
   updateCatPickerOpts('txn-cat',cats);
   if(toRow)toRow.style.display=type==='transfer'?'block':'none';
+  // staff-payroll-link-v1: reset staff row visibility on type change
+  var staffRow=document.getElementById('txn-staff-row');
+  if(staffRow)staffRow.style.display='none';
   // Swap account options: transfer allows all accounts; income/expense only real payment + ACC007
   var acctSel=document.getElementById('txn-acct');
   if(acctSel&&D.accounts){
@@ -9257,15 +9413,28 @@ async function submitAddTxn(){
   var isPending=document.getElementById('txn-pending')&&document.getElementById('txn-pending').checked;
   if(!cat||!date||!amount||!acctId){alert('Bütün məcburi sahələri doldurun');return;}
   if(type==='transfer'&&!toAcct){alert('Hədəf hesab seçin');return;}
+  // staff-payroll-link-v1: payroll category requires staff selection
+  var staffSel=document.getElementById('txn-staff');
+  var staffId=staffSel?staffSel.value:'';
+  if(isPayrollCategory(cat)&&!staffId){alert('Əmək haqqı əməliyyatı üçün işçi seçilməlidir');return;}
+  // Resolve staff snapshot
+  var staffSnap={staff_member_id:null,staff_member_name:null,staff_role:null};
+  if(isPayrollCategory(cat)&&staffId){
+    var _sm=(S.staffData||[]).find(function(m){return m.id===staffId;})||null;
+    if(_sm){staffSnap={staff_member_id:_sm.id,staff_member_name:_sm.full_name,staff_role:_sm.role};}
+  }
   S.saving=true;render();
   try{
     var txn={id:'TX'+Date.now(),date:date,type:type,category:cat,
       description:desc||cat,amount:amount,account_id:acctId,
       to_account_id:toAcct||null,subscription_id:null,customer_id:null,
-      status:isPending?'pending':'posted'};
+      status:isPending?'pending':'posted',
+      staff_member_id:staffSnap.staff_member_id,
+      staff_member_name:staffSnap.staff_member_name,
+      staff_role:staffSnap.staff_role};
     Object.assign(txn,getActorMeta());
     await dbPost('transactions',txn);
-    logAudit('transaction',txn.id,'create',(txn.description||txn.category)+' ('+txn.amount+' AZN)',null,{type:txn.type,category:txn.category,amount:txn.amount,account_id:txn.account_id,status:txn.status});
+    logAudit('transaction',txn.id,'create',(txn.description||txn.category)+' ('+txn.amount+' AZN)',null,{type:txn.type,category:txn.category,amount:txn.amount,account_id:txn.account_id,status:txn.status,staff_member_id:txn.staff_member_id,staff_member_name:txn.staff_member_name,staff_role:txn.staff_role});
     S.kassaData.txns.unshift(txn);
     // 2% POS commission only if posted + income to Bank
     if(!isPending&&type==='income'&&acctId===BANK_ACCT_ID){
@@ -9282,6 +9451,8 @@ function rModalEditTxn(){
   var txn=null;
   if(S.kassaData)for(var i=0;i<S.kassaData.txns.length;i++){if(S.kassaData.txns[i].id===S.editTxnId){txn=S.kassaData.txns[i];break;}}
   if(!txn)return'';
+  // Lazy load staff members if payroll category (staff-payroll-link-v1)
+  if(isPayrollCategory(txn.category)&&!S.staffData&&!S.staffLoading)fetchStaffMembers();
   var accounts=D.accounts||[];
   // Apply account picker policy based on transaction type
   var isTransferTxn=txn.type==='transfer';
@@ -9318,6 +9489,8 @@ function rModalEditTxn(){
     +'<div class="fg"><label class="fl">Hesab</label><select class="fs" id="et-acct">'+acctOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Status</label><select class="fs" id="et-status">'+statusOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Açıqlama</label><input class="fi" id="et-desc" value="'+(txn.description||'')+'"></div>'
+    +'<div class="fg" id="et-staff-row" style="'+(isPayrollCategory(txn.category)?'display:block':'display:none')+'" ><label class="fl">İşçi / Ödəniş alacaq <span style=\'color:#C62828\'>*</span></label>'
+    +'<select class="fs" id="et-staff">'+getStaffPickerHtml(txn.staff_member_id||'')+'</select></div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.editTxnId=null;render()">Ləğv et</button>'
     +'<button class="btn btn-g" onclick="submitEditTxn()">Saxla</button></div>'
     +'</div></div>';
@@ -9334,6 +9507,16 @@ async function submitEditTxn(){
   var desc=document.getElementById('et-desc').value;
   var status=document.getElementById('et-status')?document.getElementById('et-status').value:'posted';
   if(!cat||!date||!amount||!acctId)return;
+  // staff-payroll-link-v1: payroll category requires staff
+  var etStaffSel=document.getElementById('et-staff');
+  var etStaffId=etStaffSel?etStaffSel.value:'';
+  if(isPayrollCategory(cat)&&!etStaffId){alert('Əmək haqqı əməliyyatı üçün işçi seçilməlidir');return;}
+  // Resolve staff snapshot; null for non-payroll
+  var etStaffSnap={staff_member_id:null,staff_member_name:null,staff_role:null};
+  if(isPayrollCategory(cat)&&etStaffId){
+    var _esm=(S.staffData||[]).find(function(m){return m.id===etStaffId;})||null;
+    if(_esm){etStaffSnap={staff_member_id:_esm.id,staff_member_name:_esm.full_name,staff_role:_esm.role};}
+  }
   // Keçmiş tarix xəbərdarlığı
   if(date<td()){
     if(!confirm('Bu əməliyyat keçmiş tarixə aiddir. Əgər həmin günün kassa bağlanışı aparılıbsa, yekunlarda fərq yarana bilər. Davam edilsin?'))return;
@@ -9345,10 +9528,10 @@ async function submitEditTxn(){
   }
   S.saving=true;render();
   try{
-    await dbPatch('transactions','id=eq.'+txnId,Object.assign({type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc,status:status},getUpdatedByMeta()));
+    await dbPatch('transactions','id=eq.'+txnId,Object.assign({type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc,status:status,staff_member_id:etStaffSnap.staff_member_id,staff_member_name:etStaffSnap.staff_member_name,staff_role:etStaffSnap.staff_role},getUpdatedByMeta()));
     if(S.kassaData)for(var i=0;i<S.kassaData.txns.length;i++){
       if(S.kassaData.txns[i].id===txnId){
-        Object.assign(S.kassaData.txns[i],{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc,status:status});
+        Object.assign(S.kassaData.txns[i],{type:type,category:cat,date:date,amount:amount,account_id:acctId,description:desc,status:status,staff_member_id:etStaffSnap.staff_member_id,staff_member_name:etStaffSnap.staff_member_name,staff_role:etStaffSnap.staff_role});
         break;
       }
     }
