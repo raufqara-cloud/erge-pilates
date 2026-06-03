@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — staff-payroll-link-v1-hotfix1</title>
+<title>Erge Pilates — client-snapshot-admin-refresh-v1-hotfix1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -142,6 +142,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 const BASE='https://ppdwpqiknepwcnsabhvy.supabase.co/rest/v1';
 const KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBwZHdwcWlrbmVwd2Nuc2FiaHZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY5MzgyMTQsImV4cCI6MjA5MjUxNDIxNH0.BLKxsf8kcZ1Jk0gbQk56z9804Ktrclvu2tNr5zQSSiI';
 const H={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json','Prefer':'return=representation'};
+// ── CLIENT PORTAL SNAPSHOT PROXY (client-snapshot-admin-refresh-v1-hotfix1) ──
+// Project A Edge Function proxy — no secret stored in browser HTML.
+// SNAPSHOT_ADMIN_TOKEN and PROJB_EDGE_URL are Project A Edge Function secrets only.
+// Browser calls this proxy using the existing Project A anon key (KEY) as Bearer token.
+const SNAPSHOT_PROXY_URL='https://ppdwpqiknepwcnsabhvy.supabase.co/functions/v1/snapshot-proxy';
 
 async function dbGet(t,p){
   var r=await fetch(BASE+'/'+t+(p?'?'+p:''),{headers:H});
@@ -219,7 +224,9 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   // ── WAITLIST FILTER + GENERAL ADD (slot-waitlist-conversion-ux-v1) ──
   wlFilter:{search:'',days:[],times:[],status:'all',scope:'all'},
   showAddWaitlistGeneral:false,
-  slotSections:{sabit:true,temp:true,trial:true,waitlist:true,candidates:false}};
+  slotSections:{sabit:true,temp:true,trial:true,waitlist:true,candidates:false},
+  // ── CLIENT PORTAL SNAPSHOT (client-snapshot-admin-refresh-v1-hotfix1) ──
+  snapshotStatus:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -1131,7 +1138,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: staff-payroll-link-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: client-snapshot-admin-refresh-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1441,7 +1448,28 @@ function rDetail(){
     +'<div style="font-size:11px;color:#999;margin-top:2px">Ümumi məşq</div></div>'
     +'</div>'
     +partnerMonthHtml;
-  // Accordion sections
+  // ── CLIENT PORTAL SNAPSHOT BUTTON (client-snapshot-admin-refresh-v1-hotfix1) ──
+  if(SNAPSHOT_PROXY_URL){
+    var snapSt=S.snapshotStatus;
+    var snapBtnDisabled=(snapSt&&snapSt.loading)?'disabled':'';
+    var snapBtnTxt=(snapSt&&snapSt.loading)?'<span class="spin"></span> Yüklənir…':'☁ Client Portal snapshot yenilə';
+    var snapStatusHtml='';
+    if(snapSt&&!snapSt.loading){
+      if(snapSt.ok){
+        var snapInfo='';
+        if(snapSt.projection_generated_at)snapInfo+=' · '+snapSt.projection_generated_at.replace('T',' ').slice(0,19);
+        if(snapSt.attendance_count!=null)snapInfo+=' · məşq: '+snapSt.attendance_count;
+        if(snapSt.schedule_count!=null)snapInfo+=' · bron: '+snapSt.schedule_count;
+        snapStatusHtml='<div style="font-size:11px;color:#1D9E75;margin-top:4px">✓ Snapshot yeniləndi'+snapInfo+'</div>';
+      }else{
+        snapStatusHtml='<div style="font-size:11px;color:#C62828;margin-top:4px">✗ Xəta: '+((snapSt.err||'').slice(0,120))+'</div>';
+      }
+    }
+    h+='<div style="margin-bottom:14px;padding:10px 14px;background:#F3F0FF;border:1px solid #D1C4E9;border-radius:9px">'
+      +'<button class="btn btn-sm" style="background:#7B1FA2;color:#fff;font-size:12px" '+snapBtnDisabled+' onclick="doSnapshotRefresh(\''+c.id+'\')">'+snapBtnTxt+'</button>'
+      +snapStatusHtml
+      +'</div>';
+  }
   var subsOpen=S.custSection==='subs';
   var attsOpen=S.custSection==='atts';
 
@@ -8108,6 +8136,37 @@ async function fetchCustDetail(custId){
   S.custDetailLoading=false;render();
 }
 
+// ── CLIENT PORTAL SNAPSHOT REFRESH (client-snapshot-admin-refresh-v1-hotfix1) ──
+// Calls Project A snapshot-proxy Edge Function (server-side secret holder).
+// Browser sends only customer_id + existing anon key. No admin token in browser.
+async function doSnapshotRefresh(custId){
+  if(!SNAPSHOT_PROXY_URL)return;
+  if(!custId)return;
+  S.snapshotStatus={loading:true,ok:false,err:null,custId:custId};
+  render();
+  try{
+    var resp=await fetch(SNAPSHOT_PROXY_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+KEY},
+      body:JSON.stringify({customer_id:custId})
+    });
+    var data=null;
+    try{data=await resp.json();}catch(e){data=null;}
+    if(resp.ok&&data&&data.ok){
+      S.snapshotStatus={loading:false,ok:true,custId:custId,
+        projection_generated_at:data.projection_generated_at||null,
+        attendance_count:data.attendance_count!=null?data.attendance_count:null,
+        schedule_count:data.schedule_count!=null?data.schedule_count:null};
+    }else{
+      var errMsg=(data&&data.error)?data.error:('HTTP '+resp.status);
+      S.snapshotStatus={loading:false,ok:false,custId:custId,err:errMsg};
+    }
+  }catch(e){
+    S.snapshotStatus={loading:false,ok:false,custId:custId,err:e&&e.message?e.message:'Şəbəkə xətası'};
+  }
+  render();
+}
+
 async function deleteSub(subId){
   if(!confirm('Bu abunəliyi silmək istədiyinizdən əminsinizmi?\nBağlı davamiyyət qeydləri saxlanacaq, sadəcə abunəliklə əlaqəsi kəsiləcək.'))return;
   S.saving=true;render();
@@ -8482,7 +8541,7 @@ function filterCards(q){
     }
   }
 }
-function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoading=true;render();fetchCustDetail(id);}
+function selCust(id){S.selCust=id;S.search='';S.custDetail=null;S.custDetailLoading=true;S.snapshotStatus=null;render();fetchCustDetail(id);}
 
 
 // ===== KASSA =====
