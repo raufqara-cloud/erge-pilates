@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix1</title>
+<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1144,7 +1144,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -12134,8 +12134,8 @@ function rClientRequests(){
       h+='<button class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="updateClientRequest(\''+reqId+'\',\'resolved\',null)">Həll edildi</button>';
       h+='<button class="btn btn-sm btn-gray" onclick="updateClientRequest(\''+reqId+'\',\'cancelled\',null)">Ləğv edildi</button>';
     }
-    var noteBtnLabel=(r.status==='pending')?'💾 Qeydi saxla / Görüldü et':'💾 Qeydi Saxla';
-    var noteBtnTitle=(r.status==='pending')?'Qeydi saxla və müraciəti görüldü et':'Qeydi yadda saxla';
+    var noteBtnLabel=(req.status==='pending')?'💾 Qeydi saxla / Görüldü et':'💾 Qeydi Saxla';
+    var noteBtnTitle=(req.status==='pending')?'Qeydi saxla və müraciəti görüldü et':'Qeydi yadda saxla';
     h+='<button class="btn btn-sm btn-gray" onclick="saveClientReqNote(\''+reqId+'\')" title="'+noteBtnTitle+'">'+noteBtnLabel+'</button>';
     h+=clientReqWhatsAppBtn(cid);
     h+='</div>';
