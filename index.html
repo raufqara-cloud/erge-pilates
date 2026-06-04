@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — client-snapshot-admin-refresh-v1-hotfix1</title>
+<title>Erge Pilates — proja-client-request-admin-inbox-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -147,6 +147,10 @@ const H={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/
 // SNAPSHOT_ADMIN_TOKEN and PROJB_EDGE_URL are Project A Edge Function secrets only.
 // Browser calls this proxy using the existing Project A anon key (KEY) as Bearer token.
 const SNAPSHOT_PROXY_URL='https://ppdwpqiknepwcnsabhvy.supabase.co/functions/v1/snapshot-proxy';
+// ── CLIENT REQUESTS PROXY (proja-client-request-admin-inbox-v1) ──
+// Project A Edge Function proxy for Project B client_requests admin operations.
+// CLIENT_REQUEST_ADMIN_TOKEN and PROJB_CLIENT_REQUESTS_ADMIN_URL are Edge Function secrets only.
+const CLIENT_REQUESTS_PROXY_URL='https://ppdwpqiknepwcnsabhvy.supabase.co/functions/v1/client-requests-proxy';
 
 async function dbGet(t,p){
   var r=await fetch(BASE+'/'+t+(p?'?'+p:''),{headers:H});
@@ -226,7 +230,9 @@ var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddWaitlistGeneral:false,
   slotSections:{sabit:true,temp:true,trial:true,waitlist:true,candidates:false},
   // ── CLIENT PORTAL SNAPSHOT (client-snapshot-admin-refresh-v1-hotfix1) ──
-  snapshotStatus:null};
+  snapshotStatus:null,
+  // ── CLIENT REQUESTS INBOX (proja-client-request-admin-inbox-v1) ──
+  clientReqData:null,clientReqLoading:false,clientReqStatusFilter:'pending',clientReqErr:null};
 
 function ini(n){return n.trim().split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);}
 function td(){return new Date().toISOString().slice(0,10);}
@@ -1138,7 +1144,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: client-snapshot-admin-refresh-v1-hotfix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1149,6 +1155,7 @@ function render(){
     +'<button class="'+(S.view==='kassa'?'active':'')+'" onclick="sv(\'kassa\')">Kassa</button>'
     +'<button class="'+(S.view==='leads'?'active':'')+'" onclick="sv(\'leads\')">Leads</button>'
     +'<button class="'+(S.view==='bron'?'active':'')+'" onclick="sv(\'bron\')">Qrup Yerləri</button>'
+    +'<button class="'+(S.view==='clientRequests'?'active':'')+'" onclick="sv(\'clientRequests\')">Müraciətlər</button>'
     +'</div>'
     +_userChip
     +'</div></div><div class="content">';
@@ -1162,6 +1169,7 @@ function render(){
   else if(S.view==='kassa')h+=rKassa();
   else if(S.view==='leads')h+=rLeads();
   else if(S.view==='bron')h+=rBron();
+  else if(S.view==='clientRequests'){if(!S.clientReqData&&!S.clientReqLoading)fetchClientRequests();h+=rClientRequests();}
   h+='</div>';
   if(S.showAddCust)h+=rModalAddCust();
   if(S.showAddSub)h+=rModalAddSub();
@@ -8489,6 +8497,8 @@ function submitFreeze(){
 function sv(v){
   // Soft role visibility guards
   if(v==='admin'&&!canSeeAdmin())v='home';
+  // Client requests inbox lazy-load on tab entry (proja-client-request-admin-inbox-v1)
+  if(v==='clientRequests'&&!S.clientReqData&&!S.clientReqLoading)fetchClientRequests();
   if(v==='report'&&isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
   if(v==='report'&&isCashier()&&S.reportTab==='hareket')S.reportTab='izleme';
   S.view=v;S.search='';S.selCust=null;S.selLead=null;
@@ -11951,6 +11961,191 @@ async function handleBronSyncEvent(){
 }
 window.addEventListener('storage',function(e){if(e.key==='erge_bron_sync')handleBronSyncEvent();});
 window.addEventListener('storage',function(e){if(e.key==='__ergeKassaSync'&&S.view==='kassa')refreshKassaIfOpen();});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLIENT REQUESTS INBOX — proja-client-request-admin-inbox-v1
+// Security: calls client-requests-proxy Edge Function using Project A anon key.
+// No Project B service_role or CLIENT_REQUEST_ADMIN_TOKEN in browser.
+// Does NOT mutate Project A customers/subscriptions/attendances/bookings/
+//   booking_exceptions/transactions/leads/audit_logs.
+// Does NOT expand loadAll().
+// D.customers is used READ-ONLY for customer name/phone display.
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function fetchClientRequests(){
+  if(S.clientReqLoading)return;
+  S.clientReqLoading=true;S.clientReqErr=null;render();
+  try{
+    var status=S.clientReqStatusFilter||'pending';
+    var resp=await fetch(CLIENT_REQUESTS_PROXY_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+KEY},
+      body:JSON.stringify({action:'list',status:status,limit:50})
+    });
+    var data=null;
+    try{data=await resp.json();}catch(e){data=null;}
+    if(resp.ok&&data&&data.rows){
+      S.clientReqData=data.rows;
+    }else{
+      var em=(data&&data.error)?data.error:('HTTP '+resp.status);
+      S.clientReqErr=em;
+      if(!S.clientReqData)S.clientReqData=[];
+    }
+  }catch(e){
+    S.clientReqErr=(e&&e.message)?e.message:'Şəbəkə xətası';
+    if(!S.clientReqData)S.clientReqData=[];
+  }
+  S.clientReqLoading=false;render();
+}
+
+async function updateClientRequest(id,status,adminNote){
+  if(!id)return;
+  var actor=(S.currentUser&&S.currentUser.username)?S.currentUser.username:'project_a_admin';
+  try{
+    var resp=await fetch(CLIENT_REQUESTS_PROXY_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+KEY},
+      body:JSON.stringify({action:'update',id:id,status:status,admin_note:adminNote||null,actor:actor})
+    });
+    var data=null;
+    try{data=await resp.json();}catch(e){data=null;}
+    if(!resp.ok){
+      var em=(data&&data.error)?data.error:('HTTP '+resp.status);
+      alert('Xəta: '+em);
+      render();return;
+    }
+    // Update local row without full reload
+    if(S.clientReqData){
+      for(var i=0;i<S.clientReqData.length;i++){
+        if(S.clientReqData[i].id===id){
+          S.clientReqData[i].status=status;
+          if(adminNote!==undefined&&adminNote!==null)S.clientReqData[i].admin_note=adminNote;
+          if(status==='resolved'||status==='cancelled'){
+            S.clientReqData[i].resolved_at=new Date().toISOString();
+            S.clientReqData[i].resolved_by=actor;
+          }
+          break;
+        }
+      }
+    }
+  }catch(e){
+    alert('Şəbəkə xətası: '+((e&&e.message)?e.message:'unknown'));
+  }
+  render();
+}
+
+function saveClientReqNote(id){
+  var el=document.getElementById('crn-'+id);
+  if(!el)return;
+  var note=el.value.trim();
+  // Find current status for this request
+  var req=null;
+  if(S.clientReqData){for(var i=0;i<S.clientReqData.length;i++){if(S.clientReqData[i].id===id){req=S.clientReqData[i];break;}}}
+  if(!req)return;
+  // pending is client-created only and cannot be used as an admin update target.
+  // Saving a note on a pending request intentionally promotes it to seen.
+  var targetStatus=(req.status==='pending')?'seen':req.status;
+  updateClientRequest(id,targetStatus,note);
+}
+
+function clientReqWhatsAppBtn(custId){
+  if(!custId)return '<button class="btn btn-gray btn-sm" disabled>Telefon yoxdur</button>';
+  var cust=null;
+  if(D.customers){for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===custId){cust=D.customers[i];break;}}}
+  if(!cust||!cust.phone)return '<button class="btn btn-gray btn-sm" disabled>Telefon yoxdur</button>';
+  var digits=phoneToWhatsAppDigits(cust.phone);
+  if(!digits)return '<button class="btn btn-gray btn-sm" disabled>WA yoxdur</button>';
+  var msg=encodeURIComponent('Salam, Erge Pilates-dən yazırıq. Client Portal-da əlaqə üçün müraciət etmisiniz. Sizə necə kömək edə bilərik? ❤️');
+  var url='https://wa.me/'+digits+'?text='+msg;
+  return '<a href="'+url+'" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="background:#25D366;color:#fff;text-decoration:none;display:inline-block">💬 WhatsApp</a>';
+}
+
+function fmtReqDate(iso){
+  if(!iso)return '—';
+  try{
+    return new Intl.DateTimeFormat('az-AZ',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(iso));
+  }catch(e){return iso;}
+}
+
+function getClientReqStatusLabel(s){
+  var m={pending:'Gözləyir',seen:'Görüldü',resolved:'Həll edildi',cancelled:'Ləğv edildi'};
+  return m[s]||s;
+}
+
+function getClientReqStatusColor(s){
+  if(s==='pending')return '#f57c00';
+  if(s==='seen')return '#1565c0';
+  if(s==='resolved')return '#2e7d32';
+  if(s==='cancelled')return '#757575';
+  return '#333';
+}
+
+function rClientRequests(){
+  var h='<div class="ph"><div class="pt">Müraciətlər <small style="font-size:11px;color:#999;font-weight:400">(Client Portal)</small></div>';
+  // Filter bar
+  var filters=['pending','recent','all'];
+  var flabels={pending:'Gözləyənlər',recent:'Son 50',all:'Hamısı'};
+  h+='<div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap">';
+  for(var fi=0;fi<filters.length;fi++){
+    var fv=filters[fi];
+    var fa=S.clientReqStatusFilter===fv;
+    h+='<button class="btn btn-sm '+(fa?'btn-blue':'btn-gray')+'" onclick="S.clientReqStatusFilter=\''+fv+'\';S.clientReqData=null;fetchClientRequests();">'+flabels[fv]+'</button>';
+  }
+  h+='<button class="btn btn-sm btn-gray" onclick="S.clientReqData=null;fetchClientRequests();">↻ Yenilə</button>';
+  h+='</div>';
+
+  if(S.clientReqLoading){h+='<div class="al"><span class="spin"></span> Yüklənir...</div>';h+='</div>';return h;}
+  if(S.clientReqErr){h+='<div class="errbox">Xəta: '+escHtml(S.clientReqErr)+'</div>';}
+
+  var rows=S.clientReqData||[];
+  if(!rows.length){h+='<div style="color:#999;padding:20px 0;text-align:center">Müraciət tapılmadı.</div>';h+='</div>';return h;}
+
+  for(var i=0;i<rows.length;i++){
+    var req=rows[i];
+    var cid=req.customer_id||'';
+    // Customer name from Project A D.customers (read-only)
+    var cname='';
+    if(cid&&D.customers){for(var ci=0;ci<D.customers.length;ci++){if(D.customers[ci].id===cid){cname=D.customers[ci].name;break;}}}
+    var displayName=cname?escHtml(cname):escHtml(cid);
+    var sColor=getClientReqStatusColor(req.status);
+    var sLabel=getClientReqStatusLabel(req.status);
+    var isClosed=(req.status==='resolved'||req.status==='cancelled');
+    var reqId=escHtml(req.id||'');
+    // Note textarea value
+    var noteVal=escHtml(req.admin_note||'');
+    h+='<div class="card" style="margin-bottom:10px;padding:14px">';
+    h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px">';
+    h+='<div>';
+    h+='<div style="font-weight:600;font-size:14px">'+displayName+'<span style="font-size:11px;color:#aaa;margin-left:6px">'+escHtml(cid)+'</span></div>';
+    h+='<div style="font-size:11px;color:#999;margin-top:2px">'+fmtReqDate(req.created_at)+'</div>';
+    h+='</div>';
+    h+='<span style="font-size:12px;font-weight:600;color:'+sColor+';padding:3px 8px;border:1px solid '+sColor+';border-radius:10px">'+sLabel+'</span>';
+    h+='</div>';
+    if(req.message){h+='<div style="margin-top:8px;font-size:13px;color:#333;background:#f9f9f9;padding:8px 10px;border-radius:6px">'+escHtml(req.message)+'</div>';}
+    if(req.resolved_at){h+='<div style="font-size:11px;color:#999;margin-top:6px">Həll tarixi: '+fmtReqDate(req.resolved_at)+(req.resolved_by?' | '+escHtml(req.resolved_by):'')+'</div>';}
+    // Admin note textarea
+    h+='<div style="margin-top:10px">';
+    h+='<textarea id="crn-'+reqId+'" rows="2" class="fi" style="width:100%;font-size:12px;resize:vertical" placeholder="Admin qeyd (maks. 400 simvol)" maxlength="400">'+noteVal+'</textarea>';
+    h+='</div>';
+    // Action buttons
+    h+='<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">';
+    if(!isClosed){
+      h+='<button class="btn btn-sm btn-blue" onclick="updateClientRequest(\''+reqId+'\',\'seen\',null)">Görüldü</button>';
+      h+='<button class="btn btn-sm" style="background:#2e7d32;color:#fff" onclick="updateClientRequest(\''+reqId+'\',\'resolved\',null)">Həll edildi</button>';
+      h+='<button class="btn btn-sm btn-gray" onclick="updateClientRequest(\''+reqId+'\',\'cancelled\',null)">Ləğv edildi</button>';
+    }
+    var noteBtnLabel=(r.status==='pending')?'💾 Qeydi saxla / Görüldü et':'💾 Qeydi Saxla';
+    var noteBtnTitle=(r.status==='pending')?'Qeydi saxla və müraciəti görüldü et':'Qeydi yadda saxla';
+    h+='<button class="btn btn-sm btn-gray" onclick="saveClientReqNote(\''+reqId+'\')" title="'+noteBtnTitle+'">'+noteBtnLabel+'</button>';
+    h+=clientReqWhatsAppBtn(cid);
+    h+='</div>';
+    h+='</div>';
+  }
+  h+='</div>';
+  return h;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 
 initApp();
 </script>
