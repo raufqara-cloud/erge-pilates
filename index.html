@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2</title>
+<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1144,7 +1144,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -8573,7 +8573,10 @@ function pulseCrossTabKassaSync(){
 async function fetchKassa(){
   S.kassaLoading=true;render();
   try{
-    var txns=await dbGet('transactions','order=date.desc,created_at.desc');
+    // kassa-balance-fix1: balances must be calculated from the full transaction history,
+    // not from Supabase REST's default first page. dbGetAll paginates in 1000-row chunks.
+    // The extra id order key makes offset pagination deterministic when date/created_at ties exist.
+    var txns=await dbGetAll('transactions','order=date.desc,created_at.desc,id',1000);
     var accts=await dbGet('accounts','order=sort_order');
     D.accounts=accts||[];
     S.kassaData={txns:txns||[]};
