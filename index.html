@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1</title>
+<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -183,10 +183,10 @@ async function dbPatch(t,f,b){
 }
 
 var TIMES=['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
-var D={programs:[],instructors:[],customers:[],subscriptions:[],attendances:[],accounts:[],attFull:false};
+var D={programs:[],programVersions:null,instructors:[],customers:[],subscriptions:[],attendances:[],accounts:[],attFull:false};
 var S={view:'home',loading:true,saving:false,err:null,selCust:null,
   showAddCust:false,showAddSub:false,showAtt:false,showFreeze:false,showAlert:null,
-  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',attDate:null,singleAttDate:null,kassaTab:'txns',kassaData:null,kassaLoading:false,showAddTxn:false,editTxnId:null,selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null,bronSearch:'',showEditBronEx:false,editBronEx:null,
+  attCust:null,freezeSub:null,editSub:null,showSingleAtt:false,singleCust:null,search:'',custTab:'all',attDate:null,singleAttDate:null,kassaTab:'txns',kassaData:null,kassaLoading:false,showAddTxn:false,editTxnId:null,selDate:null,selDateAtts:null,selDateLoading:false,reportMonth:null,reportData:null,reportLoading:false,selReportInst:null,editCust:null,custDetail:null,custDetailLoading:false,reportTab:'salary',izlemeData:null,izlemeLoading:false,selIzleme:null,showAddProg:false,editProg:null,bronData:null,bronLoading:false,selBronDay:null,selBronTime:null,selBronDate:null,showAddBron:false,bronSelDate:null,bronExceptions:null,custSection:null,homeSlot:null,bronSearch:'',showEditBronEx:false,editBronEx:null,
   bronSubTab:'today',bronSelTime:null,
   showTempAdd:false,tempAddSlot:null,
   showMarkAbsent:false,markAbsentBron:null,
@@ -558,6 +558,89 @@ function getProgramById(id){
   }
   return null;
 }
+
+// ── PROGRAM EFFECTIVE-DATE VERSIONING (program-edit-effective-v1) ──
+var PROGRAM_VERSIONS_PROMISE=null;
+async function ensureProgramVersions(force){
+  if(!force&&Array.isArray(D.programVersions))return D.programVersions;
+  if(PROGRAM_VERSIONS_PROMISE)return PROGRAM_VERSIONS_PROMISE;
+  PROGRAM_VERSIONS_PROMISE=(async function(){
+    try{
+      var rows=await dbGetAll('program_versions','order=program_id.asc,valid_from.asc,created_at.asc,id.asc',1000);
+      D.programVersions=rows||[];
+      return D.programVersions;
+    }finally{
+      PROGRAM_VERSIONS_PROMISE=null;
+    }
+  })();
+  return PROGRAM_VERSIONS_PROMISE;
+}
+function getProgramVersionAtSync(programId,dateStr){
+  if(!programId)return null;
+  var d=dateStr||td();
+  var rows=Array.isArray(D.programVersions)?D.programVersions:[];
+  var best=null;
+  for(var i=0;i<rows.length;i++){
+    var v=rows[i];
+    if(v.program_id!==programId||!v.valid_from||v.valid_from>d)continue;
+    if(!best||v.valid_from>best.valid_from||
+      (v.valid_from===best.valid_from&&String(v.created_at||'')>String(best.created_at||''))||
+      (v.valid_from===best.valid_from&&String(v.created_at||'')===String(best.created_at||'')&&Number(v.id||0)>Number(best.id||0))){
+      best=v;
+    }
+  }
+  return best;
+}
+function getNextProgramVersionSync(programId,dateStr){
+  var d=dateStr||td();
+  var rows=Array.isArray(D.programVersions)?D.programVersions:[];
+  var next=null;
+  for(var i=0;i<rows.length;i++){
+    var v=rows[i];
+    if(v.program_id!==programId||!v.valid_from||v.valid_from<=d)continue;
+    if(!next||v.valid_from<next.valid_from||
+      (v.valid_from===next.valid_from&&String(v.created_at||'')>String(next.created_at||''))||
+      (v.valid_from===next.valid_from&&String(v.created_at||'')===String(next.created_at||'')&&Number(v.id||0)>Number(next.id||0))){
+      next=v;
+    }
+  }
+  return next;
+}
+function getProgramTermsAtSync(programId,dateStr){
+  var base=getProgramById(programId);
+  var v=getProgramVersionAtSync(programId,dateStr||td());
+  if(!v)return base;
+  return {
+    id:v.program_id,
+    name:v.program_name,
+    list_price:money(v.list_price),
+    sessions_total:parseInt(v.sessions_total)||1,
+    duration_days:parseInt(v.duration_days)||30,
+    is_partner:!!v.is_partner,
+    is_active:base?base.is_active!==false:true,
+    sort_order:base?base.sort_order:99,
+    _version_id:v.id,
+    _valid_from:v.valid_from
+  };
+}
+async function getProgramTermsAt(programId,dateStr){
+  await ensureProgramVersions();
+  return getProgramTermsAtSync(programId,dateStr);
+}
+function subscriptionDurationDays(sub){
+  if(sub&&sub.start_date&&sub.end_date){
+    var a=new Date(sub.start_date+'T00:00:00Z');
+    var b=new Date(sub.end_date+'T00:00:00Z');
+    var d=Math.round((b-a)/86400000);
+    if(d>0)return d;
+  }
+  return 30;
+}
+async function openAddSub(){
+  try{await ensureProgramVersions();}catch(e){alert('Proqram qiymət tarixçəsi yüklənmədi: '+e.message);return;}
+  S.showAddSub=true;render();
+}
+// ─────────────────────────────────────────────────────────────────────────
 function calcSubUsed(subId,attsArr){
   if(!subId||subId==='null')return 0;
   var arr=attsArr||D.attendances||[];
@@ -669,7 +752,7 @@ function subListPriceAtSale(sub){
   // Backward compatibility: old subscriptions did not store discount columns.
   // For old rows, treat current price_due as the sale price and discount as 0.
   if(sub.price_due!==undefined&&sub.price_due!==null&&sub.price_due!=='')return money(sub.price_due);
-  var prog=getProgramById(sub.program_id);
+  var prog=getProgramTermsAtSync(sub.program_id,sub.start_date||td())||getProgramById(sub.program_id);
   return prog?money(prog.list_price):0;
 }
 function subDiscountAmount(sub){
@@ -788,12 +871,12 @@ async function doAddCust(name,phone,birth){
 async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNote,priceDue,pricePaid,startDate,isPending,acctId){
   S.saving=true;render();
   try{
-    var prog=null;
-    for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){prog=D.programs[i];break;}}
-    if(!prog)throw new Error('Proqram tapılmadı');
     var sd=startDate||td();
+    var prog=await getProgramTermsAt(progId,sd);
+    if(!prog)throw new Error('Proqram tapılmadı');
     var end=addDays(sd,prog.duration_days);
-    var listNum=money(listPriceAtSale!==undefined&&listPriceAtSale!==''?listPriceAtSale:prog.list_price);
+    // Effective-dated program terms are the source-of-truth for list price.
+    var listNum=money(prog.list_price);
     var discNum=money(discountAmount||0);
     if(discNum<0)discNum=0;
     if(discNum>listNum)discNum=listNum;
@@ -1084,10 +1167,9 @@ async function doAtt(custId,subId,classTime,instId,attDate){
       for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
       // Activate pending subscription on first attendance
       if(sub&&sub.status==='pending'){
-        var prog=null;
-        for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
         var newStart=_attDate;
-        var newEnd=addDays(newStart,prog?prog.duration_days:30);
+        // Preserve the duration captured when this pending subscription was created.
+        var newEnd=addDays(newStart,subscriptionDurationDays(sub));
         // Subscription conflict guard: ensure no other open sub exists for this start date
         if(!await dbAssertCanCreateOrEditSubscription(custId,newStart,subId,'activate')){
           S.saving=false;render();return;
@@ -1144,7 +1226,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1177,6 +1259,7 @@ function render(){
   if(S.showFreeze)h+=rModalFreeze();
   if(S.editSub)h+=rModalEditSub();
   if(S.showAddProg)h+=rModalAddProg();
+  if(S.editProg)h+=rModalEditProg();
   if(S.editCust)h+=rModalEditCust();
   if(S.showSingleAtt)h+=rModalSingleAtt();
   if(S.showAlert)h+=rAlertModal();
@@ -1487,7 +1570,7 @@ function rDetail(){
   h+='<div style="display:flex;align-items:center;gap:10px"><span style="font-size:12px;font-weight:700;color:#1D9E75">ABUNƏLİKLƏR</span>'
     +'<span style="background:#1D9E75;color:#fff;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700">'+subs.length+'</span></div>';
   h+='<div style="display:flex;gap:8px;align-items:center">';
-  if(subsOpen)h+='<button class="btn btn-g btn-sm" onclick="event.stopPropagation();S.showAddSub=true;render()">+ Əlavə et</button>';
+  if(subsOpen)h+='<button class="btn btn-g btn-sm" onclick="event.stopPropagation();openAddSub()">+ Əlavə et</button>';
   h+='<span style="color:#1D9E75;font-size:14px">'+(subsOpen?'▲':'▼')+'</span></div></div>';
   if(subsOpen){
     if(!subs.length)h+='<div class="empty" style="padding:14px">Abunəlik yoxdur</div>';
@@ -1711,20 +1794,21 @@ function rModalAddSub(){
   }
   var opts='';
   var firstActive=null;
+  var todayVal=td();
   for(var i=0;i<D.programs.length;i++){
     var p=D.programs[i];
     if(!p.is_active)continue;
     if(['ROF','RPS','RPP','ROTG','ROTI','RTEST'].indexOf(p.id)>=0)continue;
-    if(!firstActive)firstActive=p;
-    opts+='<option value="'+p.id+'">'+escHtml(p.name)+' — '+p.list_price+' AZN ('+p.sessions_total+' dərs, '+p.duration_days+' gün)</option>';
+    var pt=getProgramTermsAtSync(p.id,todayVal)||p;
+    if(!firstActive)firstActive=pt;
+    opts+='<option value="'+p.id+'">'+escHtml(pt.name||p.name)+' — '+money(pt.list_price)+' AZN ('+pt.sessions_total+' dərs, '+pt.duration_days+' gün)</option>';
   }
   var defP=firstActive?money(firstActive.list_price):0;
-  var todayVal=td();
   return '<div class="ov" onclick="S.showAddSub=false;render()"><div class="modal" onclick="event.stopPropagation()">'
     +'<div class="mtitle">Abunəlik Əlavə Et <span class="badge b-blue" style="font-size:10px;margin-left:6px">endirim aktivdir</span></div>'
     +'<div style="font-size:12px;color:#0F6E56;background:#E8F5EE;border:1px solid #b2dfc8;padding:8px 10px;border-radius:8px;margin-bottom:12px">Endirim sahəsi bu versiyada aktivdir: Paket qiyməti - Endirim = Ödənilməli məbləğ.</div>'
     +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="m-prog" onchange="updatePrice()">'+opts+'</select></div>'
-    +'<div class="fg"><label class="fl">Başlama tarixi *</label><input class="fi" id="m-startdate" type="date" value="'+todayVal+'"></div>'
+    +'<div class="fg"><label class="fl">Başlama tarixi *</label><input class="fi" id="m-startdate" type="date" value="'+todayVal+'" onchange="updatePrice()"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Paket qiyməti (AZN)</label><input class="fi" id="m-list-price" type="number" value="'+defP+'" readonly style="background:#f5f5f5"></div>'
     +'<div class="fg"><label class="fl">Endirim (AZN)</label><input class="fi" id="m-discount" type="number" min="0" step="0.01" value="0" oninput="updateSubDiscount()"></div>'
@@ -5463,19 +5547,20 @@ function toggleSlotAttCustomer(custId, checked, wasAbsent){
 
 // ── Slot single pay — state-controlled form ──
 function slotPayKey(custId){return String(custId||'');}
+function _entryTermsDate(){return(S.slotAttData&&S.slotAttData.dateStr)||td();}
 function getSingleEntryPrograms(){
   var ids=['ROF','RPP','RPS','ROTG','ROTI'];
-  return(D.programs||[]).filter(function(p){
+  return(D.programs||[]).map(function(p){return getProgramTermsAtSync(p.id,_entryTermsDate())||p;}).filter(function(p){
     return p.is_active!==false&&(ids.indexOf(p.id)>=0||p.sessions_total<=1);
   });
 }
 function getPartnerEntryPrograms(){
-  return(D.programs||[]).filter(function(p){
+  return(D.programs||[]).map(function(p){return getProgramTermsAtSync(p.id,_entryTermsDate())||p;}).filter(function(p){
     return p.is_active!==false&&['ROF','RPP','RPS'].indexOf(p.id)>=0;
   });
 }
 function getStudioSinglePrograms(){
-  return(D.programs||[]).filter(function(p){
+  return(D.programs||[]).map(function(p){return getProgramTermsAtSync(p.id,_entryTermsDate())||p;}).filter(function(p){
     return p.is_active!==false&&(
       ['ROTG','ROTI'].indexOf(p.id)>=0||
       (p.sessions_total<=1&&['ROF','RPP','RPS','RTEST'].indexOf(p.id)<0)
@@ -5505,7 +5590,8 @@ function getAccountNameById(id){
   }
   return'';
 }
-function openSlotSinglePay(custId){
+async function openSlotSinglePay(custId){
+  try{await ensureProgramVersions();}catch(e){alert('Proqram qiymət tarixçəsi yüklənmədi: '+e.message);return;}
   var key=slotPayKey(custId);
   if(!S.slotSinglePayData)S.slotSinglePayData={};
   S.slotSinglePayData[key]={programId:'',amount:'',accountId:'',note:''};
@@ -5517,16 +5603,14 @@ function cancelSlotSinglePay(){
   S.slotSinglePayCustId=null;
   render();
 }
-function selectSlotSingleProgram(custId,progId){
+async function selectSlotSingleProgram(custId,progId){
+  await ensureProgramVersions();
   var key=slotPayKey(custId);
   if(!S.slotSinglePayData)S.slotSinglePayData={};
   if(!S.slotSinglePayData[key])S.slotSinglePayData[key]={programId:'',amount:'',accountId:'',note:''};
-  var p=null;
-  for(var i=0;i<(D.programs||[]).length;i++){
-    if(D.programs[i].id===progId){p=D.programs[i];break;}
-  }
+  var p=getProgramTermsAtSync(progId,_entryTermsDate())||getProgramById(progId);
   S.slotSinglePayData[key].programId=progId;
-  S.slotSinglePayData[key].amount=(progId==='RTEST')?0:((p&&p.list_price!=null)?p.list_price:'');
+  S.slotSinglePayData[key].amount=(progId==='RTEST')?0:((p&&p.list_price!=null)?money(p.list_price):'');
   if(isPartnerEntryProgram(progId)){
     S.slotSinglePayData[key].accountId=getPartnerReceivableAccountId(progId)||'';
   }
@@ -5583,6 +5667,8 @@ async function confirmSlotSinglePay(custId){
   // Fallback guard: RTEST must never be processed here; trial only via CRM Lead lifecycle
   if(programId==='RTEST'){alert('RTEST artıq slot tək giriş kimi istifadə edilə bilməz.\nSınaq məşqi yalnız CRM Lead axınından qeyd edilir.');return;}
   var amount=parseFloat((amtEl?amtEl.value:pay.amount)||pay.amount)||0;
+  var effectiveProg=await getProgramTermsAt(programId,sd.dateStr);
+  if(effectiveProg&&isPartnerEntryProgram(programId))amount=money(effectiveProg.list_price);
   var note=(noteEl?noteEl.value:(pay.note||''))||'';
   var instId=sd.instId||(instEl?instEl.value:'');
   if(!programId){alert('Proqram seçin');return;}
@@ -5616,7 +5702,7 @@ async function confirmSlotSinglePay(custId){
   }
   var cust=null,prog=null,inst=null;
   for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===key){cust=D.customers[i];break;}}
-  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===programId){prog=D.programs[i];break;}}
+  prog=effectiveProg||getProgramById(programId);
   for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
   if(!cust||!prog){alert('Müştəri və ya proqram tapılmadı');return;}
   // Günlük duplicate: tarix+saat deyil, yalnız tarix yoxlanılır (transaction-dan əvvəl)
@@ -5828,10 +5914,9 @@ async function createAttendance(custId, subId, classTime, instId, attDate){
     if(!await checkSlotCapacity(attDate,classTime))return null;
     // Activate pending sub
     if(sub.status==='pending'){
-      var prog=null;
-      for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sub.program_id){prog=D.programs[i];break;}}
       var newStart=attDate;
-      var newEnd=addDays(newStart,prog?prog.duration_days:30);
+      // Preserve the duration captured when this pending subscription was created.
+      var newEnd=addDays(newStart,subscriptionDurationDays(sub));
       // Subscription conflict guard: ensure no other open sub exists for this start date
       if(!await dbAssertCanCreateOrEditSubscription(custId,newStart,subId,'activate')) return null;
       await dbPatch('subscriptions','id=eq.'+subId,{status:'active',start_date:newStart,end_date:newEnd});
@@ -5962,6 +6047,10 @@ function escHtml(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').rep
 
 // ==================== PARTNER RECONCİLİASİYA ====================
 function rPartnerRecon(){
+  if(!Array.isArray(D.programVersions)){
+    if(!PROGRAM_VERSIONS_PROMISE){ensureProgramVersions().then(function(){if(S.view==='report'&&S.reportTab==='partner')render();}).catch(function(e){console.warn('program_versions load failed',e.message);});}
+    return '<div class="empty"><span class="spin"></span> Proqram qiymət tarixçəsi yüklənir...</div>';
+  }
   var now=new Date();
   var curMonth=now.getFullYear()+'-'+(String(now.getMonth()+1).padStart(2,'0'));
   var selMonth=S.reportMonth||curMonth;
@@ -5993,17 +6082,20 @@ function rPartnerRecon(){
 
   for(var i=0;i<atts.length;i++){
     var a=atts[i];
-    // Find program
-    var prog=null;
-    for(var j=0;j<D.programs.length;j++){if(D.programs[j].id===a.program_id){prog=D.programs[j];break;}}
+    // Resolve the commercial terms that were effective on the attendance date.
+    var prog=getProgramTermsAtSync(a.program_id,a.class_date);
     if(!prog||!prog.is_partner)continue;
 
-    var pname=(a.program_name||'').toLowerCase();
-    var key=pname.indexOf('1fit')>=0?'fit1':(pname.indexOf('push')>=0?'push30':null);
+    // Stable routing by program ID; name is display-only and may be edited.
+    var key=a.program_id==='ROF'?'fit1':(['RPP','RPS'].indexOf(a.program_id)>=0?'push30':null);
+    if(!key){
+      var pname=(a.program_name||prog.name||'').toLowerCase();
+      key=pname.indexOf('1fit')>=0?'fit1':(pname.indexOf('push')>=0?'push30':null);
+    }
     if(!key)continue;
 
     var p=partners[key];
-    var unitPrice=prog.list_price/prog.sessions_total;
+    var unitPrice=money(prog.list_price)/(parseInt(prog.sessions_total)||1);
     p.total+=unitPrice;
     p.count++;
 
@@ -6427,6 +6519,7 @@ function rIzleme(){
 async function fetchReport(month){
   S.reportLoading=true;S.reportData=null;render();
   try{
+    await ensureProgramVersions();
     var allInst=D._allInstructors||D.instructors;
     var instMap={};
     for(var i=0;i<allInst.length;i++){instMap[allInst[i].id]=allInst[i];}
@@ -6475,7 +6568,7 @@ async function fetchReport(month){
     for(var i=0;i<atts.length;i++){
       var a=atts[i];
       if(!a.instructor_id||!instData[a.instructor_id])continue;
-      var prog=progMap[a.program_id];
+      var prog=getProgramTermsAtSync(a.program_id,a.class_date)||progMap[a.program_id];
       var perSession=0;
 
       if(singleProgs.indexOf(a.program_id)>=0){
@@ -7192,16 +7285,21 @@ function rAdmin(){
   h+='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
   h+=rAdminAccHdr('progs','📋','Proqramlar',progBadge,'b-gray');
   if(sec.progs){
+    if(!Array.isArray(D.programVersions)&&!PROGRAM_VERSIONS_PROMISE){ensureProgramVersions().then(function(){if(S.view==='admin')render();}).catch(function(e){console.warn('program_versions load failed',e.message);});}
     h+='<div style="padding:12px 16px">';
     h+='<div style="display:flex;justify-content:flex-end;margin-bottom:10px"><button class="btn btn-g btn-sm" onclick="S.showAddProg=true;render()">+ Yeni</button></div>';
     for(var i=0;i<allProgs.length;i++){
       var p=allProgs[i];
+      var cur=getProgramTermsAtSync(p.id,td())||p;
+      var next=getNextProgramVersionSync(p.id,td());
       var act=p.is_active!==false;
       h+='<div class="attitem">'
-        +'<div><div style="font-size:13px;font-weight:600">'+p.id+' <span style="font-size:11px;color:#aaa">'+p.sessions_total+' dərs | '+p.list_price+' ₼</span></div>'
-        +'<div style="font-size:12px;color:#888">'+p.name+'</div></div>'
-        +'<div style="display:flex;align-items:center;gap:6px">'
+        +'<div><div style="font-size:13px;font-weight:600">'+escHtml(p.id)+' <span style="font-size:11px;color:#aaa">'+cur.sessions_total+' dərs | '+money(cur.list_price)+' ₼ | '+cur.duration_days+' gün</span></div>'
+        +'<div style="font-size:12px;color:#888">'+escHtml(cur.name||p.name)+'</div>'
+        +(next?'<div style="font-size:10px;color:#1565C0;margin-top:2px">Planlı '+fmt(next.valid_from)+': '+money(next.list_price)+' ₼ · '+next.sessions_total+' dərs · '+next.duration_days+' gün</div>':'')+'</div>'
+        +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">'
         +'<span class="badge '+(act?'b-green':'b-gray')+'">'+(act?'Aktiv':'Deaktiv')+'</span>'
+        +'<button class="btn btn-gray btn-sm" onclick="openEditProg(\''+p.id+'\')">✏ Düzəliş</button>'
         +'<button class="btn '+(act?'btn-gray':'btn-g')+' btn-sm" onclick="toggleProg(\''+p.id+'\','+(!act)+')">'+(act?'Deaktiv et':'Aktiv et')+'</button>'
         +'<button class="btn btn-gray btn-sm" style="color:#C62828" onclick="deleteProg(\''+p.id+'\')">❌ Sil</button>'
         +'</div></div>';
@@ -7843,10 +7941,86 @@ async function submitAddProg(){
   try{
     var prog={id:id,name:name,list_price:price,sessions_total:sessions,duration_days:days,is_partner:isPartner,is_active:true,sort_order:sort};
     await dbPost('programs',prog);
+    var pv=Object.assign({
+      program_id:id,program_name:name,is_partner:isPartner,valid_from:td(),
+      list_price:price,sessions_total:sessions,duration_days:days
+    },getActorMeta());
+    await dbPost('program_versions',pv);
     D.programs.push(prog);
     D.programs.sort(function(a,b){return (a.sort_order||99)-(b.sort_order||99);});
+    D.programVersions=null;await ensureProgramVersions(true);
     S.showAddProg=false;
   }catch(e){alert('Xeta: '+e.message);}
+  S.saving=false;render();
+}
+
+async function openEditProg(id){
+  try{await ensureProgramVersions();}catch(e){alert('Proqram tarixçəsi yüklənmədi: '+e.message);return;}
+  S.editProg=id;render();
+}
+function rModalEditProg(){
+  var base=getProgramById(S.editProg);
+  if(!base)return'';
+  var cur=getProgramTermsAtSync(base.id,td())||base;
+  return '<div class="ov" onclick="S.editProg=null;render()"><div class="modal" onclick="event.stopPropagation()">'
+    +'<div class="mtitle">✏ Proqram Düzəliş</div>'
+    +'<div class="al al-b" style="font-size:12px">Yeni şərtlər seçilən tarixdən qüvvəyə minir. Əvvəlki tarixlərin hesabatları dəyişmir.</div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">ID</label><input class="fi" id="ep-id" value="'+escHtml(base.id)+'" readonly style="background:#f5f5f5"></div>'
+    +'<div class="fg"><label class="fl">Sıra (sort)</label><input class="fi" id="ep-sort" type="number" value="'+(base.sort_order||99)+'"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Ad *</label><input class="fi" id="ep-name" value="'+escHtml(cur.name||base.name)+'"></div>'
+    +'<div class="fi-row">'
+    +'<div class="fg"><label class="fl">Qiymət (AZN)</label><input class="fi" id="ep-price" type="number" min="0" step="0.01" value="'+money(cur.list_price)+'"></div>'
+    +'<div class="fg"><label class="fl">Dərs sayı</label><input class="fi" id="ep-sessions" type="number" min="1" value="'+(parseInt(cur.sessions_total)||1)+'"></div>'
+    +'<div class="fg"><label class="fl">Müddət (gün)</label><input class="fi" id="ep-days" type="number" min="1" value="'+(parseInt(cur.duration_days)||30)+'"></div>'
+    +'</div>'
+    +'<div class="fg"><label class="fl">Qüvvəyə minmə tarixi *</label><input class="fi" id="ep-valid-from" type="date" value="'+td()+'">'
+    +'<div style="font-size:11px;color:#888;margin-top:4px">Bu tarixdən etibarən yeni şərtlər tətbiq ediləcək.</div></div>'
+    +'<div class="fg"><label class="fl">Növ</label><input class="fi" value="'+(base.is_partner?'Partner':'Adi abunəlik')+'" readonly style="background:#f5f5f5"></div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="S.editProg=null;render()">Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitEditProg()">Saxla</button></div>'
+    +'</div></div>';
+}
+async function submitEditProg(){
+  var id=S.editProg;
+  var base=getProgramById(id);
+  if(!base)return;
+  var name=(document.getElementById('ep-name').value||'').trim();
+  var price=money(document.getElementById('ep-price').value);
+  var sessions=parseInt(document.getElementById('ep-sessions').value)||0;
+  var days=parseInt(document.getElementById('ep-days').value)||0;
+  var sort=parseInt(document.getElementById('ep-sort').value)||99;
+  var validFrom=document.getElementById('ep-valid-from').value;
+  if(!name||!validFrom){alert('Ad və qüvvəyə minmə tarixi mütləqdir.');return;}
+  if(price<0||sessions<1||days<1){alert('Qiymət 0 və ya böyük, dərs sayı və müddət isə ən azı 1 olmalıdır.');return;}
+  var oldCur=getProgramTermsAtSync(id,td())||base;
+  S.saving=true;render();
+  try{
+    var pv=Object.assign({
+      program_id:id,program_name:name,is_partner:!!base.is_partner,valid_from:validFrom,
+      list_price:price,sessions_total:sessions,duration_days:days
+    },getActorMeta());
+    await dbPost('program_versions',pv);
+    // Keep programs as the current master fallback when the version is already effective.
+    var masterPatch={sort_order:sort};
+    if(validFrom<=td()){
+      masterPatch.name=name;masterPatch.list_price=price;masterPatch.sessions_total=sessions;masterPatch.duration_days=days;
+    }
+    await dbPatch('programs','id=eq.'+id,masterPatch);
+    base.sort_order=sort;
+    if(validFrom<=td()){
+      base.name=name;base.list_price=price;base.sessions_total=sessions;base.duration_days=days;
+    }
+    D.programs.sort(function(a,b){return(a.sort_order||99)-(b.sort_order||99);});
+    D.programVersions=null;await ensureProgramVersions(true);
+    S.reportData=null;
+    logAudit('program',id,'edit',
+      'Proqram şərtləri yeniləndi — '+id+' — '+validFrom,
+      {program_id:id,program_name:oldCur.name,list_price:oldCur.list_price,sessions_total:oldCur.sessions_total,duration_days:oldCur.duration_days,valid_from:oldCur._valid_from||null},
+      {program_id:id,program_name:name,list_price:price,sessions_total:sessions,duration_days:days,valid_from:validFrom,source_flow:'submitEditProg'});
+    S.editProg=null;
+  }catch(e){alert('Xəta: '+e.message);}
   S.saving=false;render();
 }
 
@@ -7879,7 +8053,10 @@ async function toggleInst(id,val){
 }
 
 
-function openSingleAtt(custId){S.singleCust=custId;S.showSingleAtt=true;S.singleAttDate=null;S.singleAttProgId=null;S.singleAttAcctId=null;S.singleAttDue=null;S.singleAttPaid=null;render();}
+async function openSingleAtt(custId){
+  try{await ensureProgramVersions();}catch(e){alert('Proqram qiymət tarixçəsi yüklənmədi: '+e.message);return;}
+  S.singleCust=custId;S.showSingleAtt=true;S.singleAttDate=null;S.singleAttProgId=null;S.singleAttAcctId=null;S.singleAttDue=null;S.singleAttPaid=null;render();
+}
 
 function rModalSingleAtt(){
   var c=null;
@@ -7889,15 +8066,16 @@ function rModalSingleAtt(){
   if(D.accounts){for(var ai=0;ai<D.accounts.length;ai++){var acc=D.accounts[ai];if(isRealPaymentAccount(acc)){var acSel=(S.singleAttAcctId===acc.id)?' selected':'';saAcctOpts+='<option value="'+acc.id+'"'+acSel+'>'+acc.name+'</option>';}}}  
   // Build prog options — restore selected from state
   var progOpts='<option value="">— Proqram seçin —</option>';
+  var saDateVal=S.singleAttDate||td();
   for(var i=0;i<D.programs.length;i++){
-    var p=D.programs[i];
+    var baseP=D.programs[i];
+    var p=getProgramTermsAtSync(baseP.id,saDateVal)||baseP;
     if(!p.is_active)continue;
     if(p.id==='RTEST'||(p.sessions_total!==1&&['ROTG','ROTI','ROF','RPP','RPS'].indexOf(p.id)<0))continue;
     var sel=(S.singleAttProgId===p.id)?' selected':'';
-    var displayPrice=(p.id==='RTEST')?0:p.list_price;
+    var displayPrice=(p.id==='RTEST')?0:money(p.list_price);
     progOpts+='<option value="'+p.id+'"'+sel+' data-price="'+displayPrice+'" data-partner="'+(p.is_partner?'1':'0')+'" data-name="'+escHtml(p.name)+'">'+escHtml(p.name)+' — '+displayPrice+' AZN</option>';
   }
-  var saDateVal=S.singleAttDate||td();
   var tOpts2='<option value="">— Saat seçin —</option>';var now2=new Date();var nowH2=now2.getHours();for(var i=0;i<TIMES.length;i++){var th2=parseInt(TIMES[i]);var isFuture2=saDateVal===td()&&th2>nowH2+1;tOpts2+='<option value="'+TIMES[i]+'"'+(isFuture2?' disabled title="Hələ başlamayıb"':'')+'>'+TIMES[i]+'</option>';}
   var iOpts='<option value="">— Instruktor seçin —</option>';for(var i=0;i<D.instructors.length;i++)iOpts+='<option value="'+D.instructors[i].id+'">'+D.instructors[i].full_name+'</option>';
   return '<div class="ov" onclick="S.showSingleAtt=false;S.singleAttProgId=null;S.singleAttDate=null;S.singleAttAcctId=null;S.singleAttDue=null;S.singleAttPaid=null;render()"><div class="modal" onclick="event.stopPropagation()">'
@@ -7906,7 +8084,7 @@ function rModalSingleAtt(){
     +'<div style="font-size:11px;color:#aaa;font-weight:600">'+c.id+'</div>'
     +'<div style="font-size:14px;font-weight:700">'+c.name+'</div></div>'
     +'<div class="fg"><label class="fl">Proqram *</label><select class="fs" id="sa-prog" onchange="S.singleAttProgId=this.value;updateSingleProgram()">'+progOpts+'</select></div>'
-    +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sa-date" type="date" value="'+(S.singleAttDate||td())+'" onchange="S.singleAttDate=this.value;render()"></div>'
+    +'<div class="fg"><label class="fl">Tarix *</label><input class="fi" id="sa-date" type="date" value="'+(S.singleAttDate||td())+'" onchange="changeSingleAttDate(this.value)"></div>'
     +'<div class="fi-row">'
     +'<div class="fg"><label class="fl">Sinif saati *</label><select class="fs" id="sa-time">'+tOpts2+'</select></div>'
     +'<div class="fg"><label class="fl">İnstruktor *</label><select class="fs" id="sa-inst">'+iOpts+'</select></div>'
@@ -7922,14 +8100,22 @@ function rModalSingleAtt(){
     +'</div></div>';
 }
 
-function updateSingleProgram(){
+async function changeSingleAttDate(v){
+  S.singleAttDate=v;
+  S.singleAttDue=null;S.singleAttPaid=null;
+  if(S.singleAttProgId){
+    var p=await getProgramTermsAt(S.singleAttProgId,v||td());
+    if(p){S.singleAttDue=(p.id==='RTEST')?0:money(p.list_price);S.singleAttPaid=S.singleAttDue;}
+  }
+  render();
+}
+async function updateSingleProgram(){
   var sel=document.getElementById('sa-prog');
   if(!sel||!sel.value)return;
   S.singleAttProgId=sel.value;
-  var prog=null;
-  for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===sel.value){prog=D.programs[i];break;}}
+  var prog=await getProgramTermsAt(sel.value,S.singleAttDate||td());
   if(!prog)return;
-  var singlePrice=(prog.id==='RTEST')?0:prog.list_price;
+  var singlePrice=(prog.id==='RTEST')?0:money(prog.list_price);
   // State-ə yaz — render() zamanı bərpa edilir
   S.singleAttDue=singlePrice;
   S.singleAttPaid=singlePrice;
@@ -7940,7 +8126,7 @@ function updateSingleProgram(){
   var acctSel=document.getElementById('sa-account');
   var hint=document.getElementById('sa-partner-hint');
   if(prog.is_partner){
-    var acctId=partnerAcctId(prog.name);
+    var acctId=getPartnerReceivableAccountId(prog.id)||partnerAcctId(prog.name);
     S.singleAttAcctId=acctId; // state-ə yaz
     var acctName=acctId;
     for(var i=0;i<(D.accounts||[]).length;i++){if(D.accounts[i].id===acctId){acctName=D.accounts[i].name;break;}}
@@ -7969,6 +8155,8 @@ async function submitSingleAtt(){
   var saAcctIdPre=S.singleAttAcctId||(document.getElementById('sa-account')?document.getElementById('sa-account').value:'');
   var saPaidPre=S.singleAttPaid!==null?S.singleAttPaid:(parseFloat(document.getElementById('sa-paid')?document.getElementById('sa-paid').value:0)||0);
   var due=S.singleAttDue!==null?S.singleAttDue:(parseFloat(document.getElementById('sa-due')?document.getElementById('sa-due').value:0)||0);
+  var effectiveSingleProg=await getProgramTermsAt(progId,saDate||td());
+  if(effectiveSingleProg&&effectiveSingleProg.is_partner){due=money(effectiveSingleProg.list_price);saPaidPre=due;}
   var paid=saPaidPre;
   if(progId==='RTEST'){due=0;paid=0;}
   if(!progId||!time||!instId||!S.singleCust){alert('Proqram, saat və instruktor seçilməlidir');return;}
@@ -7993,7 +8181,7 @@ async function submitSingleAtt(){
       var c=null,inst=null,prog=null;
       for(var i=0;i<D.customers.length;i++){if(D.customers[i].id===S.singleCust){c=D.customers[i];break;}}
       for(var i=0;i<D.instructors.length;i++){if(D.instructors[i].id===instId){inst=D.instructors[i];break;}}
-      for(var i=0;i<D.programs.length;i++){if(D.programs[i].id===progId){prog=D.programs[i];break;}}
+      prog=effectiveSingleProg||getProgramById(progId);
       var att={id:uid(),customer_id:S.singleCust,customer_name:c.name,
         subscription_id:null,
         program_id:progId,program_name:prog.name,
@@ -8009,7 +8197,7 @@ async function submitSingleAtt(){
         S.selDateAtts.unshift(att);
       }
       // Determine account: partner → alacaq account, else selected account
-      var saAcctId=prog.is_partner?partnerAcctId(prog.name):saAcctIdPre;
+      var saAcctId=prog.is_partner?(getPartnerReceivableAccountId(prog.id)||partnerAcctId(prog.name)):saAcctIdPre;
       var saPaid=saPaidPre;
       if(saAcctId&&saPaid>0){
         var desc=(prog?prog.name:'Tək giriş')+' — '+c.name;
@@ -8370,10 +8558,12 @@ function submitCust(){
   if(p){var _pn=normalizePhoneForStorage(p);if(_pn===null){alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return;}p=_pn;}
   doAddCust(n,p,b);
 }
-function updatePrice(){
+async function updatePrice(){
   var sel=document.getElementById('m-prog');
   if(!sel)return;
-  var prog=getProgramById(sel.value);
+  var sdEl=document.getElementById('m-startdate');
+  var sd=sdEl&&sdEl.value?sdEl.value:td();
+  var prog=await getProgramTermsAt(sel.value,sd);
   if(prog){
     var lp=document.getElementById('m-list-price');
     var disc=document.getElementById('m-discount');
@@ -8385,7 +8575,7 @@ function updatePrice(){
     if(disc)disc.value=0;
     if(due)due.value=price;
     if(paid)paid.value=price;
-    if(hint)hint.textContent='Paket: '+price+' AZN | Endirim: 0 AZN | Ödənilməli: '+price+' AZN';
+    if(hint)hint.textContent='Paket: '+price+' AZN | Endirim: 0 AZN | Ödənilməli: '+price+' AZN | Qüvvədə: '+fmt(prog._valid_from||sd);
   }
 }
 function updateSubDiscount(){
@@ -8499,6 +8689,7 @@ function sv(v){
   if(v==='admin'&&!canSeeAdmin())v='home';
   // Client requests inbox lazy-load on tab entry (proja-client-request-admin-inbox-v1)
   if(v==='clientRequests'&&!S.clientReqData&&!S.clientReqLoading)fetchClientRequests();
+  if((v==='admin'||v==='report')&&!Array.isArray(D.programVersions)&&!PROGRAM_VERSIONS_PROMISE){ensureProgramVersions().then(function(){if(S.view===v)render();}).catch(function(e){console.warn('program_versions load failed',e.message);});}
   if(v==='report'&&isCashier()&&S.reportTab==='salary')S.reportTab='izleme';
   if(v==='report'&&isCashier()&&S.reportTab==='hareket')S.reportTab='izleme';
   S.view=v;S.search='';S.selCust=null;S.selLead=null;
