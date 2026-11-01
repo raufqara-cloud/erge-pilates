@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1</title>
+<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1-rtest-trainer-fee-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -367,6 +367,7 @@ function renderAuditDiff(oldVal, newVal, entityType, action){
     var old_=typeof oldVal==='string'?JSON.parse(oldVal):oldVal;
     var new_=typeof newVal==='string'?JSON.parse(newVal):newVal;
     if(!old_&&!new_)return'';
+    if(action==='trial_fee_version_create'&&new_)return '<div>Sınaq trener haqqı: <b>'+escHtml(String(new_.amount))+' ₼</b> · '+escHtml(String(new_.valid_from))+'</div>';
     // Local helpers
     function _chip(lbl,val){
       if(val===null||val===undefined||String(val)==='')return'';
@@ -1226,7 +1227,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1-rtest-trainer-fee-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -5551,7 +5552,7 @@ function _entryTermsDate(){return(S.slotAttData&&S.slotAttData.dateStr)||td();}
 function getSingleEntryPrograms(){
   var ids=['ROF','RPP','RPS','ROTG','ROTI'];
   return(D.programs||[]).map(function(p){return getProgramTermsAtSync(p.id,_entryTermsDate())||p;}).filter(function(p){
-    return p.is_active!==false&&(ids.indexOf(p.id)>=0||p.sessions_total<=1);
+    return p.id!=='RTEST'&&p.is_active!==false&&(ids.indexOf(p.id)>=0||p.sessions_total<=1);
   });
 }
 function getPartnerEntryPrograms(){
@@ -6516,7 +6517,108 @@ function rIzleme(){
 
   return h;
 }
+
+// RTEST fixed trainer fee. Separate from customer prices/percentage commissions.
+function trialFeeToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
+function trialFeeValidDate(d){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(d||''))return false;
+  var x=new Date(d+'T00:00:00Z');return !isNaN(x.getTime())&&x.toISOString().slice(0,10)===d;
+}
+function validateTrialFeeVersions(rows){
+  if(!Array.isArray(rows)||!rows.length)throw new Error('Sınaq trener haqqı konfiqurasiyası yoxdur. SQL migration yoxlanılmalıdır.');
+  var seen={};
+  rows.forEach(function(r){
+    if(!trialFeeValidDate(r.valid_from)||seen[r.valid_from]||r.amount===null||r.amount===''||!Number.isFinite(Number(r.amount))||Number(r.amount)<0||Math.abs(Number(r.amount)*100-Math.round(Number(r.amount)*100))>0.000001)throw new Error('Sınaq haqqı tarixçəsi etibarsızdır.');
+    seen[r.valid_from]=true;
+  });
+  return rows.slice().sort(function(a,b){return a.valid_from.localeCompare(b.valid_from);});
+}
+async function fetchTrialFeeVersions(){
+  return validateTrialFeeVersions(await dbGetAll('trial_trainer_fee_versions','select=id,valid_from,amount,created_at,created_by&order=valid_from.asc,id.asc',1000));
+}
+function resolveTrialTrainerFee(rows,date){
+  var found=null;
+  for(var i=0;i<rows.length;i++)if(rows[i].valid_from<=date)found=rows[i];
+  return found;
+}
+function invalidateTrialSalary(){S.reportData=null;S.trialSalaryRevision=(S.trialSalaryRevision||0)+1;}
+function addTrialSalary(instData,leads,versions,month){
+  var count=0,totalCents=0,seen={};
+  leads.forEach(function(l){
+    if(seen[l.id])return;seen[l.id]=true;
+    if(!l.trial_done_at||!l.trial_done_instructor_id||!trialFeeValidDate(l.trial_class_date)||l.trial_class_date.slice(0,7)!==month)return;
+    var fee=resolveTrialTrainerFee(versions,l.trial_class_date);
+    if(!fee)return; // Before first configured effective date: no trial salary.
+    var id=l.trial_done_instructor_id;
+    if(!instData[id])instData[id]={name:l.trial_done_instructor_name||id,pct:0,sessions:0,gross:0,commission:0,days:{},commSources:[]};
+    var ins=instData[id],cents=Math.round(Number(fee.amount)*100);
+    if(!ins.trial)ins.trial={count:0,cents:0,groups:{},rows:[]};
+    var t=ins.trial,key=fee.id;
+    if(!t.groups[key])t.groups[key]={amount:Number(fee.amount),valid_from:fee.valid_from,count:0,cents:0};
+    t.count++;t.cents+=cents;t.groups[key].count++;t.groups[key].cents+=cents;
+    t.rows.push({id:l.id,name:l.name||l.id,date:l.trial_class_date,time:l.trial_class_time||'',amount:Number(fee.amount),version_id:fee.id,done_at:l.trial_done_at});
+    count++;totalCents+=cents;
+  });
+  return {count:count,cents:totalCents};
+}
+function trainerSalaryTotal(ins){return ins.commission+(ins.trial?ins.trial.cents/100:0);}
+function rTrialSalary(ins,details){
+  if(!ins.trial)return '';
+  var t=ins.trial,h='<div style="padding:8px 14px;background:#faf6ff;border-top:1px solid #eee;font-size:12px"><b>Sınaq məşqi (RTEST)</b> · '+t.count+' məşq';
+  Object.keys(t.groups).forEach(function(k){var g=t.groups[k];h+='<div>'+g.count+' məşq × '+g.amount.toFixed(2)+' ₼ = <b>'+(g.cents/100).toFixed(2)+' ₼</b> <span style="color:#888">('+fmt(g.valid_from)+' tarixindən)</span></div>';});
+  h+='<div>Maaşa əlavə: <b>'+(t.cents/100).toFixed(2)+' ₼</b></div>';
+  if(details)t.rows.forEach(function(r){h+='<div style="padding-top:4px;color:#666">'+fmt(r.date)+' '+escHtml(r.time)+' · '+escHtml(r.name)+' · '+r.amount.toFixed(2)+' ₼</div>';});
+  return h+'</div>';
+}
+async function loadTrialFeeAdmin(){
+  if(!canSeeSalaryReport()||S.trialFeeLoading)return;
+  S.trialFeeLoading=true;S.trialFeeError=null;render();
+  try{S.trialFeeRows=await fetchTrialFeeVersions();}
+  catch(e){S.trialFeeRows=null;S.trialFeeError='Sınaq haqqı yüklənmədi: '+e.message;}
+  S.trialFeeLoading=false;render();
+}
+function rTrialFeeAdmin(){
+  if(!canSeeSalaryReport())return '';
+  var rows=S.trialFeeRows||[],current=resolveTrialTrainerFee(rows,trialFeeToday());
+  var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
+  h+=rAdminAccHdr('trialFee','₼','Sınaq məşqi — trener haqqı',current?Number(current.amount).toFixed(2)+' ₼':'Yüklənməyib','b-purple');
+  if(S.adminOpenSections&&S.adminOpenSections.trialFee){
+    h+='<div style="padding:12px 16px;font-size:12px"><div>Yalnız hesablanan trener maaşına əlavə olunur. Müştəri üçün sınaq ödənişsizdir.</div>';
+    h+='<button class="btn btn-gray btn-sm" onclick="loadTrialFeeAdmin()"'+(S.trialFeeLoading?' disabled':'')+'>↻ Yenilə</button>';
+    if(S.trialFeeLoading)h+='<div>Yüklənir...</div>';
+    if(S.trialFeeError)h+='<div class="errbox">'+escHtml(S.trialFeeError)+'</div>';
+    rows.forEach(function(r){h+='<div style="padding:5px 0">'+fmt(r.valid_from)+' tarixindən → <b>'+Number(r.amount).toFixed(2)+' ₼</b></div>';});
+    h+='<div style="margin-top:8px;color:#777">Əvvəlki versiyalar dəyişdirilmir. Yeni tarix həm bugündən, həm son versiyadan sonra olmalıdır.</div>';
+    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><input class="fi" aria-label="Trener haqqı" type="number" min="0" step="0.01" style="width:120px" value="'+escHtml(S.trialFeeDraftAmount||'')+'" oninput="S.trialFeeDraftAmount=this.value" placeholder="Məbləğ (₼)">';
+    h+='<input class="fi" aria-label="Qüvvəyə minmə tarixi" type="date" value="'+escHtml(S.trialFeeDraftDate||'')+'" onchange="S.trialFeeDraftDate=this.value" style="width:160px">';
+    h+='<button class="btn btn-g btn-sm" onclick="saveTrialFeeVersion()"'+(S.trialFeeSaving||!rows.length?' disabled':'')+'>'+(S.trialFeeSaving?'Saxlanılır...':'Yeni versiya əlavə et')+'</button></div></div>';
+  }
+  return h+'</div>';
+}
+async function saveTrialFeeVersion(){
+  if(!canSeeSalaryReport()||S.trialFeeSaving)return;
+  var raw=S.trialFeeDraftAmount,date=S.trialFeeDraftDate,amount=Number(raw);
+  if(!/^\d+(\.\d{1,2})?$/.test(raw||'')||!Number.isFinite(amount)||amount<0||amount>99999999.99)return alert('Düzgün məbləğ daxil edin (maksimum 2 onluq).');
+  if(!trialFeeValidDate(date)||date<=trialFeeToday())return alert('Yeni versiyanın tarixi bugündən sonra olmalıdır.');
+  S.trialFeeSaving=true;S.trialFeeError=null;render();
+  var saved=false;
+  try{
+    var rows=await fetchTrialFeeVersions();
+    if(date<=rows[rows.length-1].valid_from)throw new Error('Tarix son mövcud versiyadan sonra olmalıdır.');
+    var row={id:'TTF'+Date.now().toString(36)+Math.random().toString(36).slice(2,8),valid_from:date,amount:amount,created_by:visibleUsername(S.currentUser)};
+    await dbPost('trial_trainer_fee_versions',row);saved=true;invalidateTrialSalary();
+    S.trialFeeRows=rows.concat([row]);S.trialFeeDraftAmount='';S.trialFeeDraftDate='';
+    await logAudit('program','RTEST','trial_fee_version_create','Sınaq trener haqqı: '+amount.toFixed(2)+' AZN — '+date,null,row);
+  }catch(e){S.trialFeeError=(saved?'Versiya saxlanıldı; ':'Saxlanılmadı: ')+e.message;}
+  S.trialFeeSaving=false;render();
+}
+
 async function fetchReport(month){
+  if(!canSeeSalaryReport()||S.reportLoading)return;
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(month||''))return;
+  var revision=S.trialSalaryRevision||0;
+  var nextMonth=addDays(month+'-28',4).slice(0,7)+'-01';
+  S.reportError=null;
   S.reportLoading=true;S.reportData=null;render();
   try{
     await ensureProgramVersions();
@@ -6524,8 +6626,14 @@ async function fetchReport(month){
     var instMap={};
     for(var i=0;i<allInst.length;i++){instMap[allInst[i].id]=allInst[i];}
 
+    // Fresh narrow salary-only sources; CRM UI cache is deliberately not used.
+    var trialSources=await Promise.all([
+      dbGetAll('leads','select=id,name,trial_class_date,trial_class_time,trial_done_at,trial_done_instructor_id,trial_done_instructor_name&trial_done_at=not.is.null&trial_done_instructor_id=not.is.null&trial_class_date=gte.'+month+'-01&trial_class_date=lt.'+nextMonth+'&order=trial_class_date.asc,id.asc',1000),
+      fetchTrialFeeVersions()
+    ]);
+    if(trialSources[0].length>=100000)throw new Error('Sınaq məlumatı limitdən çoxdur; tam hesabat alınmadı.');
     // Fetch attendances WITH subscription and program data joined via separate queries
-    var atts=await dbGet('attendances','class_date=gte.'+month+'-01&class_date=lte.'+month+'-31&order=class_date');
+    var atts=await dbGet('attendances','class_date=gte.'+month+'-01&class_date=lt.'+nextMonth+'&order=class_date');
     
     // Fetch ALL subscriptions referenced in these attendances
     var subIds=[...new Set(atts.filter(function(a){return a.subscription_id;}).map(function(a){return a.subscription_id;}))];
@@ -6620,8 +6728,10 @@ async function fetchReport(month){
       if(inst.commSources.indexOf(commSource)<0)inst.commSources.push(commSource);
     }
 
-    S.reportData={month:month,instData:instData,totalAtts:atts.length};
-  }catch(e){alert('Hesabat xetasi: '+e.message);}
+    var trialSummary=addTrialSalary(instData,trialSources[0],trialSources[1],month);
+    if(revision!==(S.trialSalaryRevision||0))throw new Error('Sınaq məlumatları dəyişdi. Hesabla düyməsini yenidən basın.');
+    if(S.reportMonth===month)S.reportData={month:month,instData:instData,totalAtts:atts.length,totalTrials:trialSummary.count,trialCents:trialSummary.cents};
+  }catch(e){S.reportError='Hesabat hesablanmadı: '+e.message;}
   S.reportLoading=false;render();
 }
 
@@ -7119,25 +7229,27 @@ function rReport(){
     return h;
   }
   
+  if(S.reportError)h+='<div class="errbox">'+escHtml(S.reportError)+'</div>';
   if(!S.reportData){
     h+='<div class="empty">Ay seçib "Hesabla" düyməsinə basın</div>';
     return h;
   }
   
   var d=S.reportData;
-  var instList=Object.values(d.instData).filter(function(x){return x.sessions>0;});
-  instList.sort(function(a,b){return b.commission-a.commission;});
+  var instList=Object.values(d.instData).filter(function(x){return x.sessions>0||(x.trial&&x.trial.count>0);});
+  instList.sort(function(a,b){return trainerSalaryTotal(b)-trainerSalaryTotal(a);});
   
-  var totalComm=instList.reduce(function(s,x){return s+x.commission;},0);
+  var totalComm=instList.reduce(function(s,x){return s+trainerSalaryTotal(x);},0);
   var totalGross=instList.reduce(function(s,x){return s+x.gross;},0);
   
   // Summary
   h+='<div class="sgrid" style="grid-template-columns:repeat(3,1fr)">'
     +'<div class="scard"><div class="snum">'+d.totalAtts+'</div><div class="slbl">Ümumi iştirak</div></div>'
     +'<div class="scard"><div class="snum">'+Math.round(totalGross)+' ₼</div><div class="slbl">Ümumi gəlir (dərslər üzrə)</div></div>'
-    +'<div class="scard"><div class="snum">'+Math.round(totalComm)+' ₼</div><div class="slbl">Ümumi trener haqqı</div></div>'
+    +'<div class="scard"><div class="snum">'+totalComm.toFixed(2)+' ₼</div><div class="slbl">Ümumi trener haqqı</div></div>'
     +'</div>';
   
+  h+='<div class="al al-g">Sınaq məşqləri (RTEST): '+(d.totalTrials||0)+' · Maaşa əlavə: '+((d.trialCents||0)/100).toFixed(2)+' ₼. Faktiki ödəniş Kassa-da ayrıca aparılır.</div>';
   if(!instList.length){
     h+='<div class="empty">Bu ay üçün məlumat yoxdur</div>';
     return h;
@@ -7156,14 +7268,15 @@ function rReport(){
     var bg=i%2===0?'#fff':'#fafcfa';
     var isSelected=S.selReportInst===instId;
     var mixedComm=ins.commSources&&ins.commSources.indexOf('prog')>=0;
-    var faizCell=mixedComm?'<span class="badge b-purple" style="font-size:10px;padding:2px 6px">Qarışıq</span>':ins.pct+'%';
+    var faizCell=ins.sessions===0?'Sabit':mixedComm?'<span class="badge b-purple" style="font-size:10px;padding:2px 6px">Qarışıq</span>':ins.pct+'%';
     h+='<div style="display:grid;grid-template-columns:1fr 60px 100px 60px 110px;padding:11px 14px;background:'+(isSelected?'#E8F5EE':bg)+';border-top:1px solid #f0f0f0;font-size:13px;align-items:center;cursor:pointer" onclick="S.selReportInst='+(isSelected?'null':'\''+instId+'\'')+';render()">'
-      +'<div style="font-weight:500">'+ins.name+' <span style="font-size:11px;color:#1D9E75">'+(isSelected?'▲ bağla':'▼ detallar')+'</span></div>'
+      +'<div style="font-weight:500">'+escHtml(ins.name)+' <span style="font-size:11px;color:#1D9E75">'+(isSelected?'▲ bağla':'▼ detallar')+'</span></div>'
       +'<div style="text-align:right;color:#666">'+ins.sessions+'</div>'
       +'<div style="text-align:right;color:#666">'+Math.round(ins.gross)+' ₼</div>'
       +'<div style="text-align:right;color:#666">'+faizCell+'</div>'
-      +'<div style="text-align:right;font-weight:600;color:#0F6E56">'+Math.round(ins.commission)+' ₼</div>'
+      +'<div style="text-align:right;font-weight:600;color:#0F6E56">'+trainerSalaryTotal(ins).toFixed(2)+' ₼</div>'
       +'</div>';
+    h+=rTrialSalary(ins,isSelected);
     // Daily breakdown
     if(isSelected&&ins.days){
       var days=Object.keys(ins.days).sort();
@@ -7201,7 +7314,7 @@ function rReport(){
     +'<div style="text-align:right">'+instList.reduce(function(s,x){return s+x.sessions;},0)+'</div>'
     +'<div style="text-align:right">'+Math.round(totalGross)+' ₼</div>'
     +'<div></div>'
-    +'<div style="text-align:right;color:#0F6E56">'+Math.round(totalComm)+' ₼</div>'
+    +'<div style="text-align:right;color:#0F6E56">'+totalComm.toFixed(2)+' ₼</div>'
     +'</div>';
   
   h+='</div>';
@@ -7216,6 +7329,7 @@ function toggleAdminSection(key){
   if(key==='auditlog'&&S.adminOpenSections['auditlog']&&!S.auditLogData&&!S.auditLogLoading){
     loadAuditLog();
   }
+  if(key==='trialFee'&&S.adminOpenSections.trialFee)loadTrialFeeAdmin();
   if(key==='insts'&&S.adminOpenSections['insts']&&!S.commRulesCache&&!S.commRulesLoading){
     loadCommRulesCache();
   }
@@ -7372,6 +7486,8 @@ function rAdmin(){
   }
   h+='</div>';
 
+  h+=rTrialFeeAdmin();
+
   // ── HESABLAR ──
   var allAccts=D.accounts||[];
   var acctBadge=allAccts.length+' hesab';
@@ -7456,8 +7572,8 @@ function rAdmin(){
     h+='</select>';
     // Action type filter
     h+='<select class="fs" style="width:auto;font-size:13px;padding:6px 10px" onchange="S.auditLogAction=this.value;S.auditLogData=null;render()">';
-    var _actypes=["","create","edit","delete","cancel"];
-    var _aclabels=["Əməliyyat tipi","create","edit","delete","ləğv (cancel)"];
+    var _actypes=["","create","edit","delete","cancel","trial_fee_version_create"];
+    var _aclabels=["Əməliyyat tipi","create","edit","delete","ləğv (cancel)","Sınaq trener haqqı — yeni versiya"];
     for(var _aci=0;_aci<_actypes.length;_aci++){h+='<option value="'+_actypes[_aci]+'"'+(S.auditLogAction===_actypes[_aci]?' selected':'')+'>'+_aclabels[_aci]+'</option>';}
     h+='</select>';
     // User/operator filter — datalist from appUsersData + loaded audit rows
@@ -10669,6 +10785,7 @@ async function fetchLeads(){
 }
 
 function leadsInvalidate(){
+  invalidateTrialSalary();
   S.leadsData=null;S.leadsLoaded=false;
 }
 
