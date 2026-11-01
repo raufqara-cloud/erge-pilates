@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1-rtest-trainer-fee-v1</title>
+<title>Erge Pilates — proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1-rtest-trainer-fee-v1-hotfix1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1227,7 +1227,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1-rtest-trainer-fee-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: proja-client-request-admin-inbox-v1-hotfix2-kassa-balance-fix1-program-edit-effective-v1-rtest-trainer-fee-v1-hotfix1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -6519,6 +6519,9 @@ function rIzleme(){
 }
 
 // RTEST fixed trainer fee. Separate from customer prices/percentage commissions.
+// Accepted earliest salary applicability boundary; amount stays DB-configurable.
+// New versions are append-only, so no configuration can apply before this date.
+var TRIAL_SALARY_START_DATE='2026-11-01';
 function trialFeeToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
 function trialFeeValidDate(d){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(d||''))return false;
@@ -6534,7 +6537,16 @@ function validateTrialFeeVersions(rows){
   return rows.slice().sort(function(a,b){return a.valid_from.localeCompare(b.valid_from);});
 }
 async function fetchTrialFeeVersions(){
-  return validateTrialFeeVersions(await dbGetAll('trial_trainer_fee_versions','select=id,valid_from,amount,created_at,created_by&order=valid_from.asc,id.asc',1000));
+  try{
+    return validateTrialFeeVersions(await dbGetAll('trial_trainer_fee_versions','select=id,valid_from,amount,created_at,created_by&order=valid_from.asc,id.asc',1000));
+  }catch(e){
+    var detail={};try{detail=JSON.parse(e.message);}catch(ignore){}
+    if((detail.code==='PGRST205'||detail.code==='42P01')&&String(detail.message||'').indexOf('trial_trainer_fee_versions')>=0){
+      var setupError=new Error('Sınaq haqqı cədvəli API-də tapılmır. Project A bazasında ilkin quraşdırmanı yoxlayın (01-rtest-trainer-fee-migration.sql); sonra bu bölməni yeniləyin. Oktyabr 2026 və daha əvvəlki maaş hesabatları bu quraşdırmadan asılı deyil.');
+      setupError.code='TRIAL_FEE_SETUP_REQUIRED';throw setupError;
+    }
+    throw e;
+  }
 }
 function resolveTrialTrainerFee(rows,date){
   var found=null;
@@ -6572,21 +6584,22 @@ function rTrialSalary(ins,details){
 }
 async function loadTrialFeeAdmin(){
   if(!canSeeSalaryReport()||S.trialFeeLoading)return;
-  S.trialFeeLoading=true;S.trialFeeError=null;render();
+  S.trialFeeLoading=true;S.trialFeeError=null;S.trialFeeNeedsSetup=false;render();
   try{S.trialFeeRows=await fetchTrialFeeVersions();}
-  catch(e){S.trialFeeRows=null;S.trialFeeError='Sınaq haqqı yüklənmədi: '+e.message;}
+  catch(e){S.trialFeeRows=null;S.trialFeeNeedsSetup=e.code==='TRIAL_FEE_SETUP_REQUIRED';S.trialFeeError='Sınaq haqqı yüklənmədi: '+e.message;}
   S.trialFeeLoading=false;render();
 }
 function rTrialFeeAdmin(){
   if(!canSeeSalaryReport())return '';
   var rows=S.trialFeeRows||[],current=resolveTrialTrainerFee(rows,trialFeeToday());
   var h='<div style="background:#fff;border:1px solid #eaeaea;border-radius:12px;margin-bottom:8px;overflow:hidden">';
-  h+=rAdminAccHdr('trialFee','₼','Sınaq məşqi — trener haqqı',current?Number(current.amount).toFixed(2)+' ₼':'Yüklənməyib','b-purple');
+  h+=rAdminAccHdr('trialFee','₼','Sınaq məşqi — trener haqqı',current?Number(current.amount).toFixed(2)+' ₼':(S.trialFeeNeedsSetup?'Quraşdırmanı yoxlayın':'Yüklənməyib'),'b-purple');
   if(S.adminOpenSections&&S.adminOpenSections.trialFee){
     h+='<div style="padding:12px 16px;font-size:12px"><div>Yalnız hesablanan trener maaşına əlavə olunur. Müştəri üçün sınaq ödənişsizdir.</div>';
     h+='<button class="btn btn-gray btn-sm" onclick="loadTrialFeeAdmin()"'+(S.trialFeeLoading?' disabled':'')+'>↻ Yenilə</button>';
     if(S.trialFeeLoading)h+='<div>Yüklənir...</div>';
     if(S.trialFeeError)h+='<div class="errbox">'+escHtml(S.trialFeeError)+'</div>';
+    if(!rows.length)return h+'</div></div>';
     rows.forEach(function(r){h+='<div style="padding:5px 0">'+fmt(r.valid_from)+' tarixindən → <b>'+Number(r.amount).toFixed(2)+' ₼</b></div>';});
     h+='<div style="margin-top:8px;color:#777">Əvvəlki versiyalar dəyişdirilmir. Yeni tarix həm bugündən, həm son versiyadan sonra olmalıdır.</div>';
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"><input class="fi" aria-label="Trener haqqı" type="number" min="0" step="0.01" style="width:120px" value="'+escHtml(S.trialFeeDraftAmount||'')+'" oninput="S.trialFeeDraftAmount=this.value" placeholder="Məbləğ (₼)">';
@@ -6627,10 +6640,14 @@ async function fetchReport(month){
     for(var i=0;i<allInst.length;i++){instMap[allInst[i].id]=allInst[i];}
 
     // Fresh narrow salary-only sources; CRM UI cache is deliberately not used.
-    var trialSources=await Promise.all([
-      dbGetAll('leads','select=id,name,trial_class_date,trial_class_time,trial_done_at,trial_done_instructor_id,trial_done_instructor_name&trial_done_at=not.is.null&trial_done_instructor_id=not.is.null&trial_class_date=gte.'+month+'-01&trial_class_date=lt.'+nextMonth+'&order=trial_class_date.asc,id.asc',1000),
-      fetchTrialFeeVersions()
-    ]);
+    var trialSources=[[],[]];
+    // Pre-rule months require neither trial config nor leads; preserve old payroll.
+    if(month>=TRIAL_SALARY_START_DATE.slice(0,7)){
+      trialSources=await Promise.all([
+        dbGetAll('leads','select=id,name,trial_class_date,trial_class_time,trial_done_at,trial_done_instructor_id,trial_done_instructor_name&trial_done_at=not.is.null&trial_done_instructor_id=not.is.null&trial_class_date=gte.'+month+'-01&trial_class_date=lt.'+nextMonth+'&order=trial_class_date.asc,id.asc',1000),
+        fetchTrialFeeVersions()
+      ]);
+    }
     if(trialSources[0].length>=100000)throw new Error('Sınaq məlumatı limitdən çoxdur; tam hesabat alınmadı.');
     // Fetch attendances WITH subscription and program data joined via separate queries
     var atts=await dbGet('attendances','class_date=gte.'+month+'-01&class_date=lt.'+nextMonth+'&order=class_date');
