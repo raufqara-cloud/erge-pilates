@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — sub-att-date-audit-v1</title>
+<title>Erge Pilates — customer-identity-guard-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -866,9 +866,16 @@ async function loadAll(){
 }
 
 async function doAddCust(name,phone,birth){
-  S.saving=true;render();
+  if(S.saving||S.customerIdentityBusy)return;
+  var identity=validateCustomerIdentityInput(name,phone,birth);
+  if(!identity)return;
+  S.customerIdentityBusy=true;
+  var started=false;
   try{
-    var rows=await dbPost('customers',{name:name,phone:phone||'',birth_date:birth||''});
+    var check=analyzeCustomerIdentity(identity,await fetchCustomerIdentityRows());
+    if(!confirmCustomerIdentitySave(check))return;
+    S.saving=true;started=true;render();
+    var rows=await dbPost('customers',identity);
     var row=Array.isArray(rows)?rows[0]:rows;
     if(row){
       D.customers.unshift(row);
@@ -876,7 +883,7 @@ async function doAddCust(name,phone,birth){
     }
     S.showAddCust=false;
   }catch(e){alert('Xeta: '+e.message);}
-  S.saving=false;render();
+  finally{S.customerIdentityBusy=false;if(started){S.saving=false;render();}}
 }
 
 async function doAddSub(custId,progId,listPriceAtSale,discountAmount,discountNote,priceDue,pricePaid,startDate,isPending,acctId){
@@ -1270,7 +1277,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: sub-att-date-audit-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: customer-identity-guard-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1313,6 +1320,7 @@ function render(){
   if(S.showAddLead)h+=rModalAddLead();
   if(S.selLead)h+=rModalLeadDetail();
   if(S.leadLostModal)h+=rModalLeadLost();
+  if(S.leadConvertModal)h+=rModalLeadConvert();
   if(S.showCommRuleModal)h+=rModalCommRule();
   if(S.showAddUser)h+=rModalAddUser();
   if(S.showEditUser)h+=rModalEditUser();
@@ -1820,8 +1828,8 @@ function rModalAddCust(){
     +'<div class="mtitle">Yeni Mustəri</div>'
     +'<div class="fg"><label class="fl">Soyad Ad *</label><input class="fi" id="m-name" placeholder="Leyla Əliyeva"></div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="m-phone" placeholder="+994501234567 və ya +905551112233"></div>'
-    +'<div class="fg"><label class="fl">Dogum tarixi</label><input class="fi" id="m-birth" type="date"></div>'
+    +'<div class="fg"><label class="fl">Telefon *</label><input class="fi" id="m-phone" placeholder="+994501234567 və ya +905551112233" required></div>'
+    +'<div class="fg"><label class="fl">Doğum tarixi *</label><input class="fi" id="m-birth" type="date" required></div>'
     +'</div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.showAddCust=false;render()">Legv et</button>'
     +'<button class="btn btn-g" onclick="submitCust()">Əlavə et</button></div>'
@@ -8582,8 +8590,8 @@ function rModalEditCust(){
     +'<div style="font-size:11px;color:#aaa;font-weight:600;margin-bottom:12px">'+c.id+'</div>'
     +'<div class="fg"><label class="fl">Soyad Ad *</label><input class="fi" id="ec-name" value="'+(c.name||'')+'"></div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Telefon</label><input class="fi" id="ec-phone" value="'+(c.phone||'')+'" placeholder="+994501234567 və ya +905551112233"></div>'
-    +'<div class="fg"><label class="fl">Doğum tarixi</label><input class="fi" id="ec-birth" type="date" value="'+(c.birth_date||'')+'"></div>'
+    +'<div class="fg"><label class="fl">Telefon *</label><input class="fi" id="ec-phone" value="'+(c.phone||'')+'" placeholder="+994501234567 və ya +905551112233" required></div>'
+    +'<div class="fg"><label class="fl">Doğum tarixi *</label><input class="fi" id="ec-birth" type="date" value="'+(c.birth_date||'')+'" required></div>'
     +'</div>'
     +'<div class="mact"><button class="btn btn-gray" onclick="S.editCust=null;render()">Ləğv et</button>'
     +'<button class="btn btn-g" onclick="submitEditCust()">Saxla</button></div>'
@@ -8591,11 +8599,14 @@ function rModalEditCust(){
 }
 
 async function submitEditCust(){
+  if(S.saving||S.customerIdentityBusy)return;
   var name=document.getElementById('ec-name').value.trim();
   var phone=document.getElementById('ec-phone').value.trim();
   var birth=document.getElementById('ec-birth').value;
-  if(!name||!S.editCust)return;
-  if(phone){var _pn=normalizePhoneForStorage(phone);if(_pn===null){alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return;}phone=_pn;}
+  if(!S.editCust)return;
+  var identity=validateCustomerIdentityInput(name,phone,birth);
+  if(!identity)return;
+  phone=identity.phone;
   // Capture old snapshot before DB write or render (DOM may be replaced after render())
   var _custId=S.editCust;
   var _oldSnap=null;
@@ -8605,8 +8616,12 @@ async function submitEditCust(){
       break;
     }
   }
-  S.saving=true;render();
+  S.customerIdentityBusy=true;
+  var started=false;
   try{
+    var check=analyzeCustomerIdentity(identity,await fetchCustomerIdentityRows(),_custId);
+    if(!confirmCustomerIdentitySave(check))return;
+    S.saving=true;started=true;render();
     await dbPatch('customers','id=eq.'+_custId,{name:name,phone:phone||'',birth_date:birth||null});
     for(var i=0;i<D.customers.length;i++){
       if(D.customers[i].id===_custId){
@@ -8619,7 +8634,7 @@ async function submitEditCust(){
     logAudit('customer',_custId,'edit',_custId+' — '+name+' müştəri məlumatları yeniləndi',_oldSnap,{id:_custId,name:name,phone:phone||'',birth_date:birth||''});
     S.editCust=null;
   }catch(e){alert('Xeta: '+e.message);}
-  S.saving=false;render();
+  finally{S.customerIdentityBusy=false;if(started){S.saving=false;render();}}
 }
 function rModalEditSub(){
   var sub=null;
@@ -8737,9 +8752,7 @@ function submitCust(){
   var n=document.getElementById('m-name').value.trim();
   var p=document.getElementById('m-phone').value.trim();
   var b=document.getElementById('m-birth').value;
-  if(!n)return;
-  if(p){var _pn=normalizePhoneForStorage(p);if(_pn===null){alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return;}p=_pn;}
-  doAddCust(n,p,b);
+  return doAddCust(n,p,b);
 }
 async function updatePrice(){
   var sel=document.getElementById('m-prog');
@@ -10776,6 +10789,57 @@ function phoneKey(raw){
   if(norm===null)return(raw+'').replace(/\D/g,'');
   return norm.replace(/\D/g,'');
 }
+
+// customer-identity-guard-v1: runtime keys only; stored/display names are unchanged.
+function normalizeCustomerNameKey(name){
+  return norm((name||'').trim()).replace(/i\u0307/g,'i').split(/\s+/).filter(Boolean).sort().join('|');
+}
+function validateCustomerIdentityInput(name,phone,birth){
+  name=(name||'').trim();phone=(phone||'').trim();birth=(birth||'').trim();
+  if(!name){alert('Soyad Ad daxil edin');return null;}
+  if(!phone){alert('Telefon nömrəsi daxil edin');return null;}
+  var canonical=normalizePhoneForStorage(phone);
+  if(!canonical){
+    alert('Telefon formatı düzgün deyil. Azərbaycan nömrəsi üçün 0501234567 və ya +994501234567, xarici nömrə üçün + ölkə kodu ilə daxil edin.');return null;
+  }
+  if(!birth){alert('Doğum tarixi daxil edin');return null;}
+  var date=new Date(birth+'T00:00:00Z');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(birth)||!isFinite(date.getTime())||date.toISOString().slice(0,10)!==birth){
+    alert('Doğum tarixini düzgün daxil edin');return null;
+  }
+  return{name:name,phone:canonical,birth_date:birth};
+}
+async function fetchCustomerIdentityRows(){
+  // Complete fresh on-demand identity scan, independent of D.customers/loadAll().
+  var rows=await dbGetAll('customers','select=id,name,phone,birth_date&order=id.asc',1000);
+  if(!Array.isArray(rows)||rows.length>=100000)throw new Error('Müştəri identity yoxlaması tamamlana bilmədi. Saxlanılmadı; yenidən cəhd edin.');
+  return rows;
+}
+function analyzeCustomerIdentity(identity,rows,excludeId){
+  var pk=phoneKey(identity.phone),nk=normalizeCustomerNameKey(identity.name);
+  var exact=[],shared=[];
+  rows.forEach(function(c){
+    if(c.id===excludeId)return;
+    var samePhone=!!pk&&phoneKey(c.phone)===pk;
+    var sameName=!!nk&&normalizeCustomerNameKey(c.name)===nk;
+    if(c.birth_date===identity.birth_date&&(samePhone||sameName))exact.push(c);
+    if(samePhone)shared.push(c);
+  });
+  return{exact:exact,shared:shared};
+}
+function customerIdentityLabel(c){
+  return c.id+' — '+(c.name||'')+' — '+(c.birth_date||'Doğum tarixi yoxdur');
+}
+function confirmCustomerIdentitySave(check){
+  if(check.exact.length){
+    alert('Bu telefon nömrəsi və ya ad-soyad ilə eyni doğum tarixli müştəri artıq mövcuddur:\n'
+      +check.exact.map(customerIdentityLabel).join('\n')+'\n\nTəkrar müştəri saxlamaq mümkün deyil. Mövcud müştəri kartından istifadə edin.');
+    return false;
+  }
+  if(check.shared.length)return confirm('Bu telefon nömrəsi artıq aşağıdakı müştərilərdə istifadə olunur:\n'
+    +check.shared.map(customerIdentityLabel).join('\n')+'\n\nTelefon ailə/ortaq nömrədirsə davam edə bilərsiniz. Davam etmək istəyirsiniz?');
+  return true;
+}
 // Returns digits for WhatsApp URL (no '+')
 function phoneToWhatsAppDigits(raw){
   if(!raw)return'';
@@ -11646,13 +11710,17 @@ async function submitLeadDetail(leadId){
 
 // --- Convert to Customer ---
 
-// createCustomerFromLead: standalone helper, does NOT modify doAddCust()
-async function createCustomerFromLead(lead){
-  var rows=await dbPost('customers',{name:lead.name,phone:lead.phone||'',birth_date:''});
+// Standalone customer writer; conversion DOB is transient, not a leads column.
+async function createCustomerFromLead(lead,identity){
+  identity=validateCustomerIdentityInput(identity&&identity.name,identity&&identity.phone,identity&&identity.birth_date);
+  if(!identity)return null;
+  var check=analyzeCustomerIdentity(identity,await fetchCustomerIdentityRows());
+  if(!confirmCustomerIdentitySave(check))return null;
+  var rows=await dbPost('customers',identity);
   var row=Array.isArray(rows)?rows[0]:rows;
   if(row){
     D.customers.unshift(row);
-    logAudit('customer',row.id,'create',row.name+' müştəri (lead çevrilməsi) yaradıldı',null,{id:row.id,name:row.name,phone:row.phone||'',birth_date:'',source_flow:'lead_convert',lead_id:lead.id});
+    logAudit('customer',row.id,'create',row.name+' müştəri (lead çevrilməsi) yaradıldı',null,{id:row.id,name:row.name,phone:row.phone||'',birth_date:row.birth_date||'',source_flow:'lead_convert',lead_id:lead.id});
   }
   return row;
 }
@@ -11668,55 +11736,124 @@ function findExistingCustByPhone(phone){
 }
 
 async function doConvertLead(leadId){
+  if(S.saving||S.customerIdentityBusy)return;
   var lead=getLead(leadId);
   if(!lead){alert('Lead tapılmadı');return;}
   if(lead.status==='converted'){alert('Bu lead artıq müştəriyə çevrilib');return;}
 
-  // Duplicate customer phone check — must happen before any DB write
-  var existingCust=findExistingCustByPhone(lead.phone);
-  if(existingCust){
-    if(!confirm('Bu telefon artıq mövcud müştəridə var: '+existingCust.name+' ('+existingCust.id+')\nBu lead-i həmin müştəriyə bağlamaq istəyirsiniz?'))return;
-    // Link lead to existing customer — no new customer created
-    S.saving=true;render();
-    try{
-      await dbPatch('leads','id=eq.'+leadId,{status:'converted',converted_customer_id:existingCust.id});
-      S.selLead=null;
-      leadsInvalidate();
-      await fetchLeads();
-      S.saving=false;render();
-      if(confirm('Lead mövcud müştəriyə bağlandı: '+existingCust.name+' ('+existingCust.id+')\n\nMüştəri prefinə keçmək istəyirsiniz?')){
-        S.view='cust';S.selCust=existingCust.id;render();
-      }
-    }catch(e){alert('Xəta: '+e.message);S.saving=false;render();}
-    return;
+  S.leadConvertModal={leadId:leadId,name:lead.name||'',phone:lead.phone||'',birth:'',
+    leadName:lead.name||'',leadPhone:lead.phone||'',candidates:null,choice:''};
+  render();
+}
+function closeLeadConvert(){
+  if(S.customerIdentityBusy||S.saving)return;
+  S.leadConvertModal=null;render();
+}
+function changeLeadConvertField(field,value){
+  var m=S.leadConvertModal;if(!m)return;
+  m[field]=value;m.candidates=null;m.choice='';
+  // Full render would interrupt typing. Remove stale choices in place instead.
+  var choices=document.getElementById('lc-candidates');if(choices)choices.innerHTML='';
+}
+function rModalLeadConvert(){
+  var m=S.leadConvertModal;if(!m)return'';
+  var dis=S.saving||S.customerIdentityBusy?' disabled':'';
+  var options='';
+  if(m.candidates){
+    options='<div class="al al-y" style="margin-bottom:10px">Telefon ortaqdır və ya bir neçə dəqiq uyğunluq var. Müştərini məlumatları ilə yoxlayıb seçin.</div>'
+      +'<div class="fg"><label class="fl">Müştəri seçimi *</label><select class="fi" id="lc-choice" onchange="S.leadConvertModal.choice=this.value"'+dis+'>'
+      +'<option value="">— Seçin —</option>';
+    m.candidates.forEach(function(c){
+      options+='<option value="'+escHtml(c.id)+'"'+(m.choice===c.id?' selected':'')+'>'+escHtml(customerIdentityLabel(c))+'</option>';
+    });
+    if(m.allowNew)options+='<option value="__new__"'+(m.choice==='__new__'?' selected':'')+'>Yeni müştəri yarat — telefon ailə/ortaq nömrədir</option>';
+    options+='</select></div>';
   }
-
-  if(!confirm('Bu lead-i müştəriyə çevirmək istəyirsiniz?\nAd: '+lead.name+'\nTelefon: '+(lead.phone||'')))return;
-  S.saving=true;render();
+  return '<div class="ov" onclick="closeLeadConvert()"><div class="modal" onclick="event.stopPropagation()" style="width:480px;max-width:100%;max-height:90vh;overflow-y:auto">'
+    +'<div class="mtitle">Müştəriyə çevir</div>'
+    +'<div class="fg"><label class="fl">Soyad Ad *</label><input class="fi" value="'+escHtml(m.name)+'" readonly></div>'
+    +'<div class="fg"><label class="fl">Telefon *</label><input class="fi" id="lc-phone" value="'+escHtml(m.phone)+'" oninput="changeLeadConvertField(\'phone\',this.value)" required'+dis+'></div>'
+    +'<div class="fg"><label class="fl">Doğum tarixi *</label><input class="fi" id="lc-birth" type="date" value="'+escHtml(m.birth)+'" oninput="changeLeadConvertField(\'birth\',this.value)" required'+dis+'></div>'
+    +'<div style="font-size:12px;color:#666;margin-bottom:12px">Telefon və doğum tarixini dəqiqləşdirin. Yeni kart yaradılarsa bu məlumatlar müştəri kartında saxlanacaq.</div>'
+    +'<div id="lc-candidates">'+options+'</div>'
+    +'<div class="mact"><button class="btn btn-gray" onclick="closeLeadConvert()"'+dis+'>Ləğv et</button>'
+    +'<button class="btn btn-g" onclick="submitConvertLead()"'+dis+'>Yoxla və davam et</button></div></div></div>';
+}
+async function linkLeadToCustomer(leadId,customerId){
+  // Scoped representation response; the global return=minimal dbPatch stays intact.
+  var response=await fetch(BASE+'/leads?id=eq.'+encodeURIComponent(leadId)+'&status=neq.converted&converted_customer_id=is.null',{
+    method:'PATCH',headers:Object.assign({},H,{'Prefer':'return=representation'}),
+    body:JSON.stringify({status:'converted',converted_customer_id:customerId})
+  });
+  if(!response.ok)throw new Error(await response.text());
+  var rows=await response.json();
+  if(!Array.isArray(rows)||rows.length!==1||rows[0].id!==leadId||rows[0].converted_customer_id!==customerId){
+    throw new Error('Lead yenilənmədi; başqa sessiyada çevrilmiş ola bilər. Siyahını yeniləyin.');
+  }
+}
+async function submitConvertLead(){
+  var m=S.leadConvertModal;
+  if(!m||S.saving||S.customerIdentityBusy)return;
+  // Capture DOM before any awaited fetch/render. S draft survives full renders.
+  var phoneEl=document.getElementById('lc-phone'),birthEl=document.getElementById('lc-birth');
+  if(phoneEl)m.phone=phoneEl.value;if(birthEl)m.birth=birthEl.value;
+  var identity=validateCustomerIdentityInput(m.name,m.phone,m.birth);
+  if(!identity)return;
+  var choice=m.choice;
+  S.customerIdentityBusy=true;
+  var started=false,newCust=null;
   try{
-    var newCust=await createCustomerFromLead(lead);
-    if(!newCust||!newCust.id)throw new Error('Müştəri yaradıla bilmədi — DB cavab vermədi');
-    // Update lead — if this fails, customer exists but lead stays active (tolerable, show warning)
-    try{
-      await dbPatch('leads','id=eq.'+leadId,{status:'converted',converted_customer_id:newCust.id});
-    }catch(e2){
-      S.saving=false;
-      S.selLead=null;
-      leadsInvalidate();
-      await fetchLeads();
-      alert('Müştəri yaradıldı ('+newCust.id+'), lakin lead statusu yenilənərkən xəta baş verdi.\nLeadi manual "Müştəri oldu" statusuna çevirin.\nXəta: '+e2.message);
-      return;
+    var fresh=await dbGet('leads','select=id,name,phone,status,converted_customer_id&id=eq.'+encodeURIComponent(m.leadId)+'&limit=1');
+    var lead=fresh&&fresh[0];
+    if(!lead)throw new Error('Lead tapılmadı. Siyahını yeniləyin.');
+    if(lead.status==='converted'||lead.converted_customer_id)throw new Error('Bu lead artıq müştəriyə bağlanıb. Siyahını yeniləyin.');
+    if((lead.name||'')!==m.leadName||(lead.phone||'')!==m.leadPhone)throw new Error('Lead məlumatları dəyişib. Pəncərəni bağlayıb yenidən açın.');
+    var check=analyzeCustomerIdentity(identity,await fetchCustomerIdentityRows());
+    var candidates=check.exact.length?check.exact:check.shared;
+    var existingCust=null;
+    if(check.exact.length===1){
+      existingCust=check.exact[0];
+    }else if(candidates.length){
+      // A fresh candidate set must be displayed before manual choice is trusted.
+      var candidateKey=JSON.stringify(candidates.map(function(c){return[c.id,c.name,c.phone,c.birth_date];}));
+      if(!m.candidates||m.candidateKey!==candidateKey||m.allowNew!==(check.exact.length===0)){
+        m.candidates=candidates;m.candidateKey=candidateKey;m.allowNew=check.exact.length===0;m.choice='';
+        return;
+      }
+      if(!choice){alert('Müştərini seçin və ya ortaq telefonla yeni müştəri yaradılmasını seçin.');return;}
+      if(choice==='__new__'){
+        if(check.exact.length)throw new Error('Dəqiq uyğunluq var. Yeni müştəri yaradıla bilməz.');
+      }else{
+        existingCust=candidates.filter(function(c){return c.id===choice;})[0];
+        if(!existingCust)throw new Error('Seçilmiş müştəri artıq uyğun siyahıda deyil. Yenidən yoxlayın.');
+      }
     }
-    S.selLead=null;
-    leadsInvalidate();
-    await fetchLeads();
-    S.saving=false;render();
-    if(confirm('Müştəri yaradıldı: '+escHtml(newCust.name)+' ('+newCust.id+')\n\nMüştəri prefinə keçmək istəyirsiniz?')){
-      S.view='cust';S.selCust=newCust.id;render();
+    if(existingCust){
+      if(!confirm('Lead bu müştəriyə bağlanacaq:\n'+customerIdentityLabel(existingCust)
+        +'\n\nDaxil edilən şəxs: '+identity.name+' — '+identity.birth_date+'\nMəlumatları yoxladınız? Davam edilsin?'))return;
+    }else if(!confirm('Yeni müştəri yaradılsın?\n'+identity.name+'\n'+identity.phone+'\n'+identity.birth_date))return;
+    S.saving=true;started=true;render();
+    if(!existingCust){
+      newCust=await createCustomerFromLead(lead,identity);
+      if(!newCust)return;
+      if(!newCust.id)throw new Error('Müştəri yaradıla bilmədi — DB cavabını yoxlayın.');
     }
-    return;
-  }catch(e){alert('Xəta: '+e.message);}
-  S.saving=false;render();
+    var target=existingCust||newCust;
+    // Never overwrite an already-converted lead from a stale tab. Representation
+    // is required so zero updated rows cannot be reported as a successful link.
+    await linkLeadToCustomer(m.leadId,target.id);
+    S.leadConvertModal=null;S.selLead=null;
+    leadsInvalidate();await fetchLeads();
+    if(confirm('Lead müştəriyə bağlandı: '+customerIdentityLabel(target)+'\n\nMüştəri profilinə keçmək istəyirsiniz?')){
+      S.view='cust';S.selCust=target.id;
+    }
+  }catch(e){
+    alert((newCust&&newCust.id?'Müştəri yaradıldı ('+newCust.id+'), lakin lead bağlantısı tamamlanmadı. Yenidən yoxlayın; mövcud karta bağlanacaq.\n':'')+'Xəta: '+e.message);
+  }finally{
+    S.customerIdentityBusy=false;if(started)S.saving=false;
+    // Also render the newly prepared candidate picker. Draft values stay in S.
+    if(S.leadConvertModal===m||started)render();
+  }
 }
 
 
