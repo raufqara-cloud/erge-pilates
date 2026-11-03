@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Erge Pilates — customer-identity-guard-v1</title>
+<title>Erge Pilates — trial-reception-ux-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1277,7 +1277,7 @@ function render(){
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" title="PIN dəyiş" onclick="openSelfPinChange()">🔑</button>'
     +'<button class="btn btn-gray btn-sm" style="padding:4px 8px;font-size:11px" onclick="switchUser()">↩</button>'
     +'</div>';
-  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: customer-identity-guard-v1</small></div>'
+  var h='<div class="topbar"><div class="logo">ERGE <span>PILATES</span> <small style="font-size:10px;color:#999;font-weight:500">build: trial-reception-ux-v1</small></div>'
     +'<div style="display:flex;align-items:center;gap:10px">'
     +'<div class="nav">'
     +'<button class="'+(S.view==='home'?'active':'')+'" onclick="sv(\'home\')">Əsas</button>'
@@ -1321,6 +1321,8 @@ function render(){
   if(S.selLead)h+=rModalLeadDetail();
   if(S.leadLostModal)h+=rModalLeadLost();
   if(S.leadConvertModal)h+=rModalLeadConvert();
+  if(S.trialPlanner)h+=rTrialPlanner();
+  if(S.trialCompletionModal)h+=rTrialCompletion();
   if(S.showCommRuleModal)h+=rModalCommRule();
   if(S.showAddUser)h+=rModalAddUser();
   if(S.showEditUser)h+=rModalEditUser();
@@ -4607,6 +4609,85 @@ function getCustomerWeeklySlotCountForPermanentLimit(custId,dateStr){
   return count;
 }
 
+
+// Trial reception UX: shared operations; all changes remain in the existing lead/slot model.
+function trialLocalToday(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+async function trialFreshLead(id){var a=await dbGet('leads','id=eq.'+encodeURIComponent(id)+'&select=*&limit=1');if(!a||!a.length)throw new Error('Lead tapılmadı.');return a[0];}
+async function trialConditionalPatch(id,filter,body){
+  var r=await fetch(BASE+'/leads?id=eq.'+encodeURIComponent(id)+'&'+filter,{method:'PATCH',headers:Object.assign({},H,{'Prefer':'return=representation'}),body:JSON.stringify(body)});
+  if(!r.ok)throw new Error(await r.text());var a=await r.json();if(!Array.isArray(a)||a.length!==1)throw new Error('Məlumat başqa cihazda dəyişib. Səhifəni yeniləyin.');return a[0];
+}
+async function createTrialSlotForLead(id,slot,note,flow){
+  var lead=await trialFreshLead(id);
+  if(lead.status==='converted')throw new Error('Bu şəxs artıq müştəridir.');
+  if(lead.status==='trial_done')throw new Error('Sınaq artıq keçib.');
+  if(lead.trial_booking_ex_id||lead.status==='trial_scheduled')throw new Error('Artıq aktiv sınaq var. Əvvəl slotu silin.');
+  if(lead.status==='lost')throw new Error('İtirilmiş müraciət üçün əvvəl statusu yeniləyin.');
+  if(hasLeadTrialOnDate(id,slot.date))throw new Error('Bu tarixdə artıq sınaq planlanıb.');
+  var dupe=await dbGet('booking_exceptions','type=eq.trial_add&temp_lead_id=eq.'+encodeURIComponent(id)+'&exception_date=eq.'+slot.date+'&select=id&limit=1');
+  if(dupe&&dupe.length)throw new Error('Bu tarixdə artıq sınaq var; başqa cihazda yaradılmış ola bilər.');
+  var cap=await checkBookingSlotCapacity(slot.dow,slot.time,slot.date);if(!cap.ok)throw new Error(cap.msg);
+  var eid='EX'+Date.now()+Math.random().toString(36).slice(2,7);
+  var ex={id:eid,booking_id:null,exception_date:slot.date,type:'trial_add',temp_lead_id:id,temp_lead_name:lead.name||'',day_of_week:slot.dow,time_slot:slot.time,note:note||null};
+  await dbPost('booking_exceptions',ex);
+  var body={status:'trial_scheduled',trial_booking_ex_id:eid,trial_class_date:slot.date,trial_class_time:slot.time};
+  try{await trialConditionalPatch(id,'status=eq.'+encodeURIComponent(lead.status)+'&trial_booking_ex_id=is.null',body);}
+  catch(e){
+    try{var r=await fetch(BASE+'/booking_exceptions?id=eq.'+encodeURIComponent(eid),{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});if(!r.ok)throw new Error(await r.text());}
+    catch(del){throw new Error('ƏL İLƏ DÜZƏLİŞ LAZIMDIR: Lead yenilənmədi, slot silinmədi. Slot ID: '+eid+'; Lead ID: '+id+'. '+e.message);}
+    throw new Error('Lead yenilənmədi; yaradılmış slot silindi. '+e.message);
+  }
+  if(!S.bronExceptions)S.bronExceptions=[];S.bronExceptions.push(ex);
+  var cached=getLead(id);if(cached)Object.assign(cached,body);
+  logAudit('lead',id,'trial_scheduled','Sınaq planlandı — '+(lead.name||id)+' — '+slot.date+' '+slot.time,{status:lead.status,trial_booking_ex_id:null},Object.assign({exception_id:eid,source_flow:flow},body));
+  leadsInvalidate();await fetchLeads();return true;
+}
+async function completeTrialForLead(id,instId,flow,expectedDate,expectedTime){
+  var inst=(D.instructors||[]).find(function(x){return x.id===instId;});if(!inst)throw new Error('Instruktor seçin.');
+  var lead=await trialFreshLead(id);
+  if(lead.status!=='trial_scheduled'||!lead.trial_booking_ex_id)throw new Error('Aktiv sınaq tapılmadı və ya artıq tamamlanıb.');
+  if(!lead.trial_class_date||lead.trial_class_date>trialLocalToday())throw new Error('Gələcək tarixli sınağı tamamlamaq olmaz.');
+  if(expectedDate&&(lead.trial_class_date!==expectedDate||lead.trial_class_time!==expectedTime))throw new Error('Sınaq vaxtı dəyişib. Yenidən yoxlayın.');
+  var ex=await dbGet('booking_exceptions','id=eq.'+encodeURIComponent(lead.trial_booking_ex_id)+'&type=eq.trial_add&temp_lead_id=eq.'+encodeURIComponent(id)+'&select=id&limit=1');
+  if(!ex||!ex.length)throw new Error('Sınaq slotu tapılmadı.');
+  var body={status:'trial_done',trial_done_at:new Date().toISOString(),trial_done_instructor_id:instId,trial_done_instructor_name:inst.full_name||''};
+  await trialConditionalPatch(id,'status=eq.trial_scheduled&trial_booking_ex_id=eq.'+encodeURIComponent(lead.trial_booking_ex_id),body);
+  var cached=getLead(id);if(cached)Object.assign(cached,body);
+  logAudit('lead',id,'trial_done','Sınaq keçdi — '+(lead.name||id)+' — '+lead.trial_class_date+' '+(lead.trial_class_time||'')+' — '+(inst.full_name||''),{status:'trial_scheduled'},Object.assign({source_flow:flow},body));
+}
+async function openTrialPlanner(id){
+  var l=getLead(id);if(!l||['new','contacted'].indexOf(l.status)<0||l.trial_booking_ex_id)return alert('Bu şəxs üçün sınaq planlamaq mümkün deyil.');
+  S.trialPlanner={id:id,date:trialLocalToday(),loading:true,time:''};render();await loadTrialPlannerDate(S.trialPlanner.date);
+}
+async function loadTrialPlannerDate(date){
+  var m=S.trialPlanner;if(!m)return;m.date=date;m.time='';m.loading=true;render();
+  try{
+    if(!date||date<trialLocalToday())throw new Error('Bu gün və ya sonrakı tarix seçin.');
+    var mon=getWeekMonday(date),end=dateAddDays(mon,27);
+    var results=await Promise.all([dbGet('bookings','is_active=eq.true&order=day_of_week,time_slot'),dbGet('booking_exceptions','exception_date=gte.'+mon+'&exception_date=lte.'+end)]);
+    if(S.trialPlanner!==m||m.date!==date)return;
+    S.bronData=results[0]||[];var ids={};(results[1]||[]).forEach(function(e){ids[e.id]=true;});
+    S.bronExceptions=(results[1]||[]).concat((S.bronExceptions||[]).filter(function(e){return !ids[e.id];}));
+    m.loading=false;m.error='';
+  }catch(e){if(S.trialPlanner!==m||m.date!==date)return;m.loading=false;m.error='Saatlar yüklənmədi. Tarixi və bağlantını yoxlayın.';}
+  render();
+}
+function rTrialPlanner(){
+  var m=S.trialPlanner,l=getLead(m.id);if(!l)return '';var dow=getDayOfWeek(m.date),times=getTimesForDay(dow)||[];
+  var h='<div class="ov"><div class="modal" style="max-width:440px"><div class="mtitle">Sınaq məşqi planla</div><p>'+escHtml(l.name||'')+'</p><div class="fg"><label class="fl">Tarix</label><input class="fi" type="date" min="'+trialLocalToday()+'" value="'+escHtml(m.date)+'" onchange="loadTrialPlannerDate(this.value)"></div>';
+  if(m.loading)h+='<p>Yüklənir...</p>';else if(m.error)h+='<div class="al al-r">'+escHtml(m.error)+'</div>';else if(!times.length)h+='<p>Bu gün üçün saat yoxdur.</p>';else{
+    h+='<label class="fl">Uyğun saatlar</label><div style="display:flex;flex-wrap:wrap;gap:6px">';
+    times.forEach(function(t){var c=getSlotCount(dow,t,m.date);h+='<button class="btn btn-sm '+(m.time===t?'btn-g':'btn-gray')+'" '+(c>=MAX_PER_SLOT?'disabled title="Dolu"':'')+' onclick="S.trialPlanner.time=\''+t+'\';render()">'+t+' — '+c+'/'+MAX_PER_SLOT+(c>=MAX_PER_SLOT?' Dolu':'')+'</button>';});h+='</div>';
+  }
+  return h+'<div class="mact"><button class="btn btn-gray" onclick="S.trialPlanner=null;render()">Ləğv et</button><button class="btn btn-g" '+(!m.time||m.loading||S.saving?'disabled':'')+' onclick="submitTrialPlanner()">Planla</button></div></div></div>';
+}
+async function submitTrialPlanner(){var m=S.trialPlanner;if(!m||!m.time||m.loading||S.saving)return;var slot={date:m.date,dow:getDayOfWeek(m.date),time:m.time};S.saving=true;render();try{await createTrialSlotForLead(m.id,slot,'','lead_planner');S.trialPlanner=null;}catch(e){alert('Sınaq planlanmadı: '+e.message);}finally{S.saving=false;render();}}
+function trialCompletionButton(l){var blocked=!l.trial_class_date||l.trial_class_date>trialLocalToday();return '<button class="btn btn-g btn-sm" '+(blocked?'disabled title="Sınaq günü hələ çatmayıb"':'')+' onclick="openTrialCompletion(\''+escQ(l.id)+'\')">Sınaq gəldi ✓</button>'+(blocked?'<span style="font-size:11px;color:#888"> Sınaq günü hələ çatmayıb</span>':'');}
+function openTrialCompletion(id){var l=getLead(id);if(!l||l.status!=='trial_scheduled'||!l.trial_booking_ex_id)return alert('Aktiv sınaq tapılmadı.');if(!l.trial_class_date||l.trial_class_date>trialLocalToday())return alert('Sınaq günü hələ çatmayıb.');S.trialCompletionModal={id:id,inst:''};render();}
+function rTrialCompletion(){var m=S.trialCompletionModal,l=getLead(m.id);if(!l)return '';var opts='<option value="">— Seçin —</option>';(D.instructors||[]).forEach(function(x){opts+='<option value="'+escHtml(x.id)+'"'+(m.inst===x.id?' selected':'')+'>'+escHtml(x.full_name||'')+'</option>';});return '<div class="ov"><div class="modal" style="max-width:380px"><div class="mtitle">Sınaq məşqi</div><p>'+escHtml(l.name||'')+'<br>'+fmt(l.trial_class_date)+' · '+escHtml(l.trial_class_time||'')+'</p><div class="fg"><label class="fl">Instruktor *</label><select class="fi" onchange="S.trialCompletionModal.inst=this.value">'+opts+'</select></div><div class="mact"><button class="btn btn-gray" onclick="S.trialCompletionModal=null;render()">Ləğv et</button><button class="btn btn-g" '+(S.saving?'disabled':'')+' onclick="submitTrialCompletion()">Davamiyyəti təsdiq et</button></div></div></div>';}
+async function submitTrialCompletion(){var m=S.trialCompletionModal;if(!m||S.saving)return;if(!m.inst)return alert('Instruktor seçin.');S.saving=true;render();try{await completeTrialForLead(m.id,m.inst,'lead_quick_completion');S.trialCompletionModal=null;leadsInvalidate();await fetchLeads();}catch(e){alert('Sınaq tamamlanmadı: '+e.message);}finally{S.saving=false;render();}}
+function rTrialTodayPanel(all){var today=trialLocalToday(),ls=all.filter(function(l){return l.trial_class_date===today&&((l.status==='trial_scheduled'&&l.trial_booking_ex_id)||l.status==='trial_done');}).sort(function(a,b){return (a.trial_class_time||'').localeCompare(b.trial_class_time||'');});var h='<div class="card" style="display:block;margin-bottom:14px"><b>Bugünkü sınaqlar — '+ls.length+'</b>';if(!ls.length)h+='<div style="color:#888;font-size:12px;margin-top:6px">Bu gün üçün sınaq yoxdur.</div>';ls.forEach(function(l){h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:7px 0;border-top:1px solid #eee"><span>'+escHtml(l.trial_class_time||'')+' &nbsp; '+escHtml(l.name||'')+'</span>'+(l.status==='trial_done'?'<span>✓ Keçdi</span>':trialCompletionButton(l))+'</div>';});return h+'</div>';}
+
 async function submitTempAdd(){
   var noteEl=document.getElementById('ta-note');
   var sourceEl=document.getElementById('ta-source');
@@ -4620,70 +4701,11 @@ async function submitTempAdd(){
     var leadIdEl=document.getElementById('ta-lead-id');
     var leadId=leadIdEl?leadIdEl.value.trim():'';
     if(!leadId)return alert('Lead seçin');
-    var lead=getLead(leadId);
-    if(!lead)return alert('Lead tapılmadı. Yenidən cəhd edin.');
-    if(lead.status==='converted')return alert('Bu lead artıq müştəriyə çevrilib. Sınaq slotu yaradıla bilməz.');
-    if(lead.status==='trial_done')return alert('Bu leadın sınağı artıq keçib. Bu mərhələdə yeni sınaq slotu yaradılmır.');
-    if(hasLeadActiveTrial(leadId))return alert('Bu leadın artıq aktiv sınaq slotu var. Əvvəlcə mövcud slotu lead kartından silin.');
-    if(hasLeadTrialOnDate(leadId,slot.date))return alert('Bu lead həmin tarixdə artıq sınaq bronundadır.');
-    try{
-      var _dbTrial=await dbGet('booking_exceptions','type=eq.trial_add&temp_lead_id=eq.'+leadId+'&exception_date=eq.'+slot.date+'&select=id&limit=1');
-      if(_dbTrial&&_dbTrial.length>0)return alert('Bu lead həmin tarixdə artıq sınaq bronundadır (başqa cihazdan yaradılmış ola bilər).');
-    }catch(e){}
-    var prevStatus=lead.status;
-    var eid='EX'+Date.now();
-    var ex={
-      id:eid,
-      booking_id:null,
-      exception_date:slot.date,
-      type:'trial_add',
-      temp_lead_id:leadId,
-      temp_lead_name:lead.name||'',
-      day_of_week:slot.dow,
-      time_slot:slot.time,
-      note:userNote||null
-    };
-    S.saving=true;S.showTempAdd=false;render();
-    try{
-      await dbPost('booking_exceptions',ex);
-    }catch(e){
-      S.saving=false;render();
-      return alert('Sınaq slotu yaradılarkən xəta: '+e.message);
-    }
-    try{
-      await dbPatch('leads','id=eq.'+leadId,{
-        status:'trial_scheduled',
-        trial_booking_ex_id:eid,
-        trial_class_date:slot.date,
-        trial_class_time:slot.time
-      });
-    }catch(e2){
-      try{
-        await fetch(BASE+'/booking_exceptions?id=eq.'+eid,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
-        S.saving=false;render();
-        return alert('Sınaq slotu yaradıldı, lakin lead yenilənərkən xəta baş verdi. Slot silinməsi cəhd edildi.\nXəta: '+e2.message);
-      }catch(e3){
-        S.saving=false;render();
-        return alert('MANUAL TƏMİZLƏMƏ LAZIMDIR:\nLead yenilənmədi, slot silinmədi.\nSlot ID: '+eid+'\nLead ID: '+leadId+'\nXəta: '+e2.message);
-      }
-    }
-    if(!S.bronExceptions)S.bronExceptions=[];
-    S.bronExceptions.push(ex);
-    var _leads=S.leadsData||[];
-    for(var i=0;i<_leads.length;i++){
-      if(_leads[i].id===leadId){
-        _leads[i].status='trial_scheduled';
-        _leads[i].trial_booking_ex_id=eid;
-        _leads[i].trial_class_date=slot.date;
-        _leads[i].trial_class_time=slot.time;
-        break;
-      }
-    }
-    logAudit('lead',leadId,'trial_scheduled',
-      'Sınaq slotu yaradıldı — '+escHtml(lead.name||leadId)+' — '+slot.date+' '+slot.time,
-      {status:prevStatus,trial_booking_ex_id:null},
-      {status:'trial_scheduled',trial_booking_ex_id:eid,trial_class_date:slot.date,trial_class_time:slot.time,exception_id:eid,source_flow:'submitTempAdd_trial'});
-    S.saving=false;render();
+    if(S.saving)return;
+    S.saving=true;render();
+    try{if(await createTrialSlotForLead(leadId,slot,userNote,'submitTempAdd_trial'))S.showTempAdd=false;}
+    catch(e){alert(e.message);}
+    finally{S.saving=false;render();}
     return;
   }
 
@@ -5886,37 +5908,11 @@ async function submitSlotAttendance(){
   }
   // --- Trial lead: PATCH lead status to trial_done ---
   var trialDone=0;
-  var instName='';
-  for(var ii=0;ii<D.instructors.length;ii++){if(D.instructors[ii].id===instId){instName=D.instructors[ii].full_name||'';break;}}
   for(var i=0;i<leadSelectedIds.length;i++){
-    var leadId=leadSelectedIds[i];
-    var cu=trialMap[leadId];
+    var leadId=leadSelectedIds[i], cu=trialMap[leadId];
     if(!cu||cu.already||cu.isDisabled)continue;
-    try{
-      var now=new Date().toISOString();
-      await dbPatch('leads','id=eq.'+leadId,{
-        status:'trial_done',
-        trial_done_at:now,
-        trial_done_instructor_id:instId,
-        trial_done_instructor_name:instName
-      });
-      // Update local S.leadsData
-      var _leads=S.leadsData||[];
-      for(var j=0;j<_leads.length;j++){
-        if(_leads[j].id===leadId){
-          _leads[j].status='trial_done';
-          _leads[j].trial_done_at=now;
-          _leads[j].trial_done_instructor_id=instId;
-          _leads[j].trial_done_instructor_name=instName;
-          break;
-        }
-      }
-      logAudit('lead',leadId,'trial_done',
-        'Sınaq keçdi — '+(cu.leadName||leadId)+' — '+sd.dateStr+' '+sd.time+(instName?' — '+instName:''),
-        {status:'trial_scheduled'},
-        {status:'trial_done',trial_done_at:now,trial_done_instructor_id:instId,trial_done_instructor_name:instName,source_flow:'submitSlotAttendance'});
-      trialDone++;
-    }catch(e){errors.push('Lead sınaq: '+e.message);}
+    try{await completeTrialForLead(leadId,instId,'submitSlotAttendance',sd.dateStr,sd.time);trialDone++;}
+    catch(e){errors.push('Sınaq: '+e.message);}
   }
   if(errors.length)alert('Bəzi xətalar:\n'+errors.join('\n'));
   var totalDone=done+trialDone;
@@ -11052,6 +11048,7 @@ function rLeads(){
     +'</div>';
 
   // ── Today + Overdue panel ──
+  h+=rTrialTodayPanel(all);
   h+=rLeadTodayPanel(all,today);
 
   // Funnel summary row
@@ -11288,7 +11285,8 @@ function rLeadCardQuickActions(lead){
   var s=lead.status;
   var h='';
   // Active trial slot: suppress all quick status buttons — Slotu sil in trial info row is the only valid action
-  if(s==='trial_scheduled'&&lead.trial_booking_ex_id){return h;}
+  if(s==='trial_scheduled'&&lead.trial_booking_ex_id){return trialCompletionButton(lead);}
+  if((s==='new'||s==='contacted')&&!lead.trial_booking_ex_id)h+='<button class="btn btn-g btn-sm" onclick="openTrialPlanner(\''+escQ(lead.id)+'\')">Sınaq planla</button>';
   if(s==='new'||s==='contacted'){
     h+='<button class="btn btn-gray btn-sm" style="font-size:11px;color:#0F6E56" onclick="quickLeadStatus(\''+id+'\',\'contacted\')">✓ Əlaqə</button>';
   }
@@ -11335,6 +11333,8 @@ function rModalLeadLost(){
 // --- Quick Lead Actions ---
 
 async function quickLeadStatus(leadId,newStatus){
+  var guardLead=getLead(leadId);
+  if(guardLead&&guardLead.trial_booking_ex_id&&guardLead.status!=='trial_done'){alert('Əvvəl sınaq slotunu silin.');return;}
   if(newStatus==='trial_scheduled'||newStatus==='trial_done'){
     alert('Sınaq statusu yalnız slot/davamiyyət axını ilə dəyişməlidir.');
     return;
@@ -11363,6 +11363,8 @@ async function quickLeadStatus(leadId,newStatus){
 async function quickLeadLostConfirm(){
   if(!S.leadLostModal)return;
   var leadId=S.leadLostModal.id;
+  var guardLead=getLead(leadId);
+  if(guardLead&&guardLead.trial_booking_ex_id&&guardLead.status!=='trial_done'){alert('Əvvəl sınaq slotunu silin.');return;}
   var reasonEl=document.getElementById('lost-reason-sel');
   var reason=reasonEl?reasonEl.value:(S.leadLostModal.reason||'other');
   S.saving=true;render();
@@ -11458,8 +11460,8 @@ function rModalLeadDetail(){
     srcOpts+='<option value="'+sources[i]+'"'+(lead.source===sources[i]?' selected':'')+'>'+sources[i]+'</option>';
   }
   var isConverted=lead.status==='converted';
-  var editStatuses=[['new','Yeni'],['contacted','Əlaqə quruldu'],
-    ['trial_scheduled','Sınaq planlandı'],['trial_done','Sınaq keçdi'],['lost','İtirildi']];
+  var trialManaged=(lead.status==='trial_scheduled'||lead.status==='trial_done'||!!lead.trial_booking_ex_id);
+  var editStatuses=trialManaged?[[lead.status,getLeadStatusLabel(lead.status)]]:[['new','Yeni'],['contacted','Əlaqə quruldu'],['lost','İtirildi']];
   if(isConverted)editStatuses=[['converted','Müştəri oldu']];
   var statOpts='';
   for(var i=0;i<editStatuses.length;i++){
@@ -11488,7 +11490,7 @@ function rModalLeadDetail(){
     +'<div class="fg"><label class="fl">Mənbə</label><select class="fi" id="ld-source"'+dis+'>'+srcOpts+'</select></div>'
     +'</div>'
     +'<div class="fi-row">'
-    +'<div class="fg"><label class="fl">Status</label><select class="fi" id="ld-status"'+dis+'>'+statOpts+'</select></div>'
+    +'<div class="fg"><label class="fl">Status</label><select class="fi" id="ld-status"'+(trialManaged?' disabled':dis)+'>'+statOpts+'</select></div>'
     +'<div class="fg"><label class="fl">Növbəti əlaqə tarixi</label><input class="fi" id="ld-followup" type="date" value="'+(lead.follow_up_date||'')+('"'+dis+' >')+'</div>'
     +'</div>'
     +'<div class="fg"><label class="fl">Cavabdeh</label><select class="fi" id="ld-assigned"'+dis+'>'+instOpts+'</select></div>'
@@ -11684,7 +11686,6 @@ async function submitLeadDetail(leadId){
       name:name,
       phone:phone||null,
       source:source||null,
-      status:statusEl?statusEl.value:'new',
       follow_up_date:(followupEl?followupEl.value:'')||null,
       assigned_to:(assignedEl?assignedEl.value:'')||null,
       notes:(notesEl?notesEl.value.trim():'')||null,
@@ -11697,7 +11698,17 @@ async function submitLeadDetail(leadId){
       consent_date:consentDate,
       last_contact_at:new Date().toISOString()
     };
-    await dbPatch('leads','id=eq.'+leadId,body);
+    var desiredStatus=statusEl?statusEl.value:'new';
+    if(!existingLead)throw new Error('Lead tapılmadı. Yenidən cəhd edin.');
+    if(['trial_scheduled','trial_done'].indexOf(desiredStatus)>=0&&desiredStatus!==existingLead.status)throw new Error('Sınaq statusu yalnız sınaq əməliyyatları ilə dəyişir.');
+    if(existingLead.trial_booking_ex_id||['trial_scheduled','trial_done'].indexOf(existingLead.status)>=0){
+      if(desiredStatus!==existingLead.status)throw new Error('Əvvəl sınaq slotunu ləğv edin.');
+    }else{
+      if(['new','contacted','lost'].indexOf(desiredStatus)<0)throw new Error('Status düzgün deyil.');
+      body.status=desiredStatus;
+    }
+    if(Object.prototype.hasOwnProperty.call(body,'status'))await trialConditionalPatch(leadId,'status=eq.'+encodeURIComponent(existingLead.status)+'&trial_booking_ex_id=is.null',body);
+    else await dbPatch('leads','id=eq.'+leadId,body);
     // Update local S.leadsData
     var _leads=S.leadsData||[];
     for(var i=0;i<_leads.length;i++){if(_leads[i].id===leadId){Object.assign(_leads[i],body);break;}}
