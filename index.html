@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Erge Pilates — responsive-ui-modernization-v1</title>
+<title>Erge Pilates — lead-conversion-integrity-hotfix-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -626,6 +626,11 @@ function renderAuditDiff(oldVal, newVal, entityType, action){
       if(bkd.source_flow)parts.push(_chip('Mənbə',bkd.source_flow));
       if(bkd.note)parts.push(_chip('Qeyd',bkd.note));
       return _chips(parts);
+    }
+    if(entityType==='lead'&&action==='convert'){
+      var cv=new_||{};
+      return _chips([_chip('Lead ID',cv.lead_id),_chip('Müştəri ID',cv.converted_customer_id||cv.customer_id),
+        _chip('Status',((old_&&old_.status)||'—')+' → '+(cv.status||'—')),_chip('Mənbə',cv.source_flow)]);
     }
     // E) lead trial lifecycle
     var TRIAL_ACTS=['trial_scheduled','trial_done','trial_done_reverted','trial_slot_cancelled'];
@@ -1460,7 +1465,7 @@ function render(){
     +'</div>';
   var _viewLabels={home:'Əsas səhifə',att:'Davamiyyət',cust:'Müştərilər',admin:'Admin',report:'Hesabat',kassa:'Kassa',leads:'CRM / Lead',bron:'Qrup Yerləri',clientRequests:'Müraciətlər'};
   var h='<a class="skip-link" href="#main-content">Əsas məzmuna keç</a><header class="topbar">'
-    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">responsive-ui-modernization-v1</small></div>'
+    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">lead-conversion-integrity-hotfix-v1</small></div>'
     +'<button id="app-menu-toggle" class="menu-toggle" aria-controls="app-nav" aria-expanded="'+!!S.uiNavOpen+'" onclick="uiToggleMenu()">'
     +'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
     +'<span class="menu-view-label">'+escHtml(_viewLabels[S.view]||'Menyu')+'</span><span class="menu-caption">Menyu</span></button>'
@@ -3054,87 +3059,50 @@ async function deleteException(exId){
 }
 
 async function cancelTrialSlot(exId,leadId){
-  var _guardLead=getLead(leadId);
-  if(!_guardLead){
-    try{
-      var _fetched=await dbGet('leads','id=eq.'+leadId+'&select=id,name,status,trial_done_at&limit=1');
-      if(_fetched&&_fetched.length)_guardLead=_fetched[0];
-    }catch(e){}
-  }
-  if(_guardLead&&(_guardLead.status==='trial_done'||_guardLead.trial_done_at)){
-    alert('Bu lead artıq sınaq məşqinə davamiyyət kimi qeyd edilib. Əvvəlcə lead kartından sınaq davamiyyətini silin, sonra slotu silə bilərsiniz.');
-    return;
-  }
+  if(S.saving)return;
   if(!confirm('Sınaq slotunu silmək istədiyinizdən əminsinizmi?'))return;
-  var _ex=null;
-  if(S.bronExceptions){for(var _i=0;_i<S.bronExceptions.length;_i++){if(S.bronExceptions[_i].id===exId){_ex=S.bronExceptions[_i];break;}}}
-  var lead=getLead(leadId);
   S.saving=true;render();
+  var deleteAttempted=false,deleted=false;
   try{
-    var r=await fetch(BASE+'/booking_exceptions?id=eq.'+exId,{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
+    // Read after confirmation, immediately before the destructive step.
+    var lead=assertLeadMutable(await trialFreshLead(leadId));
+    if(lead.status==='trial_done'||lead.trial_done_at)throw new Error('Bu lead artıq sınaq məşqinə davamiyyət kimi qeyd edilib. Əvvəlcə lead kartından sınaq davamiyyətini silin, sonra slotu silə bilərsiniz.');
+    if(!exId||lead.trial_booking_ex_id!==exId)throw new Error('Sınaq slotunun bağlantısı dəyişib. Siyahını yeniləyin.');
+    var ex=(S.bronExceptions||[]).find(function(x){return x.id===exId;});
+    deleteAttempted=true;
+    var r=await fetch(BASE+'/booking_exceptions?id=eq.'+encodeURIComponent(exId),{method:'DELETE',headers:Object.assign({},H,{'Prefer':'return=minimal'})});
     if(!r.ok)throw new Error(await r.text());
-    if(S.bronExceptions)S.bronExceptions=S.bronExceptions.filter(function(e){return e.id!==exId;});
+    deleted=true;
+    if(S.bronExceptions)S.bronExceptions=S.bronExceptions.filter(function(x){return x.id!==exId;});
+    var body={status:'contacted',trial_booking_ex_id:null,trial_class_date:null,trial_class_time:null};
+    await trialConditionalPatch(leadId,'status=eq.'+encodeURIComponent(lead.status)+'&trial_booking_ex_id=eq.'+encodeURIComponent(exId)+'&trial_done_at=is.null',body);
+    var cached=getLead(leadId);if(cached)Object.assign(cached,body);
+    logAudit('lead',leadId,'trial_slot_cancelled','Sınaq slotu silindi — '+escHtml(lead.name||leadId)+(ex?' — '+(ex.exception_date||''):''),{status:lead.status,trial_booking_ex_id:exId},Object.assign({source_flow:'cancelTrialSlot'},body));
   }catch(e){
+    if(deleted)alert('Slot silindi, lakin Lead yenilənməsi təsdiqlənmədi. Əməliyyat tam uğurlu sayılmır. Administrator yoxlaması tələb olunur; statusu əl ilə dəyişməyin.\nLead ID: '+leadId+'; Slot ID: '+exId+'\nXəta: '+e.message);
+    else if(deleteAttempted)alert('Slotun silinməsi təsdiqlənmədi; nəticə qeyri-müəyyəndir. Lead statusu dəyişdirilmədi. Administrator yoxlaması tələb olunur.\nLead ID: '+leadId+'; Slot ID: '+exId+'\nXəta: '+e.message);
+    else alert('Slot ləğv edilmədi: '+e.message);
+  }finally{
+    if(deleteAttempted){leadsInvalidate();fetchLeads();}
     S.saving=false;render();
-    return alert('Slot silinərkən xəta: '+e.message);
   }
-  // Update lead
-  try{
-    await dbPatch('leads','id=eq.'+leadId,{status:'contacted',trial_booking_ex_id:null,trial_class_date:null,trial_class_time:null});
-    var _leads=S.leadsData||[];
-    for(var i=0;i<_leads.length;i++){
-      if(_leads[i].id===leadId){
-        _leads[i].status='contacted';
-        _leads[i].trial_booking_ex_id=null;
-        _leads[i].trial_class_date=null;
-        _leads[i].trial_class_time=null;
-        break;
-      }
-    }
-    logAudit('lead',leadId,'trial_slot_cancelled',
-      'Sınaq slotu silindi — '+(lead?escHtml(lead.name||leadId):leadId)+(_ex?' — '+(_ex.exception_date||''):''),
-      {status:'trial_scheduled',trial_booking_ex_id:exId},
-      {status:'contacted',trial_booking_ex_id:null,source_flow:'cancelTrialSlot'});
-  }catch(e2){
-    alert('Slot silindi, lakin lead statusu yenilənmədi. Leadi manual \'Əlaqə quruldu\' statusuna çevirin.\nXəta: '+e2.message);
-  }
-  leadsInvalidate();
-  fetchLeads();
-  S.saving=false;render();
 }
 
 async function revertTrialDone(leadId){
-  var lead=getLead(leadId);
-  if(!lead){alert('Lead tapılmadı.');return;}
-  if(!confirm('Sınaq davamiyyətini silmək istədiyinizdən əminsinizmi? Lead "Sınaq planlandı" statusuna qayıdacaq.'))return;
+  if(S.saving)return;
   S.saving=true;render();
   try{
-    await dbPatch('leads','id=eq.'+leadId,{
-      status:'trial_scheduled',
-      trial_done_at:null,
-      trial_done_instructor_id:null,
-      trial_done_instructor_name:null
-    });
-    var _leads=S.leadsData||[];
-    for(var i=0;i<_leads.length;i++){
-      if(_leads[i].id===leadId){
-        _leads[i].status='trial_scheduled';
-        _leads[i].trial_done_at=null;
-        _leads[i].trial_done_instructor_id=null;
-        _leads[i].trial_done_instructor_name=null;
-        break;
-      }
-    }
-    logAudit('lead',leadId,'trial_done_reverted',
-      'Sınaq davamiyyəti silindi — '+(lead?escHtml(lead.name||leadId):leadId),
-      {status:'trial_done',trial_done_at:lead.trial_done_at,trial_done_instructor_id:lead.trial_done_instructor_id},
-      {status:'trial_scheduled',trial_done_at:null,trial_done_instructor_id:null,source_flow:'revertTrialDone'});
-    leadsInvalidate();
-    fetchLeads();
-  }catch(e){
-    alert('Sınaq davamiyyəti silinərkən xəta: '+e.message);
-  }
-  S.saving=false;render();
+    var lead=assertLeadMutable(await trialFreshLead(leadId));
+    if(lead.status!=='trial_done')throw new Error('Lead artıq sınaq keçdi vəziyyətində deyil. Siyahını yeniləyin.');
+    if(!confirm('Sınaq davamiyyətini silmək istədiyinizdən əminsinizmi? Lead "Sınaq planlandı" statusuna qayıdacaq.'))return;
+    var before={status:lead.status,trial_done_at:lead.trial_done_at,trial_done_instructor_id:lead.trial_done_instructor_id,trial_done_instructor_name:lead.trial_done_instructor_name};
+    var body={status:'trial_scheduled',trial_done_at:null,trial_done_instructor_id:null,trial_done_instructor_name:null};
+    await trialConditionalPatch(leadId,'status=eq.trial_done',body);
+    var cached=getLead(leadId);if(cached)Object.assign(cached,body);
+    logAudit('lead',leadId,'trial_done_reverted','Sınaq davamiyyəti silindi — '+escHtml(lead.name||leadId),before,Object.assign({source_flow:'revertTrialDone'},body));
+    leadsInvalidate();fetchLeads();
+  }catch(e){alert('Sınaq davamiyyəti silinərkən xəta: '+e.message);}
+  finally{S.saving=false;render();}
 }
 
 async function deleteBron(id){
@@ -4801,12 +4769,28 @@ function getCustomerWeeklySlotCountForPermanentLimit(custId,dateStr){
 // Trial reception UX: shared operations; all changes remain in the existing lead/slot model.
 function trialLocalToday(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 async function trialFreshLead(id){var a=await dbGet('leads','id=eq.'+encodeURIComponent(id)+'&select=*&limit=1');if(!a||!a.length)throw new Error('Lead tapılmadı.');return a[0];}
+// Shared conversion invariant; NULL is the only unlinked stored value.
+function isLeadCustomerLinked(lead){return !!lead&&(lead.status==='converted'||lead.converted_customer_id!=null);}
+function assertLeadMutable(lead){
+  if(!lead||!lead.id||typeof lead.status!=='string'||!Object.prototype.hasOwnProperty.call(lead,'converted_customer_id'))throw new Error('Lead məlumatı təsdiqlənmədi. Siyahını yeniləyin.');
+  if(isLeadCustomerLinked(lead))throw new Error(lead.status==='converted'?'Bu Lead artıq müştəriyə bağlanıb və yalnız oxuma rejimindədir. Siyahını yeniləyin.':'Bu Lead müştəri kartına bağlıdır, lakin status uyğun deyil. Administrator yoxlaması tələb olunur.');
+  return lead;
+}
+
 async function trialConditionalPatch(id,filter,body){
-  var r=await fetch(BASE+'/leads?id=eq.'+encodeURIComponent(id)+'&'+filter,{method:'PATCH',headers:Object.assign({},H,{'Prefer':'return=representation'}),body:JSON.stringify(body)});
-  if(!r.ok)throw new Error(await r.text());var a=await r.json();if(!Array.isArray(a)||a.length!==1)throw new Error('Məlumat başqa cihazda dəyişib. Səhifəni yeniləyin.');return a[0];
+  // Every non-conversion status/profile PATCH is checked in the same DB statement.
+  var params=new URLSearchParams(filter),expected=params.get('status');
+  if(!expected||expected.indexOf('eq.')!==0||expected.slice(3)==='converted'||body.status==='converted'||Object.prototype.hasOwnProperty.call(body,'converted_customer_id'))throw new Error('Lead status əməliyyatı düzgün deyil. Siyahını yeniləyin.');
+  params.set('converted_customer_id','is.null');
+  var targetStatus=Object.prototype.hasOwnProperty.call(body,'status')?body.status:expected.slice(3);
+  var r=await fetch(BASE+'/leads?id=eq.'+encodeURIComponent(id)+'&'+params.toString(),{method:'PATCH',headers:Object.assign({},H,{'Prefer':'return=representation'}),body:JSON.stringify(body)});
+  if(!r.ok)throw new Error(await r.text());
+  var rows=await r.json();
+  if(!Array.isArray(rows)||rows.length!==1||rows[0].id!==id||rows[0].status!==targetStatus||rows[0].converted_customer_id!==null)throw new Error('Lead yenilənməsi təsdiqlənmədi; məlumat başqa sessiyada dəyişmiş ola bilər. Siyahını yeniləyib yenidən yoxlayın.');
+  return rows[0];
 }
 async function createTrialSlotForLead(id,slot,note,flow){
-  var lead=await trialFreshLead(id);
+  var lead=assertLeadMutable(await trialFreshLead(id));
   if(lead.status==='converted')throw new Error('Bu şəxs artıq müştəridir.');
   if(lead.status==='trial_done')throw new Error('Sınaq artıq keçib.');
   if(lead.trial_booking_ex_id||lead.status==='trial_scheduled')throw new Error('Artıq aktiv sınaq var. Əvvəl slotu silin.');
@@ -4832,7 +4816,7 @@ async function createTrialSlotForLead(id,slot,note,flow){
 }
 async function completeTrialForLead(id,instId,flow,expectedDate,expectedTime){
   var inst=(D.instructors||[]).find(function(x){return x.id===instId;});if(!inst)throw new Error('Instruktor seçin.');
-  var lead=await trialFreshLead(id);
+  var lead=assertLeadMutable(await trialFreshLead(id));
   if(lead.status!=='trial_scheduled'||!lead.trial_booking_ex_id)throw new Error('Aktiv sınaq tapılmadı və ya artıq tamamlanıb.');
   if(!lead.trial_class_date||lead.trial_class_date>trialLocalToday())throw new Error('Gələcək tarixli sınağı tamamlamaq olmaz.');
   if(expectedDate&&(lead.trial_class_date!==expectedDate||lead.trial_class_time!==expectedTime))throw new Error('Sınaq vaxtı dəyişib. Yenidən yoxlayın.');
@@ -7829,8 +7813,8 @@ function rAdmin(){
     h+='</select>';
     // Action type filter
     h+='<select class="fs" style="width:auto;font-size:13px;padding:6px 10px" onchange="S.auditLogAction=this.value;S.auditLogData=null;render()">';
-    var _actypes=["","create","edit","delete","cancel","trial_fee_version_create","activate"];
-    var _aclabels=["Əməliyyat tipi","create","edit","delete","ləğv (cancel)","Sınaq trener haqqı — yeni versiya","Abunəlik aktivləşməsi"];
+    var _actypes=["","create","edit","delete","cancel","trial_fee_version_create","activate","convert"];
+    var _aclabels=["Əməliyyat tipi","create","edit","delete","ləğv (cancel)","Sınaq trener haqqı — yeni versiya","Abunəlik aktivləşməsi","Lead — müştəriyə bağlama"];
     for(var _aci=0;_aci<_actypes.length;_aci++){h+='<option value="'+_actypes[_aci]+'"'+(S.auditLogAction===_actypes[_aci]?' selected':'')+'>'+_aclabels[_aci]+'</option>';}
     h+='</select>';
     // User/operator filter — datalist from appUsersData + loaded audit rows
@@ -11315,11 +11299,11 @@ function rLeads(){
       +'<div class="lead-meta">Cavabdeh<br><b>'+escHtml(assigned?assigned.full_name:'—')+'</b></div>'
       +'<div class="lead-actions"><button class="btn btn-b btn-sm" onclick="S.selLead=\''+id+'\';render()">Profil</button>'
       +(wa.length>=11?'<a class="btn btn-gray btn-sm" href="https://wa.me/'+wa+'" target="_blank" rel="noopener">WhatsApp</a>':'');
-    if((l.status==='new'||l.status==='contacted')&&!l.trial_booking_ex_id)h+='<button class="btn btn-g btn-sm" onclick="openTrialPlanner(\''+escQ(l.id)+'\')">Sınaq planla</button>';
-    if(l.status==='trial_scheduled'&&l.trial_booking_ex_id)h+=trialCompletionButton(l);
-    if(l.status==='trial_scheduled'&&l.trial_booking_ex_id)h+='<button class="btn btn-gray btn-sm" onclick="cancelTrialSlot(\''+escQ(l.trial_booking_ex_id)+'\',\''+escQ(l.id)+'\')">Slotu sil</button>';
-    if(l.status==='trial_done'&&l.trial_class_date)h+='<button class="btn btn-gray btn-sm" onclick="revertTrialDone(\''+escQ(l.id)+'\')">Sınaq dav. sil</button>';
-    if(active.indexOf(l.status)>=0){
+    if(!isLeadCustomerLinked(l)&&(l.status==='new'||l.status==='contacted')&&!l.trial_booking_ex_id)h+='<button class="btn btn-g btn-sm" onclick="openTrialPlanner(\''+escQ(l.id)+'\')">Sınaq planla</button>';
+    if(!isLeadCustomerLinked(l)&&l.status==='trial_scheduled'&&l.trial_booking_ex_id)h+=trialCompletionButton(l);
+    if(!isLeadCustomerLinked(l)&&l.status==='trial_scheduled'&&l.trial_booking_ex_id)h+='<button class="btn btn-gray btn-sm" onclick="cancelTrialSlot(\''+escQ(l.trial_booking_ex_id)+'\',\''+escQ(l.id)+'\')">Slotu sil</button>';
+    if(!isLeadCustomerLinked(l)&&l.status==='trial_done'&&l.trial_class_date)h+='<button class="btn btn-gray btn-sm" onclick="revertTrialDone(\''+escQ(l.id)+'\')">Sınaq dav. sil</button>';
+    if(!isLeadCustomerLinked(l)&&active.indexOf(l.status)>=0){
       h+='<details><summary>Digər əməliyyatlar</summary>'+rLeadCardQuickActions(l,true)
       +'<div class="lead-meta">Növbəti əlaqə (sınağın tarixini dəyişmir)</div>';
       [1,3,7].forEach(function(n){h+='<button class="btn btn-gray btn-sm" onclick="quickLeadReschedule(\''+id+'\','+n+')">'+(n===1?'Sabah':'+'+n)+'</button>';});
@@ -11376,6 +11360,7 @@ function rLeadPanelRow(lead,isOverdue){
 
 // Quick action buttons — trial_scheduled/trial_done removed; use slot/attendance flows
 function rLeadCardQuickActions(lead,hideTrial){
+  if(isLeadCustomerLinked(lead))return '';
   var id=escHtml(lead.id||'');
   var s=lead.status;
   var h='';
@@ -11428,63 +11413,48 @@ function rModalLeadLost(){
 // --- Quick Lead Actions ---
 
 async function quickLeadStatus(leadId,newStatus){
-  var guardLead=getLead(leadId);
-  if(guardLead&&guardLead.trial_booking_ex_id&&guardLead.status!=='trial_done'){alert('Əvvəl sınaq slotunu silin.');return;}
-  if(newStatus==='trial_scheduled'||newStatus==='trial_done'){
-    alert('Sınaq statusu yalnız slot/davamiyyət axını ilə dəyişməlidir.');
-    return;
-  }
-  if(newStatus==='lost'){
-    S.leadLostModal={id:leadId,reason:'price'};
-    render();return;
-  }
+  if(S.saving)return;
+  if(['new','contacted','lost'].indexOf(newStatus)<0){alert('Status yalnız uyğun CRM/conversion və ya sınaq əməliyyatı ilə dəyişməlidir.');return;}
   S.saving=true;render();
   try{
+    var lead=assertLeadMutable(await trialFreshLead(leadId));
+    if(lead.trial_booking_ex_id&&lead.status!=='trial_done')throw new Error('Əvvəl sınaq slotunu silin.');
+    if(newStatus==='lost'){S.leadLostModal={id:leadId,reason:'price'};return;}
     var body={status:newStatus};
     if(newStatus==='contacted')body.last_contact_at=new Date().toISOString();
-    await dbPatch('leads','id=eq.'+leadId,body);
-    var leads=S.leadsData||[];
-    for(var i=0;i<leads.length;i++){
-      if(leads[i].id===leadId){
-        leads[i].status=newStatus;
-        if(newStatus==='contacted')leads[i].last_contact_at=body.last_contact_at;
-        break;
-      }
-    }
+    await trialConditionalPatch(leadId,'status=eq.'+encodeURIComponent(lead.status),body);
+    var cached=getLead(leadId);if(cached)Object.assign(cached,body);
   }catch(e){alert('Xəta: '+e.message);}
-  S.saving=false;render();
+  finally{S.saving=false;render();}
 }
 
 async function quickLeadLostConfirm(){
-  if(!S.leadLostModal)return;
+  if(!S.leadLostModal||S.saving)return;
   var leadId=S.leadLostModal.id;
-  var guardLead=getLead(leadId);
-  if(guardLead&&guardLead.trial_booking_ex_id&&guardLead.status!=='trial_done'){alert('Əvvəl sınaq slotunu silin.');return;}
   var reasonEl=document.getElementById('lost-reason-sel');
   var reason=reasonEl?reasonEl.value:(S.leadLostModal.reason||'other');
   S.saving=true;render();
   try{
-    await dbPatch('leads','id=eq.'+leadId,{status:'lost',lost_reason:reason});
-    var leads=S.leadsData||[];
-    for(var i=0;i<leads.length;i++){
-      if(leads[i].id===leadId){leads[i].status='lost';leads[i].lost_reason=reason;break;}
-    }
+    var lead=assertLeadMutable(await trialFreshLead(leadId));
+    if(lead.trial_booking_ex_id&&lead.status!=='trial_done')throw new Error('Əvvəl sınaq slotunu silin.');
+    var body={status:'lost',lost_reason:reason};
+    await trialConditionalPatch(leadId,'status=eq.'+encodeURIComponent(lead.status),body);
+    var cached=getLead(leadId);if(cached)Object.assign(cached,body);
     S.leadLostModal=null;
   }catch(e){alert('Xəta: '+e.message);}
-  S.saving=false;render();
+  finally{S.saving=false;render();}
 }
 
 async function quickLeadReschedule(leadId,days){
+  if(S.saving)return;
   S.saving=true;render();
   try{
-    var newDate=addDays(td(),days);
-    await dbPatch('leads','id=eq.'+leadId,{follow_up_date:newDate});
-    var leads=S.leadsData||[];
-    for(var i=0;i<leads.length;i++){
-      if(leads[i].id===leadId){leads[i].follow_up_date=newDate;break;}
-    }
+    var lead=assertLeadMutable(await trialFreshLead(leadId));
+    var body={follow_up_date:addDays(td(),days)};
+    await trialConditionalPatch(leadId,'status=eq.'+encodeURIComponent(lead.status),body);
+    var cached=getLead(leadId);if(cached)Object.assign(cached,body);
   }catch(e){alert('Xəta: '+e.message);}
-  S.saving=false;render();
+  finally{S.saving=false;render();}
 }
 
 // --- Render: Add Lead Modal ---
@@ -11554,10 +11524,10 @@ function rModalLeadDetail(){
   for(var i=0;i<sources.length;i++){
     srcOpts+='<option value="'+sources[i]+'"'+(lead.source===sources[i]?' selected':'')+'>'+sources[i]+'</option>';
   }
-  var isConverted=lead.status==='converted';
+  var isConverted=isLeadCustomerLinked(lead);
   var trialManaged=(lead.status==='trial_scheduled'||lead.status==='trial_done'||!!lead.trial_booking_ex_id);
   var editStatuses=trialManaged?[[lead.status,getLeadStatusLabel(lead.status)]]:[['new','Yeni'],['contacted','Əlaqə quruldu'],['lost','İtirildi']];
-  if(isConverted)editStatuses=[['converted','Müştəri oldu']];
+  if(isConverted)editStatuses=[[lead.status,getLeadStatusLabel(lead.status)]];
   var statOpts='';
   for(var i=0;i<editStatuses.length;i++){
     statOpts+='<option value="'+editStatuses[i][0]+'"'+(lead.status===editStatuses[i][0]?' selected':'')+'>'+editStatuses[i][1]+'</option>';
@@ -11578,6 +11548,7 @@ function rModalLeadDetail(){
       +(lead.converted_customer_id?' Müştəri ID: <b>'+escHtml(lead.converted_customer_id)+'</b>':'')+'</div>';
   }
 
+  if(isConverted&&lead.status!=='converted')h+='<div class="al al-y">Bu Lead müştəri kartına bağlıdır, lakin status uyğun deyil. Administrator yoxlaması tələb olunur.</div>';
   var dis=isConverted?' disabled':'';
   h+='<div class="fg"><label class="fl">Soyad Ad</label><input class="fi" id="ld-name" value="'+escHtml(lead.name||'')+('"'+dis+' >')+'</div>'
     +'<div class="fi-row">'
@@ -11613,7 +11584,7 @@ function rModalLeadDetail(){
 
   h+='<div class="lead-section">Sınaq məlumatları</div>';
   // Trial panel in lead detail modal
-  if(lead.status==='trial_scheduled'&&lead.trial_booking_ex_id){
+  if(!isConverted&&lead.status==='trial_scheduled'&&lead.trial_booking_ex_id){
     var _mdExId=escHtml(lead.trial_booking_ex_id||'');
     var _mdLdId=escHtml(lead.id||'');
     var _mdWd=fmtWeekdayAz(lead.trial_class_date);
@@ -11623,7 +11594,7 @@ function rModalLeadDetail(){
       +'<button class="btn btn-sm" style="font-size:11px;padding:5px 10px;background:#fff;color:#C62828;border:1px solid #ef9a9a" onclick="cancelTrialSlot(\''+_mdExId+'\',\''+_mdLdId+'\')">&#128465; Slotu sil</button>'
       +'</div>';
   }
-  if(lead.status==='trial_done'&&lead.trial_class_date){
+  if(!isConverted&&lead.status==='trial_done'&&lead.trial_class_date){
     var _modalRevertId=escQ(lead.id||'');
     h+='<div style="background:#F3E5F5;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
       +'<div style="font-size:12px;color:#6A1B9A;margin-bottom:8px"><b>Sınaq keçdi:</b></div>'
@@ -11632,7 +11603,7 @@ function rModalLeadDetail(){
       +'</div>';
   }
 
-  if(lead.status==='lost'&&(lead.trial_done_at||lead.trial_class_date)){
+  if((lead.status==='lost'||isConverted)&&(lead.trial_done_at||lead.trial_class_date)){
     h+='<div style="background:#F5F5F5;border-radius:8px;padding:11px 13px;margin-bottom:14px">'
       +'<div style="font-size:12px;color:#757575;margin-bottom:6px"><b>Kəçmiş sınaq məlumatı:</b></div>';
     if(lead.trial_done_at){
@@ -11748,6 +11719,7 @@ async function submitAddLead(){
 // --- Edit Lead ---
 
 async function submitLeadDetail(leadId){
+  if(S.saving)return;
   var nameEl=document.getElementById('ld-name');
   var phoneEl=document.getElementById('ld-phone');
   var sourceEl=document.getElementById('ld-source');
@@ -11778,6 +11750,7 @@ async function submitLeadDetail(leadId){
   }
   S.saving=true;render();
   try{
+    var freshLead=assertLeadMutable(await trialFreshLead(leadId));
     var body={
       name:name,
       phone:phone||null,
@@ -11795,7 +11768,7 @@ async function submitLeadDetail(leadId){
       last_contact_at:new Date().toISOString()
     };
     var desiredStatus=statusEl?statusEl.value:'new';
-    if(!existingLead)throw new Error('Lead tapılmadı. Yenidən cəhd edin.');
+    existingLead=freshLead;
     if(['trial_scheduled','trial_done'].indexOf(desiredStatus)>=0&&desiredStatus!==existingLead.status)throw new Error('Sınaq statusu yalnız sınaq əməliyyatları ilə dəyişir.');
     if(existingLead.trial_booking_ex_id||['trial_scheduled','trial_done'].indexOf(existingLead.status)>=0){
       if(desiredStatus!==existingLead.status)throw new Error('Əvvəl sınaq slotunu ləğv edin.');
@@ -11803,8 +11776,9 @@ async function submitLeadDetail(leadId){
       if(['new','contacted','lost'].indexOf(desiredStatus)<0)throw new Error('Status düzgün deyil.');
       body.status=desiredStatus;
     }
-    if(Object.prototype.hasOwnProperty.call(body,'status'))await trialConditionalPatch(leadId,'status=eq.'+encodeURIComponent(existingLead.status)+'&trial_booking_ex_id=is.null',body);
-    else await dbPatch('leads','id=eq.'+leadId,body);
+    var guard='status=eq.'+encodeURIComponent(existingLead.status);
+    if(Object.prototype.hasOwnProperty.call(body,'status'))guard+='&trial_booking_ex_id=is.null';
+    await trialConditionalPatch(leadId,guard,body);
     // Update local S.leadsData
     var _leads=S.leadsData||[];
     for(var i=0;i<_leads.length;i++){if(_leads[i].id===leadId){Object.assign(_leads[i],body);break;}}
@@ -11846,7 +11820,7 @@ async function doConvertLead(leadId){
   if(S.saving||S.customerIdentityBusy)return;
   var lead=getLead(leadId);
   if(!lead){alert('Lead tapılmadı');return;}
-  if(lead.status==='converted'){alert('Bu lead artıq müştəriyə çevrilib');return;}
+  if(isLeadCustomerLinked(lead)){try{assertLeadMutable(lead);}catch(e){alert(e.message);}return;}
 
   S.leadConvertModal={leadId:leadId,name:lead.name||'',phone:lead.phone||'',birth:'',
     leadName:lead.name||'',leadPhone:lead.phone||'',candidates:null,choice:''};
@@ -11887,16 +11861,20 @@ function rModalLeadConvert(){
     +'<button class="btn btn-g" onclick="submitConvertLead()"'+dis+'>Yoxla və davam et</button></div></div></div>';
 }
 async function linkLeadToCustomer(leadId,customerId){
-  // Scoped representation response; the global return=minimal dbPatch stays intact.
-  var response=await fetch(BASE+'/leads?id=eq.'+encodeURIComponent(leadId)+'&status=neq.converted&converted_customer_id=is.null',{
+  if(typeof leadId!=='string'||!leadId.trim()||typeof customerId!=='string'||!customerId.trim())throw new Error('Lead və müştəri ID-si təsdiqlənmədi. Siyahını yeniləyin.');
+  // A fresh expected status also makes the old-status audit snapshot meaningful.
+  var lead=assertLeadMutable(await trialFreshLead(leadId));
+  var response=await fetch(BASE+'/leads?id=eq.'+encodeURIComponent(leadId)+'&status=eq.'+encodeURIComponent(lead.status)+'&converted_customer_id=is.null',{
     method:'PATCH',headers:Object.assign({},H,{'Prefer':'return=representation'}),
     body:JSON.stringify({status:'converted',converted_customer_id:customerId})
   });
   if(!response.ok)throw new Error(await response.text());
   var rows=await response.json();
-  if(!Array.isArray(rows)||rows.length!==1||rows[0].id!==leadId||rows[0].converted_customer_id!==customerId){
-    throw new Error('Lead yenilənmədi; başqa sessiyada çevrilmiş ola bilər. Siyahını yeniləyin.');
-  }
+  if(!Array.isArray(rows)||rows.length!==1||rows[0].id!==leadId||rows[0].status!=='converted'||rows[0].converted_customer_id!==customerId)throw new Error('Lead bağlantısı təsdiqlənmədi; başqa sessiyada dəyişmiş ola bilər. Siyahını yeniləyib yoxlayın.');
+  logAudit('lead',leadId,'convert','Lead müştəri kartına bağlandı — '+leadId+' → '+customerId,
+    {status:lead.status,converted_customer_id:null},
+    {lead_id:leadId,customer_id:customerId,status:'converted',converted_customer_id:customerId,source_flow:'lead_convert'});
+  return rows[0];
 }
 async function submitConvertLead(){
   var m=S.leadConvertModal;
@@ -11913,7 +11891,7 @@ async function submitConvertLead(){
     var fresh=await dbGet('leads','select=id,name,phone,status,converted_customer_id&id=eq.'+encodeURIComponent(m.leadId)+'&limit=1');
     var lead=fresh&&fresh[0];
     if(!lead)throw new Error('Lead tapılmadı. Siyahını yeniləyin.');
-    if(lead.status==='converted'||lead.converted_customer_id)throw new Error('Bu lead artıq müştəriyə bağlanıb. Siyahını yeniləyin.');
+    assertLeadMutable(lead);
     if((lead.name||'')!==m.leadName||(lead.phone||'')!==m.leadPhone)throw new Error('Lead məlumatları dəyişib. Pəncərəni bağlayıb yenidən açın.');
     var check=analyzeCustomerIdentity(identity,await fetchCustomerIdentityRows());
     var candidates=check.exact.length?check.exact:check.shared;
