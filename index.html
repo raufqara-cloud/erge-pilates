@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Erge Pilates — lead-conversion-integrity-hotfix-v1</title>
+<title>Erge Pilates — login-pin-guard-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -400,7 +400,7 @@ var S={uiNavOpen:false,view:'home',loading:true,saving:false,err:null,selCust:nu
   commRulesCache:null,commRulesLoading:false,showCommRuleModal:false,commRuleModal:null,
   remainingDisplayCache:null,remainingDisplayLoading:false,
   movData:null,movLoading:false,movExpanded:{},
-  currentUser:null,appUsersData:null,showLoginModal:true,
+  currentUser:null,appUsersData:null,showLoginModal:true,_usersLoadErr:null,_loginBusy:false,
   // ── SLOT WAITLIST (slot-waitlist-foundation-v1) ──
   waitlistData:null,waitlistLoading:false,
   showAddWaitlist:false,waitlistSlot:null,
@@ -1465,7 +1465,7 @@ function render(){
     +'</div>';
   var _viewLabels={home:'Əsas səhifə',att:'Davamiyyət',cust:'Müştərilər',admin:'Admin',report:'Hesabat',kassa:'Kassa',leads:'CRM / Lead',bron:'Qrup Yerləri',clientRequests:'Müraciətlər'};
   var h='<a class="skip-link" href="#main-content">Əsas məzmuna keç</a><header class="topbar">'
-    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">lead-conversion-integrity-hotfix-v1</small></div>'
+    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">login-pin-guard-v1</small></div>'
     +'<button id="app-menu-toggle" class="menu-toggle" aria-controls="app-nav" aria-expanded="'+!!S.uiNavOpen+'" onclick="uiToggleMenu()">'
     +'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
     +'<span class="menu-view-label">'+escHtml(_viewLabels[S.view]||'Menyu')+'</span><span class="menu-caption">Menyu</span></button>'
@@ -12123,12 +12123,14 @@ function rLoginModal(){
       +'</div></div>';
   }
   if(!S.appUsersData.length){
-    // No app_users found — allow bypass with warning
+    // Fail closed: missing/invisible users must NEVER grant a system/admin session.
     return '<div class="login-screen"><div class="login-card">'
       +'<div class="login-logo">ERGE <span>PILATES</span></div>'
-      +'<div class="login-sub" style="color:#E65100">⚠ app_users cədvəlində aktiv istifadəçi tapılmadı</div>'
-      +'<div style="font-size:12px;color:#888;margin-bottom:16px;text-align:center">SQL miqrasiyasını icra edin, sonra səhifəni yeniləyin.</div>'
-      +'<button class="btn btn-g" style="width:100%" onclick="bypassLogin()">Müvəqqəti daxil ol (sistem)</button>'
+      +'<div class="login-sub" style="color:#C62828">🔒 Giriş müvəqqəti mümkün deyil</div>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:16px;text-align:center">'
+      +escHtml(S._usersLoadErr||'Aktiv istifadəçi tapılmadı. Admin app_users qeydlərini və oxuma icazələrini yoxlamalıdır.')
+      +'</div>'
+      +'<button class="btn btn-gray" style="width:100%" onclick="retryUserLoginLoad()">↻ Yenidən yoxla</button>'
       +'</div></div>';
   }
   return '<div class="login-screen"><div class="login-card">'
@@ -12141,28 +12143,45 @@ function rLoginModal(){
     +'<div class="fg"><label class="fl">PIN</label>'
     +'<input class="fi" id="login-pin" type="password" maxlength="8" placeholder="••••" autocomplete="current-password" '
     +'onkeydown="if(event.key===\'Enter\')loginSubmit()"></div>'
-    +'<div class="mact" style="margin-top:8px"><button class="btn btn-g" style="width:100%;padding:10px" onclick="loginSubmit()">Daxil ol</button></div>'
+    +'<div class="mact" style="margin-top:8px"><button class="btn btn-g" style="width:100%;padding:10px" onclick="loginSubmit()"'+(S._loginBusy?' disabled':'')+'>Daxil ol</button></div>'
     +'</div></div>';
 }
 
 async function loginSubmit(){
+  if(S._loginBusy)return;
   var unEl=document.getElementById('login-username');
   var pinEl=document.getElementById('login-pin');
   var uname=(unEl?unEl.value:'').trim();
   var pin=pinEl?pinEl.value:'';
   if(!uname){S._loginErr='İstifadəçi adı daxil edilməlidir.';render();return;}
   if(!pin){S._loginErr='PIN daxil edilməlidir.';render();return;}
-  // Find user by username (case-insensitive); fallback to display_name for backward compat
+  S._loginBusy=true;
+  // Login MUST use a fresh live source, not the stale appUsersData of another tab.
+  // A failed DB read must never permit a login or reuse previously cached credentials.
+  var rows;
+  try{
+    rows=await dbGet('app_users','is_active=eq.true&order=sort_order');
+    if(!Array.isArray(rows))throw new Error('Etibarsız cavab');
+    S.appUsersData=rows;
+    S._usersLoadErr=null;
+  }catch(e){
+    S.appUsersData=[];
+    S._usersLoadErr='İstifadəçi siyahısı yüklənmədi. Şəbəkə və app_users icazələrini yoxlayın.';
+    S._loginErr=S._usersLoadErr;
+    S._loginBusy=false;
+    render();
+    return;
+  }
   var user=null;
   var unameLower=uname.toLowerCase();
-  for(var i=0;i<(S.appUsersData||[]).length;i++){
-    var u=S.appUsersData[i];
+  for(var i=0;i<rows.length;i++){
+    var u=rows[i];
     var uField=(u.username||'').toLowerCase();
     var dField=(u.display_name||'').toLowerCase();
     if(uField===unameLower||(uField===''&&dField===unameLower)){user=u;break;}
   }
   var pinHash=await hashPin(pin);
-  // Generic error — do NOT reveal whether username exists
+  S._loginBusy=false;
   if(!user||!pinHash||pinHash!==user.pin_hash){
     S._loginErr='İstifadəçi adı və ya PIN yanlışdır.';
     render();
@@ -12170,21 +12189,19 @@ async function loginSubmit(){
     if(pinEl2)pinEl2.value='';
     return;
   }
-  // PIN correct — check must_change_pin before opening app
   S._loginErr=null;
   if(user.must_change_pin===true){
     S.pendingPinChangeUser=user;
     S._forcedPinErr=null;
-    render(); // shows forced PIN change screen via rLoginModal()
+    render();
     return;
   }
-  // Normal login
   var sesId='SES'+Date.now()+Math.random().toString(36).slice(2,5);
   S.currentUser={id:user.id,username:user.username||user.display_name,display_name:user.display_name||user.username,role:user.role,session_id:sesId,login_at:new Date().toISOString()};
   S.showLoginModal=false;
   S.loading=true;
-  render(); // show loading spinner
-  loadAll(); // now load operational data
+  render();
+  loadAll();
 }
 
 async function submitForcedPinChange(){
@@ -12200,9 +12217,17 @@ async function submitForcedPinChange(){
   if(!newPin){S._forcedPinErr='Yeni PIN daxil edilməlidir.';render();return;}
   if(!/^\d{4,8}$/.test(newPin)){S._forcedPinErr='Yeni PIN 4–8 rəqəmdən ibarət olmalıdır.';render();return;}
   if(newPin!==newPin2){S._forcedPinErr='Yeni PIN-lər uyğun deyil.';render();return;}
-  // Verify old PIN again
+  // Fresh DB state prevents a forced change with a stale temporary PIN.
+  var freshUser=null;
+  try{
+    var freshRows=await dbGet('app_users','id=eq.'+encodeURIComponent(pcu.id)+'&is_active=eq.true&limit=1');
+    freshUser=freshRows&&freshRows.length===1?freshRows[0]:null;
+  }catch(e){S._forcedPinErr='İstifadəçi məlumatı yoxlanılmadı.';render();return;}
+  if(!freshUser||freshUser.must_change_pin!==true){
+    S._forcedPinErr='PIN statusu dəyişib. Geri qayıdıb yenidən daxil olun.';render();return;
+  }
   var oldHash=await hashPin(oldPin);
-  if(!oldHash||oldHash!==pcu.pin_hash){
+  if(!oldHash||oldHash!==freshUser.pin_hash){
     S._forcedPinErr='Mövcud PIN yanlışdır.';
     render();
     if(oldPinEl)oldPinEl.value='';
@@ -12211,18 +12236,22 @@ async function submitForcedPinChange(){
   // Prevent same PIN
   var newHash=await hashPin(newPin);
   if(!newHash){S._forcedPinErr='PIN hash xətası.';render();return;}
-  if(newHash===pcu.pin_hash){S._forcedPinErr='Yeni PIN köhnə PIN ilə eyni ola bilməz.';render();return;}
+  if(newHash===freshUser.pin_hash){S._forcedPinErr='Yeni PIN köhnə PIN ilə eyni ola bilməz.';render();return;}
   // Patch DB
   var now=new Date().toISOString();
   try{
-    await dbPatch('app_users','id=eq.'+encodeURIComponent(pcu.id),{
+    await patchAppUserVerified(pcu.id,{
       pin_hash:newHash,
       must_change_pin:false,
       pin_changed_at:now
-    });
+    },freshUser.pin_hash,true);
   }catch(e){S._forcedPinErr='Xəta: '+e.message;render();return;}
   // Refresh active users cache so same-session re-login uses new PIN
-  await refreshActiveAppUsers();
+  if(!await refreshActiveAppUsers()){
+    S._forcedPinErr='PIN yeniləndi, lakin istifadəçi siyahısı oxunmadı. Geri qayıdıb yenidən daxil olun.';
+    render();
+    return;
+  }
   // Create session and open app
   S._forcedPinErr=null;
   S.pendingPinChangeUser=null;
@@ -12235,26 +12264,59 @@ async function submitForcedPinChange(){
   loadAll();
 }
 
-function bypassLogin(){
-  // Used only when app_users table is empty — soft bypass
-  S._loginErr=null;
-  var sesId='SES'+Date.now()+Math.random().toString(36).slice(2,5);
-  S.currentUser={id:'system',username:'system',display_name:'System',role:'admin',session_id:sesId,login_at:new Date().toISOString()};
-  S.showLoginModal=false;
-  S.loading=true;
-  render();
-  loadAll();
-}
+// Deliberately no bypassLogin(): an empty/inaccessible app_users list is not authorization.
 
 // Refreshes S.appUsersData (active users only) — used after any user management write
 // and on switchUser so the login screen always sees the freshest data.
 async function refreshActiveAppUsers(){
   try{
     var rows=await dbGet('app_users','is_active=eq.true&order=sort_order');
-    S.appUsersData=rows||[];
+    if(!Array.isArray(rows))throw new Error('Etibarsız cavab');
+    S.appUsersData=rows;
+    S._usersLoadErr=null;
+    return true;
   }catch(e){
     console.warn('[auth] refreshActiveAppUsers failed:',e.message);
+    S.appUsersData=[]; // Fail closed; do not keep old credential cache.
+    S._usersLoadErr='İstifadəçi siyahısı yüklənmədi. Şəbəkə və app_users oxuma icazələrini yoxlayın.';
+    return false;
   }
+}
+
+async function retryUserLoginLoad(){
+  S.appUsersData=null;
+  S._usersLoadErr=null;
+  S._loginErr=null;
+  render();
+  await refreshActiveAppUsers();
+  render();
+}
+
+// A 204/200 response with zero affected rows is not a successful user/PIN reset.
+// Keep this narrow helper specific to app_users; do not change generic dbPatch semantics.
+async function patchAppUserVerified(userId,body,expectedPinHash,requirePending){
+  var filter='id=eq.'+encodeURIComponent(userId);
+  if(expectedPinHash)filter+='&pin_hash=eq.'+encodeURIComponent(expectedPinHash);
+  if(requirePending)filter+='&must_change_pin=eq.true';
+  var resp=await fetch(BASE+'/app_users?'+filter,{
+    method:'PATCH',
+    headers:Object.assign({},H,{'Prefer':'return=representation'}),
+    body:JSON.stringify(body)
+  });
+  if(!resp.ok)throw new Error('app_users yenilənməsi qəbul edilmədi (HTTP '+resp.status+').');
+  var changed=await resp.json();
+  if(!Array.isArray(changed)||changed.length!==1){
+    throw new Error('İstifadəçi yenilənmədi (0 sətir). ID, aktivlik və app_users RLS/UPDATE icazələrini yoxlayın.');
+  }
+  var row=changed[0];
+  var mustVerify=['pin_hash','must_change_pin','username','role','is_active'];
+  for(var i=0;i<mustVerify.length;i++){
+    var key=mustVerify[i];
+    if(Object.prototype.hasOwnProperty.call(body,key)&&row[key]!==body[key]){
+      throw new Error('İstifadəçi məlumatı təsdiqlənmədi: '+key+'.');
+    }
+  }
+  return row;
 }
 
 async function switchUser(){
@@ -12263,6 +12325,7 @@ async function switchUser(){
   S._loginErr=null;
   S.pendingPinChangeUser=null;
   S._forcedPinErr=null;
+  S._loginBusy=false;
   S.appUsersData=null; // trigger loading state in rLoginModal
   render();
   await refreshActiveAppUsers();
@@ -12274,6 +12337,7 @@ async function initApp(){
   S.loading=false; // don't show main data spinner yet
   S.showLoginModal=true;
   S.appUsersData=null;
+  S._loginBusy=false;
   render(); // show login modal loading state
   await refreshActiveAppUsers();
   render(); // show login modal with users (or fallback)
@@ -12321,7 +12385,7 @@ async function toggleAppUser(userId, newActive){
   if(!confirm((newActive?'Aktiv':'Deaktiv')+' etmək istədiyinizə əminsiniz?'))return;
   S.saving=true;render();
   try{
-    await dbPatch('app_users','id=eq.'+encodeURIComponent(userId),{is_active:newActive});
+    await patchAppUserVerified(userId,{is_active:newActive});
     await loadAdminUsers();
     await refreshActiveAppUsers();
     logAudit('app_user',userId,(newActive?'activate':'deactivate'),'İstifadəçi '+(newActive?'aktivləşdirildi':'deaktivləşdirildi'),{is_active:!newActive},{is_active:newActive});
@@ -12466,10 +12530,10 @@ async function submitEditUser(){
       body.pin_reset_at=now;
       body.pin_reset_by_user_id=S.currentUser?S.currentUser.id:null;
     }
-    await dbPatch('app_users','id=eq.'+encodeURIComponent(d.id),body);
+    await patchAppUserVerified(d.id,body);
     S.showEditUser=false;S.editUserData=null;S._userFormErr=null;
     await loadAdminUsers();
-    await refreshActiveAppUsers();
+    if(!await refreshActiveAppUsers())throw new Error('Dəyişiklik yazıldı, lakin aktiv istifadəçi siyahısı oxunmadı. Səhifəni yeniləyin.');
     logAudit('app_user',d.id,'edit','İstifadəçi redaktə edildi: '+username,{username:d.username,role:d.role},{username:username,role:role,pin_reset:!!pinHash});
   }catch(e){S._userFormErr='Xəta: '+e.message;S.saving=false;render();return;}
   S.saving=false;render();
@@ -12529,13 +12593,13 @@ async function submitSelfPinChange(){
   S.saving=true;render();
   try{
     var now=new Date().toISOString();
-    await dbPatch('app_users','id=eq.'+encodeURIComponent(cu.id),{
+    await patchAppUserVerified(cu.id,{
       pin_hash:newHash,
       must_change_pin:false,
       pin_changed_at:now
-    });
+    },freshUser.pin_hash,false);
     // Refresh active users cache so same-session re-login uses new PIN
-    await refreshActiveAppUsers();
+    if(!await refreshActiveAppUsers())throw new Error('PIN yeniləndi, amma istifadəçi siyahısı oxunmadı. Yenidən daxil olun.');
     S.showSelfPinChange=false;S._selfPinErr=null;
     logAudit('app_user',cu.id,'pin_change','İstifadəçi öz PIN-ini dəyişdirdi',null,{pin_changed_at:now});
   }catch(e){S._selfPinErr='Xəta: '+e.message;S.saving=false;render();return;}
