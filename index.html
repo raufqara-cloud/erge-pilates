@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Erge Pilates — customer-winback-v1</title>
+<title>Erge Pilates — customer-birthday-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -368,6 +368,55 @@ body:has(.ov){overflow:hidden}
   .winback-filters .fi,.winback-filters .fs { font-size:16px; }
   .winback-tel,.winback-actions .btn { display:inline-flex; align-items:center; min-height:44px; }
 }
+/* customer-birthday-v1: scoped layout; no global navigation/modal overrides */
+.birthday { min-width:0; }
+.birthday-head,.birthday-filters,.birthday-pager { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.birthday-head { justify-content:space-between; margin-bottom:12px; }
+.birthday-head h2 { margin:0; font-size:1.15rem; }
+.birthday-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:12px 0; }
+.birthday-stats .scard { min-width:0; padding:10px 12px; text-align:left; font:inherit; cursor:pointer; }
+.birthday-stats strong { display:block; font-size:1.4rem; color:#0F6E56; }
+.birthday-stats span,.birthday-caption,.birthday-note { font-size:12px; color:#52675b; overflow-wrap:anywhere; }
+.birthday-caption { margin:10px 0; line-height:1.6; }
+.birthday-note { display:block; margin-top:4px; max-width:180px; }
+.birthday-filters { margin:12px 0; }
+.birthday-filters .tab,.birthday-head .btn,.birthday-pager .btn { min-height:44px; white-space:normal; }
+.birthday-search { display:grid; gap:5px; max-width:480px; font-size:12px; font-weight:600; }
+.birthday-search input { width:100%; min-width:0; }
+.birthday .birthday-table { width:100%; min-width:0; table-layout:auto; }
+.birthday-table th,.birthday-table td { text-align:left; padding:10px 8px; overflow-wrap:anywhere; }
+.birthday-table th { font-size:12px; }
+.birthday-table td { background:#fff; }
+.birthday-table .birthday-today td { background:#e8f8ef; }
+.birthday-name { background:none; border:0; font:inherit; font-weight:600; color:#0F6E56; text-align:left; cursor:pointer; min-height:44px; overflow-wrap:anywhere; }
+.birthday-wa { display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px; width:44px; height:44px; border-radius:10px; border:1px solid #b7dfce; background:#e8f7ee; color:#13794e; cursor:pointer; text-decoration:none; }
+.birthday-wa svg { width:24px; height:24px; }
+.birthday-wa:disabled { background:#f3f5f4; color:#66736d; border-color:#dce4df; cursor:not-allowed; }
+.birthday-pager { justify-content:center; margin-top:12px; }
+.birthday-policy { margin:12px 0; padding:12px; border:1px solid #ead3a0; border-radius:10px; background:#fff8e7; font-size:13px; overflow-wrap:anywhere; }
+.birthday-policy summary { cursor:pointer; font-weight:600; }
+.birthday-policy p,.birthday-policy ul { margin-top:8px; }
+.birthday-policy ul { padding-left:20px; }
+.birthday-mobile-label { display:none; }
+@media(max-width:767px) {
+ .birthday-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .birthday-stats .scard { padding:9px; font-size:12px; }
+ .birthday .birthday-scroll { overflow:visible!important; }
+ .birthday-scroll > .ui-scroll-hint { display:none; }
+ .birthday .birthday-table,.birthday-table tbody { display:block; }
+ .birthday-table thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+ .birthday-table tbody tr { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); margin:10px 0; border:1px solid #dce6df; border-radius:12px; overflow:hidden; background:#fff; }
+ .birthday-table td { min-width:0; padding:8px 10px; }
+ .birthday-table td:first-child { grid-column:1/-1; }
+ .birthday-table td:last-child { grid-column:2; grid-row:2/5; align-self:stretch; }
+ .birthday-table td:nth-child(2) { grid-column:1; grid-row:4; }
+ .birthday-table td:nth-child(3) { grid-column:1; grid-row:2; }
+ .birthday-table td:nth-child(4),.birthday-table td:nth-child(5) { grid-column:1; }
+ .birthday-mobile-label { display:block; color:#52675b; font-size:11px; font-weight:600; margin-bottom:4px; }
+ .birthday-search input { font-size:16px; }
+ .birthday-note { max-width:100%; }
+}
+
 </style>
 </head>
 <body>
@@ -1519,7 +1568,7 @@ function render(){
     +'</div>';
   var _viewLabels={home:'Əsas səhifə',att:'Davamiyyət',cust:'Müştərilər',admin:'Admin',report:'Hesabat',kassa:'Kassa',leads:'CRM / Lead',bron:'Qrup Yerləri',clientRequests:'Müraciətlər'};
   var h='<a class="skip-link" href="#main-content">Əsas məzmuna keç</a><header class="topbar">'
-    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">customer-winback-v1</small></div>'
+    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">customer-birthday-v1</small></div>'
     +'<button id="app-menu-toggle" class="menu-toggle" aria-controls="app-nav" aria-expanded="'+!!S.uiNavOpen+'" onclick="uiToggleMenu()">'
     +'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
     +'<span class="menu-view-label">'+escHtml(_viewLabels[S.view]||'Menyu')+'</span><span class="menu-caption">Menyu</span></button>'
@@ -7484,6 +7533,7 @@ function rReport(){
     +'<button class="tab '+t3+'" onclick="S.reportTab=\'partner\';render()">Partner Reconciliasiya</button>';
   if(canSeeSalaryReport())h+='<button class="tab '+t4+'" onclick="S.reportTab=\'hareket\';render()">Müştəri Hərəkəti</button>';
   if(canUseWinback())h+='<button class="tab '+t5+'" onclick="openWinback()">Müştərilərin geri qazanılması</button>';
+  if(canUseBirthday())h+='<button class="tab '+(S.reportTab==='birthday'?'active':'')+'" onclick="openBirthday()">🎂 Ad günləri</button>';
   h+='</div>';
   if(S.reportTab==='izleme'){
     h+='<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
@@ -7491,6 +7541,7 @@ function rReport(){
       +'</div>';
     return h+rIzleme();
   }
+  if(S.reportTab==='birthday'&&canUseBirthday()){return h+rBirthday();}
   if(S.reportTab==='partner'){return h+rPartnerRecon();}
   if(S.reportTab==='hareket'){return h+rMovement();}
   if(S.reportTab==='winback'&&canUseWinback()){return h+rWinback();}
@@ -9122,6 +9173,7 @@ function sv(v){
   if(v==='cust')refreshCustomersLight();
   // Force fresh Kassa data on tab entry — prevents cross-session stale balances
   if(v==='kassa')refreshKassa();
+  if(birthdayIsOpen()){render();refreshBirthday();return;}
   if(winbackIsOpen()){refreshWinback();return;}
   render();
 }
@@ -12378,6 +12430,8 @@ async function patchAppUserVerified(userId,body,expectedPinHash,requirePending){
 }
 
 async function switchUser(){
+  clearTimeout(birthdayDayTimer);S.birthday=null;
+  if(S.reportTab==='birthday')S.reportTab='izleme';
   S.winback=null;
   if(S.reportTab==='winback')S.reportTab='izleme';
   S.currentUser=null;
@@ -13322,6 +13376,266 @@ async function saveWinbackContact(){
   state.message='Əlaqə qeydi saxlanıldı.';
   if(winbackIsOpen())await refreshWinback();
 }
+
+// ── Customer birthdays (customer-birthday-v1) — read-only Project A report ──
+const BIRTHDAY_FILTERS={today:'Bu gün',tomorrow:'Sabah',week:'Bu həftə',next7:'Növbəti 7 gün',month:'Bu ay',next30:'Növbəti 30 gün',all:'Hamısı'};
+const BIRTHDAY_MESSAGE='Ad gününüz mübarək! 🎉 Erge Pilates ailəsi olaraq Sizə sağlamlıq, xoşbəxtlik və gözəl anlarla dolu bir il arzulayırıq! 💐';
+const BIRTHDAY_PAGE_SIZE=40;
+let birthdayDayTimer=null;
+function canUseBirthday(){return isAdmin()||isManager()||isCashier();}
+function birthdayIsOpen(){return S.view==='report'&&S.reportTab==='birthday'&&canUseBirthday();}
+function birthdayState(){
+  if(!S.birthday||S.birthday.user!==S.currentUser){
+    S.birthday={user:S.currentUser,rows:null,contacts:null,contactError:'',loading:false,attempted:false,error:'',asOf:null,model:null,filter:'next7',search:'',page:0};
+  }
+  return S.birthday;
+}
+function birthdayToday(instant){
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Baku',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(instant||new Date());
+  const get=type=>Number(parts.find(p=>p.type===type).value);
+  return {y:get('year'),m:get('month'),d:get('day')};
+}
+// UTC is only a calendar arithmetic container. The source civil date is always Baku.
+function birthdayDay(y,m,d){
+  const date=new Date(0);date.setUTCFullYear(y,m-1,d);date.setUTCHours(0,0,0,0);
+  return date.getTime()/86400000;
+}
+function birthdayCivil(day){const date=new Date(day*86400000);return {y:date.getUTCFullYear(),m:date.getUTCMonth()+1,d:date.getUTCDate()};}
+function birthdayLeap(y){return y%4===0&&(y%100!==0||y%400===0);}
+function birthdayParse(raw,today){
+  if(raw===null||raw===undefined||raw==='')return {kind:'missing'};
+  if(typeof raw!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(raw))return {kind:'invalid'};
+  const [y,m,d]=raw.split('-').map(Number),day=birthdayDay(y,m,d),check=birthdayCivil(day);
+  if(y<1||check.y!==y||check.m!==m||check.d!==d)return {kind:'invalid'};
+  if(day>birthdayDay(today.y,today.m,today.d))return {kind:'future'};
+  return {kind:'valid',y,m,d};
+}
+function birthdayModel(rows,today){
+  const base=birthdayDay(today.y,today.m,today.d),weekday=new Date(base*86400000).getUTCDay();
+  const monday=base-((weekday+6)%7),end=monday+6;
+  const result={key:[today.y,today.m,today.d].join('-'),today,base,rows:[],leap:[],quality:{missing:0,invalid:0,future:0},stats:{today:0,tomorrow:0,next7:0,month:0}};
+  for(const customer of rows){
+    const dob=birthdayParse(customer.birth_date,today);
+    if(dob.kind!=='valid'){result.quality[dob.kind]++;continue;}
+    let year=today.y;
+    while((dob.m===2&&dob.d===29&&!birthdayLeap(year))||birthdayDay(year,dob.m,dob.d)<base)year++;
+    const next=birthdayDay(year,dob.m,dob.d),days=next-base;
+    // Week/month filters include elapsed calendar birthdays; days/age still refer to the next real birthday.
+    let inWeek=false;
+    for(const weekYear of new Set([birthdayCivil(monday).y,birthdayCivil(end).y])){
+      if(dob.m===2&&dob.d===29&&!birthdayLeap(weekYear))continue;
+      const occurrence=birthdayDay(weekYear,dob.m,dob.d);
+      if(occurrence>=monday&&occurrence<=end)inWeek=true;
+    }
+    const row={...customer,dob,days,age:year-dob.y,nextYear:year,inWeek,inMonth:dob.m===today.m,
+      policy:dob.m===2&&dob.d===29&&!birthdayLeap(today.y)};
+    result.rows.push(row);
+    if(row.policy)result.leap.push(row);
+    if(days===0)result.stats.today++;
+    if(days===1)result.stats.tomorrow++;
+    if(days<7)result.stats.next7++;
+    if(row.inMonth)result.stats.month++;
+  }
+  result.rows.sort((a,b)=>a.days-b.days||String(a.name||'').localeCompare(String(b.name||''),'az')||a.id.localeCompare(b.id));
+  result.leap.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'az'));
+  return result;
+}
+function birthdayGetModel(state){
+  const today=birthdayToday(),key=[today.y,today.m,today.d].join('-');
+  if(!state.model||state.model.key!==key)state.model=birthdayModel(state.rows||[],today);
+  return state.model;
+}
+function birthdaySelection(model,filter,search){
+  const query=norm(search||''),digits=(search||'').replace(/\D/g,'');
+  return model.rows.filter(row=>{
+    const matches=!query||norm(row.name||'').includes(query)||norm(row.phone||'').includes(query)||
+      (digits.length>0&&!/[a-zəöüğıçş]/i.test(search)&&birthdayWhatsAppDigits(row.phone).includes(digits));
+    if(!matches)return false;
+    return filter==='all'||filter==='today'&&row.days===0||filter==='tomorrow'&&row.days===1||
+      filter==='week'&&row.inWeek||filter==='month'&&row.inMonth||filter==='next7'&&row.days<7||filter==='next30'&&row.days<30;
+  });
+}
+async function birthdayFetchCustomers(){
+  // Explicit count and range checks prevent displaying a silently truncated REST response as complete.
+  const out=[],ids=new Set();let total=null;
+  while(total===null||out.length<total){
+    const offset=out.length;
+    const response=await fetch(BASE+'/customers?select=id,name,phone,birth_date&order=id.asc&limit=1000&offset='+offset,
+      {headers:{...H,Prefer:'count=exact'}});
+    if(!response.ok)throw new Error('Müştəri siyahısı oxunmadı.');
+    const range=response.headers.get('Content-Range')||'',match=range.match(/^(?:(\d+)-(\d+)|\*)\/(\d+)$/);
+    const rows=await response.json();
+    if(!match||!Array.isArray(rows))throw new Error('Məlumatın tamlığı təsdiqlənmədi.');
+    const count=Number(match[3]);
+    if(count>100000||(total!==null&&total!==count))throw new Error('Siyahı dəyişib və ya ölçü həddi aşılıb. Yeniləyin.');
+    total=count;
+    if((total===0&&(rows.length||offset))||rows.length>1000||
+      (total>0&&(!rows.length||Number(match[1])!==offset||Number(match[2])!==offset+rows.length-1))||offset+rows.length>total){
+      throw new Error('Müştəri siyahısı natamam yükləndi.');
+    }
+    for(const row of rows){
+      if(typeof row.id!=='string'||!row.id||ids.has(row.id)||typeof row.name!=='string'||
+        !Object.prototype.hasOwnProperty.call(row,'phone')||(row.phone!==null&&typeof row.phone!=='string')||!Object.prototype.hasOwnProperty.call(row,'birth_date')){
+        throw new Error('Siyahıda natamam və ya təkrar qeyd var. Yeniləyin.');
+      }
+      ids.add(row.id);out.push(row);
+    }
+    if(total===0)break;
+  }
+  return out;
+}
+// Communication metadata adapter is deliberately separate from DOB calculation.
+async function birthdayFetchContacts(state){
+  // Reuse the existing read-only RPC: no new table, field, function or direct private-schema access.
+  // Its internal package/attendance scan is used only for existing communication metadata;
+  // birthday eligibility/counts never depend on it. It exposes the existing Winback worklist only.
+  const snapshot=await winbackRpc('customer_winback_snapshot',{p_actor_id:state.user.id});
+  if(!snapshot||snapshot.version!==1||!Number.isInteger(snapshot.total)||snapshot.total<0||
+    !Array.isArray(snapshot.rows)||snapshot.rows.length!==snapshot.total||
+    !Number.isFinite(Date.parse(snapshot.as_of))||new Set(snapshot.rows.map(row=>row.id)).size!==snapshot.total||
+    snapshot.rows.some(row=>typeof row.id!=='string'||typeof row.opt_out!=='boolean'||
+      !Object.prototype.hasOwnProperty.call(WINBACK_STATUSES,row.contact_status)||
+      !['granted','not_granted','unknown'].includes(row.consent)))throw new Error('Əlaqə məlumatı natamamdır.');
+  return {rows:snapshot.rows.map(row=>({id:row.id,opt_out:row.opt_out,contact_status:row.contact_status,consent:row.consent})),asOf:snapshot.as_of,
+    warning:'Mövcud geri qazanma hesabatında olan əlaqə məhdudiyyətləri nəzərə alınır. Bu mənbədən kənar müştərilərin razılıq statusu təsdiqlənmir; avtomatik razılıq verilmiş sayılmır.'};
+}
+function birthdayKnownContact(id,state){
+  const own=state.contacts?.find(row=>row.id===id);
+  const cached=S.winback?.user===S.currentUser?S.winback.snapshot?.rows.find(row=>row.id===id):null;
+  // Prefer the newer verified metadata; retain a known refusal if a row falls outside the RPC worklist.
+  if(cached&&(!own||Date.parse(S.winback.snapshot.as_of)>Date.parse(state.contactsAsOf)))return cached;
+  return own||cached;
+}
+function birthdayWhatsAppDigits(raw){
+  const source=String(raw||'').trim();
+  if(!/^[+]?[0-9\s().-]+$/.test(source))return '';
+  const digits=phoneToWhatsAppDigits(source);
+  return /^[1-9][0-9]{7,14}$/.test(digits)&&(!digits.startsWith('994')||/^994[1-9][0-9]{8}$/.test(digits))?digits:'';
+}
+function birthdayContactReason(row,state){
+  const contact=birthdayKnownContact(row.id,state);
+  if(contact?.opt_out)return 'Əlaqədən imtina edilib';
+  if(contact?.contact_status==='declined')return 'Əlaqə təklifi rədd edilib';
+  if(contact?.consent==='not_granted')return 'Kommunikasiya razılığı verilməyib';
+  if(state.contactError)return 'Əlaqə məhdudiyyətləri yoxlanılmadı — Yenilə';
+  if(!birthdayWhatsAppDigits(row.phone))return 'Telefon yoxdur və ya etibarsızdır';
+  return '';
+}
+function rBirthdayWhatsApp(row,state){
+  const reason=birthdayContactReason(row,state),label='WhatsApp · '+(reason||row.name);
+  const icon='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.8a8.5 8.5 0 0 1-12.6 7.5L4 20.5l1.2-3.9a8.5 8.5 0 1 1 15.3-4.8Z"/><path d="M9 8.4c-1.8 1.2 3 6 4.5 6.3.6 0 1.4-.5 1.7-1.1l-2-1-1 .6a6 6 0 0 1-2.1-2.1l.5-.7-.9-2.1Z"/></svg>';
+  if(reason)return '<button type="button" class="birthday-wa" disabled title="'+escHtml(reason)+'" aria-label="'+escHtml(label)+'">'+icon+'</button><small class="birthday-note">'+escHtml(reason)+'</small>';
+  return '<a class="birthday-wa" href="https://wa.me/'+birthdayWhatsAppDigits(row.phone)+'?text='+encodeURIComponent(BIRTHDAY_MESSAGE)+
+    '" target="_blank" rel="noopener noreferrer" data-id="'+escHtml(row.id)+'" onclick="return birthdayAllowWhatsApp(this.dataset.id)" title="'+escHtml(label)+'" aria-label="'+escHtml(label)+'">'+icon+'</a>';
+}
+function birthdayAllowWhatsApp(id){
+  if(!birthdayIsOpen())return false;
+  const state=birthdayState(),row=state.rows?.find(item=>item.id===id);
+  if(!row||birthdayContactReason(row,state))return false;
+  const digits=birthdayWhatsAppDigits(row.phone),shared=state.rows.filter(item=>birthdayWhatsAppDigits(item.phone)===digits).length>1;
+  return !shared||confirm('Bu nömrə bir neçə müştəriyə aiddir. Təbrik mətnini və ünvanlanan şəxsi WhatsApp-da yoxlayın. Söhbət açılsın?');
+}
+function birthdayCustomerCard(id){
+  if(!birthdayIsOpen())return;
+  const row=birthdayState().rows?.find(item=>item.id===id);
+  if(!row)return;
+  if(!D.customers.some(item=>item.id===id))D.customers.push({...row});
+  S.view='cust';selCust(id);
+}
+function rBirthdayRow(row,state){
+  const day=String(row.dob.d).padStart(2,'0')+'.'+String(row.dob.m).padStart(2,'0');
+  const name='<button type="button" class="birthday-name" data-id="'+escHtml(row.id)+'" onclick="birthdayCustomerCard(this.dataset.id)">'+escHtml(row.name)+'</button>';
+  const cells=[['Müştəri',name+(row.days===0?'<span class="badge b-green">🎂 Bu gün</span>':'')],['Telefon',escHtml(row.phone||'—')],
+    ['Ad günü','<strong>'+day+'</strong>'+(row.policy?'<small class="birthday-note">29 fevral · təbrik siyasəti gözlənilir</small>':'')],
+    ['Qalan gün',String(row.days)+(row.nextYear!==state.model.today.y?'<small class="birthday-note">Növbəti: '+row.nextYear+'</small>':'')],
+    ['Yaş',String(row.age)],['WhatsApp',rBirthdayWhatsApp(row,state)]];
+  return '<tr role="row"'+(row.days===0?' class="birthday-today"':'')+'>'+cells.map(([label,value])=>'<td role="cell"><span class="birthday-mobile-label" aria-hidden="true">'+label+'</span>'+value+'</td>').join('')+'</tr>';
+}
+function rBirthdayResults(state){
+  const model=birthdayGetModel(state),selected=birthdaySelection(model,state.filter,state.search);
+  state.page=Math.max(0,Math.min(state.page,Math.max(0,Math.ceil(selected.length/BIRTHDAY_PAGE_SIZE)-1)));
+  const start=state.page*BIRTHDAY_PAGE_SIZE;
+  const quality=model.quality;
+  let html='<div class="birthday-stats">'+[['today','Bu gün ad günü olanlar'],['tomorrow','Sabah ad günü olanlar'],['next7','Növbəti 7 gündə'],['month','Cari ayda']].map(([key,label])=>
+    '<button type="button" class="scard" onclick="birthdaySetFilter(\''+key+'\')"><strong>'+model.stats[key]+'</strong><span>'+label+'</span></button>').join('')+'</div>';
+  html+='<p class="birthday-caption">Bakı tarixi: '+String(model.today.d).padStart(2,'0')+'.'+String(model.today.m).padStart(2,'0')+'.'+model.today.y+
+    ' · Tam yüklənib: '+state.rows.length+' müştəri · Etibarlı DOB: '+model.rows.length+'.<br>Doğum tarixi boş: '+quality.missing+' · Səhv format/tarix: '+quality.invalid+' · Gələcək tarix: '+quality.future+'.</p>';
+  if(state.contactError)html+='<div class="al al-y" role="status">'+escHtml(state.contactError)+' Ad günü siyahısı tamdır; WhatsApp yoxlama tamamlanana qədər bağlıdır.</div>';
+  if(state.contactWarning)html+='<p class="birthday-caption">'+escHtml(state.contactWarning)+'</p>';
+  if(model.leap.length)html+='<details class="birthday-policy"><summary>29 fevral: '+model.leap.length+' müştəri — adi il üçün təbrik siyasəti gözlənilir</summary><p>28 fevral və ya 1 mart avtomatik seçilməyib. Qalan gün və yaş növbəti həqiqi 29 fevrala hesablanır.</p><ul>'+model.leap.map(row=>'<li>'+escHtml(row.name)+' · 29.02 · növbəti '+row.nextYear+'</li>').join('')+'</ul></details>';
+  html+='<p class="birthday-caption">'+selected.length+' nəticə · Qalan gün və yaş növbəti həqiqi ad gününə görədir. “Bu həftə” B.e.–Bazar, “Bu ay” isə keçmiş ad günlərini də əhatə edir.</p>';
+  if(!selected.length)return html+'<div class="empty">Seçilmiş filtr üzrə müştəri tapılmadı.</div>';
+  html+='<div class="birthday-scroll ui-table-scroll" aria-label="Ad günləri siyahısı"><table role="table" class="birthday-table"><thead role="rowgroup"><tr role="row">'+
+    ['Müştəri','Telefon','Ad günü','Qalan gün','Yaş','WhatsApp'].map(label=>'<th scope="col" role="columnheader">'+label+'</th>').join('')+
+    '</tr></thead><tbody role="rowgroup">'+selected.slice(start,start+BIRTHDAY_PAGE_SIZE).map(row=>rBirthdayRow(row,state)).join('')+'</tbody></table></div>';
+  return html+'<div class="birthday-pager"><button class="btn btn-gray" onclick="birthdayPage('+(state.page-1)+')"'+(state.page===0?' disabled':'')+'>← Əvvəlki</button><span>'+(start+1)+'–'+Math.min(start+BIRTHDAY_PAGE_SIZE,selected.length)+' / '+selected.length+'</span><button class="btn btn-gray" onclick="birthdayPage('+(state.page+1)+')"'+(start+BIRTHDAY_PAGE_SIZE>=selected.length?' disabled':'')+'>Növbəti →</button></div>';
+}
+function birthdayPaintResults(){
+  if(!birthdayIsOpen())return;
+  const state=birthdayState(),root=document.getElementById('birthday-results');
+  if(root&&state.rows){root.innerHTML=rBirthdayResults(state);uiEnhance(root);}
+  document.querySelectorAll('[data-birthday-filter]').forEach(button=>{const active=button.dataset.birthdayFilter===state.filter;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
+}
+function birthdaySetFilter(filter){if(!birthdayIsOpen()||!BIRTHDAY_FILTERS[filter])return;const state=birthdayState();state.filter=filter;state.page=0;birthdayPaintResults();}
+function birthdaySetSearch(value){if(!birthdayIsOpen())return;const state=birthdayState();state.search=value;state.page=0;birthdayPaintResults();}
+function birthdayPage(page){if(!birthdayIsOpen())return;birthdayState().page=page;birthdayPaintResults();}
+function birthdayPaint(){
+  if(!birthdayIsOpen())return;
+  const body=document.getElementById('birthday-body');
+  if(body){body.innerHTML=rBirthdayBody(birthdayState());uiEnhance(body);}
+}
+function birthdayArmDay(){
+  clearTimeout(birthdayDayTimer);
+  if(!birthdayIsOpen())return;
+  const now=new Date(),today=birthdayToday(now);
+  // Asia/Baku has fixed UTC+04; Intl above remains the authority for the civil day.
+  const until=(birthdayDay(today.y,today.m,today.d)+1)*86400000-4*3600000-now.getTime()+100;
+  birthdayDayTimer=setTimeout(()=>{if(birthdayIsOpen()){birthdayPaintResults();birthdayArmDay();}},Math.max(100,until));
+}
+function birthdayCheckDay(){
+  if(!birthdayIsOpen()||document.hidden)return;
+  const state=birthdayState();
+  if(state.loading||!state.rows)return;
+  const before=state.model?.key;
+  const model=birthdayGetModel(state);
+  if(before!==model.key)birthdayPaintResults();
+  birthdayArmDay();
+}
+function rBirthdayBody(state){
+  let html='<div class="birthday-head"><h2 id="birthday-heading">🎂 Ad günləri</h2><button class="btn btn-g" onclick="refreshBirthday()"'+(state.loading?' disabled':'')+'>↻ Yenilə</button></div>';
+  if(state.loading)return html+'<div class="empty" role="status"><span class="spin"></span> Tam müştəri siyahısı yüklənir…</div>';
+  if(state.error)return html+'<div class="al al-y" role="alert">'+escHtml(state.error)+' Natamam nəticə göstərilmir. “Yenilə” ilə təkrar cəhd edin.</div>';
+  if(!state.rows)return html+'<div class="empty">Məlumat gözlənilir…</div>';
+  html+='<p class="birthday-caption">Son yenilənmə: '+escHtml(new Intl.DateTimeFormat('az-AZ',{timeZone:'Asia/Baku',dateStyle:'short',timeStyle:'short'}).format(new Date(state.asOf)))+' · WhatsApp mətni yalnız qaralama kimi açılır; göndərməyi operator seçir.</p>';
+  html+='<div class="birthday-filters" role="group" aria-label="Ad günü filtrləri">'+Object.entries(BIRTHDAY_FILTERS).map(([key,label])=>'<button class="tab '+(key===state.filter?'active':'')+'" type="button" data-birthday-filter="'+key+'" aria-pressed="'+(key===state.filter)+'" onclick="birthdaySetFilter(\''+key+'\')">'+label+'</button>').join('')+'</div>';
+  html+='<label class="birthday-search" for="birthday-search">Ad və ya telefon<input id="birthday-search" class="fi" type="search" placeholder="Müştəri axtar…" value="'+escHtml(state.search)+'" oninput="birthdaySetSearch(this.value)"></label>';
+  return html+'<div id="birthday-results">'+rBirthdayResults(state)+'</div>';
+}
+function rBirthday(){
+  const state=birthdayState();
+  if(!state.attempted)queueMicrotask(()=>{if(birthdayIsOpen()&&!state.attempted)refreshBirthday();});
+  return '<section class="birthday" aria-labelledby="birthday-heading"><div id="birthday-body">'+rBirthdayBody(state)+'</div></section>';
+}
+function openBirthday(){if(!canUseBirthday())return;S.reportTab='birthday';render();refreshBirthday();}
+async function refreshBirthday(){
+  if(!birthdayIsOpen())return false;
+  const state=birthdayState();if(state.loading)return false;
+  state.loading=true;state.attempted=true;state.error='';state.contactError='';state.contactWarning='';state.rows=null;state.model=null;state.contacts=null;
+  birthdayPaint();
+  try{
+    const [customers,contacts]=await Promise.allSettled([birthdayFetchCustomers(),birthdayFetchContacts(state)]);
+    if(customers.status==='rejected')throw customers.reason;
+    if(S.birthday!==state||S.currentUser!==state.user)return false;
+    state.rows=customers.value;state.model=null;state.asOf=new Date().toISOString();
+    if(contacts.status==='fulfilled'){state.contacts=contacts.value.rows;state.contactsAsOf=contacts.value.asOf;state.contactWarning=contacts.value.warning||'';}
+    else state.contactError='Əlaqə məhdudiyyətləri oxunmadı. “Yenilə” ilə təkrar cəhd edin.';
+  }catch(error){if(S.birthday===state)state.error=error.message||'Siyahı yüklənmədi.';}
+  finally{state.loading=false;if(S.birthday===state&&S.currentUser===state.user){birthdayPaint();birthdayArmDay();}}
+  return !!state.rows;
+}
+document.addEventListener('visibilitychange',birthdayCheckDay);
+window.addEventListener('focus',birthdayCheckDay);
+// ── End customer birthdays ──
 
 initApp();
 </script>
