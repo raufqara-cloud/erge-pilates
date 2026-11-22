@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Erge Pilates — login-pin-guard-v1</title>
+<title>Erge Pilates — customer-winback-v1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -314,6 +314,60 @@ body:has(.ov){overflow:hidden}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}.spin{animation-duration:1.8s}}
 
+/* customer-winback-v1 */
+.winback { min-width:0; }
+.winback-head,.winback-pager,.winback-actions {
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+}
+.winback-head { justify-content:space-between; margin-bottom:12px; }
+.winback-head h2 { margin:0; font-size:1.15rem; }
+.winback-stats,.winback-filters {
+  display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(min(155px,100%),1fr));
+  margin:12px 0;
+}
+.winback-stats .scard { padding:10px 12px; min-width:0; }
+.winback-stats strong { display:block; font-size:1.25rem; color:var(--ui-ink,#223b2c); }
+.winback-filters > label,.winback-filter { display:grid; gap:4px; min-width:0; font-size:12px; font-weight:600; }
+.winback-filters input,.winback-filters select { min-width:0; width:100%; }
+.winback-campaign { display:flex; align-items:center; gap:8px; min-height:44px; width:fit-content; }
+.winback-campaign input { width:18px; height:18px; }
+.winback-caption,.winback-detail { display:block; font-size:12px; color:#52675b; overflow-wrap:anywhere; }
+.winback .winback-table { min-width:0; table-layout:auto; }
+.winback-table th,.winback-table td { padding:8px 6px; text-align:left; overflow-wrap:anywhere; }
+.winback-table th { font-size:12px; }
+.winback-table td { background:#fff; }
+.winback-table tbody tr:hover td { background:#fafcfb; }
+.winback-tel { color:#225b45; }
+.winback-wa {
+  display:inline-flex; align-items:center; justify-content:center; width:44px; min-height:44px;
+  padding:0; border:1px solid #b9dcc8; border-radius:10px; background:#e8f7ee; color:#116044;
+  text-decoration:none;
+}
+.winback-wa svg { width:22px; height:22px; }
+.winback-wa:disabled { background:#f3f5f4; color:#66736d; border-color:#dce4df; }
+.winback-flag { display:block; font-size:12px; color:#805000; margin-top:3px; }
+.winback-pager { justify-content:center; margin-top:12px; }
+.winback .btn { white-space:normal; }
+.winback textarea { width:100%; min-height:90px; }
+.winback-contact-flags { display:grid; gap:8px; margin:10px 0; }
+.winback-contact-flags label { display:flex; gap:8px; align-items:center; min-height:44px; }
+.winback-contact-flags input { width:18px; height:18px; flex:none; }
+.winback-mobile-label { display:none; }
+@media(max-width:900px) {
+  .winback .winback-scroll { overflow:visible!important; }
+  .winback .winback-scroll > .ui-scroll-hint { display:none; }
+  .winback .winback-table,.winback-table tbody { display:block; }
+  .winback-table thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .winback-table tbody tr {
+    display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin-bottom:10px;
+    background:#fff; border:1px solid var(--ui-border,#e1eae4); border-radius:12px; overflow:hidden;
+  }
+  .winback-table td { min-width:0; padding:8px 10px; }
+  .winback-table td:first-child,.winback-table .winback-cell-state,.winback-table td:last-child { grid-column:1/-1; }
+  .winback-mobile-label { display:block; color:#52675b; font-size:11px; font-weight:600; }
+  .winback-filters .fi,.winback-filters .fs { font-size:16px; }
+  .winback-tel,.winback-actions .btn { display:inline-flex; align-items:center; min-height:44px; }
+}
 </style>
 </head>
 <body>
@@ -1465,7 +1519,7 @@ function render(){
     +'</div>';
   var _viewLabels={home:'Əsas səhifə',att:'Davamiyyət',cust:'Müştərilər',admin:'Admin',report:'Hesabat',kassa:'Kassa',leads:'CRM / Lead',bron:'Qrup Yerləri',clientRequests:'Müraciətlər'};
   var h='<a class="skip-link" href="#main-content">Əsas məzmuna keç</a><header class="topbar">'
-    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">login-pin-guard-v1</small></div>'
+    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">customer-winback-v1</small></div>'
     +'<button id="app-menu-toggle" class="menu-toggle" aria-controls="app-nav" aria-expanded="'+!!S.uiNavOpen+'" onclick="uiToggleMenu()">'
     +'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
     +'<span class="menu-view-label">'+escHtml(_viewLabels[S.view]||'Menyu')+'</span><span class="menu-caption">Menyu</span></button>'
@@ -7423,11 +7477,13 @@ function rReport(){
   var t2=S.reportTab==='izleme'?'active':'';
   var t3=S.reportTab==='partner'?'active':'';
   var t4=S.reportTab==='hareket'?'active':'';
+  var t5=S.reportTab==='winback'?'active':'';
   h+='<div class="tab-row">';
   if(canSeeSalaryReport())h+='<button class="tab '+t1+'" onclick="S.reportTab=\'salary\';render()">Trener Əmək Haqqı</button>';
   h+='<button class="tab '+t2+'" onclick="S.reportTab=\'izleme\';refreshIzleme()">Müştəri İzləmə</button>'
     +'<button class="tab '+t3+'" onclick="S.reportTab=\'partner\';render()">Partner Reconciliasiya</button>';
   if(canSeeSalaryReport())h+='<button class="tab '+t4+'" onclick="S.reportTab=\'hareket\';render()">Müştəri Hərəkəti</button>';
+  if(canUseWinback())h+='<button class="tab '+t5+'" onclick="openWinback()">Müştərilərin geri qazanılması</button>';
   h+='</div>';
   if(S.reportTab==='izleme'){
     h+='<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
@@ -7437,6 +7493,7 @@ function rReport(){
   }
   if(S.reportTab==='partner'){return h+rPartnerRecon();}
   if(S.reportTab==='hareket'){return h+rMovement();}
+  if(S.reportTab==='winback'&&canUseWinback()){return h+rWinback();}
   // Year/Month selector
   var curYear=now.getFullYear();
   var years=[];
@@ -9065,6 +9122,7 @@ function sv(v){
   if(v==='cust')refreshCustomersLight();
   // Force fresh Kassa data on tab entry — prevents cross-session stale balances
   if(v==='kassa')refreshKassa();
+  if(winbackIsOpen()){refreshWinback();return;}
   render();
 }
 function ss(v){
@@ -12320,6 +12378,8 @@ async function patchAppUserVerified(userId,body,expectedPinHash,requirePending){
 }
 
 async function switchUser(){
+  S.winback=null;
+  if(S.reportTab==='winback')S.reportTab='izleme';
   S.currentUser=null;
   S.showLoginModal=true;
   S._loginErr=null;
@@ -12905,6 +12965,363 @@ uiViewportSize();
 window.addEventListener('resize',uiViewportSize,{passive:true});
 if(window.visualViewport){window.visualViewport.addEventListener('resize',uiViewportSize,{passive:true});window.visualViewport.addEventListener('scroll',uiViewportSize,{passive:true});}
 window.matchMedia('(min-width:1200px)').addEventListener('change',function(e){if(e.matches&&S.uiNavOpen)uiCloseMenu(false);});
+
+// Customer win-back report — isolated Project A snapshot and contact state.
+const WINBACK_STATUSES={
+  uncontacted:'Əlaqə saxlanılmayıb', attempted:'Əlaqə cəhdi edilib',
+  interested:'Maraqlanır', agreed:'Geri qayıtmağa razıdır',
+  returned:'Geri qayıdıb (operator)', declined:'İmtina edib', no_answer:'Cavab vermir'
+};
+const WINBACK_SEGMENTS=[
+  ['active',0,'Aktiv · 0–13 gün'], ['risk',14,'Risk altında · 14–29 gün'],
+  ['winback1',30,'Geri qazanma — 1 · 30–59 gün'], ['winback2',60,'Geri qazanma — 2 · 60–89 gün'],
+  ['long',90,'Uzun fasilə · 90–179 gün'], ['archive',180,'Arxiv / reaktivasiya · 180+ gün']
+];
+const WINBACK_PACKAGE_STATES={
+  active:'Aktiv', pending:'İlk məşqi gözləyir', frozen:'Dondurulub', expired:'Müddəti bitib',
+  completed:'Məşqlər tamamlanıb', inactive:'Deaktiv', scheduled:'Başlama tarixini gözləyir',
+  review:'Paket məlumatı yoxlanmalıdır'
+};
+const WINBACK_SORTS={
+  priority:'Prioritet', days_desc:'Fasilə · çoxdan aza', days_asc:'Fasilə · azdan çoxa',
+  name:'Ad · A–Z', phone:'Telefon', packages:'Paket sayı · çoxdan aza',
+  status:'Əlaqə statusu', follow_up:'Növbəti əlaqə tarixi'
+};
+const WINBACK_PAGE_SIZE=25;
+
+function canUseWinback(){return isAdmin()||isManager()||isCashier();}
+function winbackIsOpen(){return S.view==='report'&&S.reportTab==='winback'&&canUseWinback();}
+function winbackState(){
+  if(!S.winback||S.winback.user!==S.currentUser){
+    S.winback={user:S.currentUser,snapshot:null,loading:false,error:'',message:'',page:0,
+      draft:null,filter:{search:'',segment:'30plus',status:'all',packages:'all',sort:'priority',campaign:false}};
+  }
+  return S.winback;
+}
+async function winbackRpc(name,body){
+  const response=await fetch(BASE+'/rpc/'+name,{method:'POST',headers:H,body:JSON.stringify(body)});
+  if(!response.ok){
+    const error=new Error('Winback RPC failed');
+    error.status=response.status;
+    throw error;
+  }
+  return response.json();
+}
+function openWinback(){
+  if(!canUseWinback())return;
+  S.reportTab='winback';
+  refreshWinback();
+}
+async function refreshWinback(){
+  if(!winbackIsOpen())return false;
+  const state=winbackState();
+  if(state.loading||state.draft){
+    render();
+    return false;
+  }
+  state.loading=true;
+  state.snapshot=null;
+  state.error='';
+  render();
+  try{
+    const snapshot=await winbackRpc('customer_winback_snapshot',{p_actor_id:state.user.id});
+    if(!snapshot||snapshot.version!==1||!Number.isInteger(snapshot.total)||
+        !Array.isArray(snapshot.rows)||snapshot.rows.length!==snapshot.total||
+        !/^\d{4}-\d{2}-\d{2}$/.test(snapshot.report_date)||!Number.isFinite(Date.parse(snapshot.as_of))||
+        new Set(snapshot.rows.map(row=>row.id)).size!==snapshot.total||
+        snapshot.rows.some(row=>typeof row.id!=='string'||!Number.isInteger(row.inactive_days)||
+          row.inactive_days<0||!Number.isInteger(row.package_count)||row.package_count<1||
+          !Number.isInteger(row.package_visits)||row.package_visits<1||
+          !Number.isInteger(row.revision)||row.revision<0||
+          !Object.prototype.hasOwnProperty.call(WINBACK_STATUSES,row.contact_status))){
+      throw new Error('Incomplete winback snapshot');
+    }
+    state.snapshot=snapshot;
+  }catch(error){
+    state.error=error.status===404
+      ? 'Hesabat üçün Project A SQL migration-u tətbiq edilməlidir.'
+      : 'Hesabatın tam məlumatı yüklənmədi. Yenidən cəhd edin.';
+  }finally{
+    state.loading=false;
+    if(S.winback===state&&winbackIsOpen())render();
+  }
+  return !!state.snapshot;
+}
+function winbackSegment(days){
+  return WINBACK_SEGMENTS.find((segment,index)=>
+    index===WINBACK_SEGMENTS.length-1||days<WINBACK_SEGMENTS[index+1][1]);
+}
+function winbackWhatsAppDigits(row){
+  return /^[1-9][0-9]{7,14}$/.test(row.wa_digits||'')?row.wa_digits:'';
+}
+function winbackCampaignCandidate(row){
+  return row.inactive_days>=30&&!row.open_package_state&&!row.opt_out&&
+    row.contact_status!=='declined'&&row.consent==='granted'&&!!winbackWhatsAppDigits(row);
+}
+function winbackPriority(row){
+  return Number(row.package_count>=2&&row.inactive_days>=30&&row.inactive_days<90&&
+    !row.open_package_state&&!row.opt_out&&row.contact_status!=='declined');
+}
+function winbackSelection(rows,filter){
+  const query=norm(filter.search.trim());
+  const digits=filter.search.replace(/\D/g,'');
+  const base=rows.filter(row=>{
+    const phone=String(row.phone||'').replace(/\D/g,'');
+    return (!query||norm(row.name||'').includes(query)||
+        (!!digits&&/^[+0-9\s().-]+$/.test(filter.search)&&
+         (phone.includes(digits)||(row.wa_digits||'').includes(digits))))&&
+      (filter.status==='all'||row.contact_status===filter.status)&&
+      (filter.packages==='all'||(filter.packages==='one'?row.package_count===1:row.package_count>=2))&&
+      (!filter.campaign||winbackCampaignCandidate(row));
+  });
+  const list=base.filter(row=>filter.segment==='all'||
+    (filter.segment==='30plus'?row.inactive_days>=30:winbackSegment(row.inactive_days)[0]===filter.segment));
+  const byName=(a,b)=>(a.name||'').localeCompare(b.name||'','az')||a.id.localeCompare(b.id);
+  const sorts={
+    priority:(a,b)=>winbackPriority(b)-winbackPriority(a)||b.package_count-a.package_count||a.inactive_days-b.inactive_days,
+    days_desc:(a,b)=>b.inactive_days-a.inactive_days,
+    days_asc:(a,b)=>a.inactive_days-b.inactive_days,
+    name:byName,
+    phone:(a,b)=>(a.wa_digits||'').localeCompare(b.wa_digits||''),
+    packages:(a,b)=>b.package_count-a.package_count,
+    status:(a,b)=>WINBACK_STATUSES[a.contact_status].localeCompare(WINBACK_STATUSES[b.contact_status],'az'),
+    follow_up:(a,b)=>(a.next_contact_date||'9999-12-31').localeCompare(b.next_contact_date||'9999-12-31')
+  };
+  list.sort((a,b)=>sorts[filter.sort](a,b)||byName(a,b));
+  return {list,stats:[
+    ['Ümumi uyğun müştəri',base.length],
+    ['30+ gündür gəlməyənlər',base.filter(row=>row.inactive_days>=30).length],
+    ['90+ gündür gəlməyənlər',base.filter(row=>row.inactive_days>=90).length],
+    ['Əlaqə saxlanılmayıb',base.filter(row=>row.contact_status==='uncontacted'&&!row.last_contact_at).length],
+    ['Faktiki geri qayıdanlar',base.filter(row=>row.actual_return).length]
+  ]};
+}
+function winbackOptions(choices,current){
+  return Object.entries(choices).map(([value,label])=>
+    '<option value="'+escHtml(value)+'"'+(current===value?' selected':'')+'>'+escHtml(label)+'</option>'
+  ).join('');
+}
+function winbackSetFilter(key,value){
+  const state=winbackState();
+  state.filter[key]=value;
+  winbackPage(0);
+}
+function winbackPage(page){
+  const state=winbackState();
+  const results=document.getElementById('winback-results');
+  if(!state.snapshot||!results)return;
+  state.page=page;
+  results.innerHTML=rWinbackResults(state);
+  uiEnhance(results);
+}
+function rWinbackWhatsApp(row){
+  const digits=winbackWhatsAppDigits(row);
+  const icon='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.8a8.5 8.5 0 0 1-12.6 7.5L4 20.5l1.2-3.9a8.5 8.5 0 1 1 15.3-4.8Z"/><path d="M9 8.4c-1.8 1.2 3 6 4.5 6.3.6 0 1.4-.5 1.7-1.1l-2-1-1 .6a6 6 0 0 1-2.1-2.1l.5-.7-.9-2.1Z"/></svg>';
+  const disabled=row.opt_out?'Əlaqədən imtina edilib':row.contact_status==='declined'
+    ?'Geri qazanma təklifi rədd edilib':!digits?'Telefon yoxdur və ya etibarsızdır':'';
+  const label=disabled?'WhatsApp · '+disabled:'WhatsApp · '+(row.name||row.id);
+  if(disabled)return '<button type="button" class="winback-wa" aria-label="'+escHtml(label)+'" title="'+escHtml(disabled)+'" disabled>'+icon+'</button>';
+  const shared=row.phone_count>1
+    ?' onclick="return confirm(\'Bu nömrə bir neçə müştəriyə aiddir. WhatsApp söhbətini açmaq istəyirsiniz?\')"':'';
+  return '<a class="winback-wa" href="https://wa.me/'+digits+'" target="_blank" rel="noopener noreferrer" aria-label="'+
+    escHtml(label)+'" title="'+escHtml(label)+'"'+shared+'>'+icon+'</a>';
+}
+function rWinbackRow(row){
+  const digits=winbackWhatsAppDigits(row);
+  const rawPhone=escHtml(row.phone||'—');
+  const state=WINBACK_PACKAGE_STATES[row.last_package_state]||'Yoxlanmalıdır';
+  const openState=WINBACK_PACKAGE_STATES[row.open_package_state]||'Yoxlanmalıdır';
+  const consent=row.consent==='granted'?'CRM razılığı var':
+    row.consent==='not_granted'?'CRM razılığı verilməyib':'CRM razılığı qeydə alınmayıb';
+  const tel=digits&&!row.opt_out&&row.contact_status!=='declined'
+    ?'<a class="winback-tel" href="tel:+'+digits+'">'+rawPhone+'</a>':rawPhone;
+  const detail=(label,value)=>'<span class="winback-detail">'+label+escHtml(value)+'</span>';
+  const packageStatus='<b>'+escHtml(state)+'</b>'+
+    (row.open_package_state?detail('Açıq paket · ',(row.open_package||'')+' · '+openState):'');
+  const contact='<b>'+escHtml(WINBACK_STATUSES[row.contact_status])+'</b>'+
+    (row.actual_return?detail('','Faktiki iştirak qeydə alınıb'):'')+
+    (row.opt_out?'<span class="winback-flag">Əlaqə istəmir</span>':'')+
+    (row.last_contact_at?detail('Son əlaqə · ',fmtReqDate(row.last_contact_at)):'')+
+    (row.last_contact_actor?detail('Əlaqəni aparan · ',row.last_contact_actor):'')+
+    (row.next_contact_date?detail('Növbəti əlaqə · ',fmt(row.next_contact_date)):'');
+  const id=escHtml(row.id);
+  const actions='<div class="winback-actions"><button class="btn btn-g btn-sm" data-id="'+id+
+    '" onclick="openWinbackContact(this.dataset.id)">Əlaqə / qeyd</button><button class="btn btn-gray btn-sm" data-id="'+id+
+    '" onclick="winbackCustomerCard(this.dataset.id)">Müştəri kartı</button></div>';
+  const cells=[
+    ['Müştəri','<b>'+escHtml(row.name||row.id)+'</b>'+
+      (winbackPriority(row)?'<span class="winback-flag">Prioritet</span>':'')],
+    ['Telefon',tel+(row.phone_count>1?'<span class="winback-flag">Ortaq nömrə</span>':'')],
+    ['WhatsApp',rWinbackWhatsApp(row)],
+    ['Son məşq',escHtml(fmt(row.last_date))],
+    ['Fasilə',row.inactive_days+' gün'+detail('',winbackSegment(row.inactive_days)[2])],
+    ['Paket sayı',String(row.package_count)],
+    ['Məşq sayı',String(row.package_visits)],
+    ['Son paket',escHtml(row.last_package||'—')],
+    ['Paket vəziyyəti',packageStatus,'winback-cell-state'],
+    ['Əlaqə statusu',contact+detail('',consent),'winback-cell-state'],
+    ['Əməliyyat',actions]
+  ];
+  return '<tr role="row">'+cells.map(([label,value,css])=>'<td role="cell"'+(css?' class="'+css+'"':'')+
+    '><span class="winback-mobile-label" aria-hidden="true">'+label+'</span>'+value+'</td>').join('')+'</tr>';
+}
+function rWinbackResults(state){
+  const selected=winbackSelection(state.snapshot.rows,state.filter);
+  const lastPage=Math.max(0,Math.ceil(selected.list.length/WINBACK_PAGE_SIZE)-1);
+  state.page=Math.min(Math.max(state.page,0),lastPage);
+  const start=state.page*WINBACK_PAGE_SIZE;
+  let html='<div class="winback-stats">'+selected.stats.map(([label,total])=>
+    '<div class="scard"><strong>'+total+'</strong><span>'+label+'</span></div>').join('')+'</div>'+
+    '<p class="winback-caption">Göstəricilər seçilmiş axtarış, paket və əlaqə filtrləri üzrə bütün seqmentləri əhatə edir.</p>';
+  if(!selected.list.length)return html+'<p class="empty">Seçilmiş filtrlərə uyğun müştəri yoxdur.</p>';
+  const labels=['Müştəri','Telefon','WhatsApp','Son məşq','Fasilə','Paket sayı','Məşq sayı','Son paket',
+    'Paket vəziyyəti','Əlaqə statusu','Əməliyyat'];
+  html+='<div class="winback-scroll ui-table-scroll" aria-label="Müştərilərin geri qazanılması siyahısı">'+
+    '<table role="table" class="winback-table"><thead role="rowgroup"><tr role="row">'+
+    labels.map(label=>'<th role="columnheader" scope="col">'+label+'</th>').join('')+
+    '</tr></thead><tbody role="rowgroup">'+selected.list.slice(start,start+WINBACK_PAGE_SIZE)
+      .map(rWinbackRow).join('')+'</tbody></table></div>';
+  return html+'<div class="winback-pager"><button class="btn btn-gray btn-sm" onclick="winbackPage('+(state.page-1)+
+    ')"'+(!state.page?' disabled':'')+'>Əvvəlki</button><span aria-live="polite">'+(start+1)+'–'+
+    Math.min(start+WINBACK_PAGE_SIZE,selected.list.length)+' / '+selected.list.length+
+    '</span><button class="btn btn-gray btn-sm" onclick="winbackPage('+(state.page+1)+
+    ')"'+(state.page===lastPage?' disabled':'')+'>Növbəti</button></div>';
+}
+function rWinback(){
+  const state=winbackState();
+  let html='<section class="winback" aria-labelledby="winback-heading"><div class="winback-head">'+
+    '<h2 id="winback-heading">Müştərilərin geri qazanılması</h2>'+
+    '<button class="btn btn-g btn-sm" onclick="refreshWinback()"'+(state.loading?' disabled':'')+
+    '>↻ Yenilə</button></div>';
+  if(state.message)html+='<p class="al al-g" role="status">'+escHtml(state.message)+'</p>';
+  if(state.loading)return html+'<p role="status">Hesabat yüklənir…</p></section>';
+  if(state.error)return html+'<p class="al al-r" role="alert">'+escHtml(state.error)+'</p></section>';
+  if(!state.snapshot)return html+'<p>Hesabatı açmaq üçün “Yenilə” düyməsini seçin.</p></section>';
+  const filter=state.filter;
+  const segments=Object.fromEntries([['30plus','30+ gün'],['all','Bütün seqmentlər'],
+    ...WINBACK_SEGMENTS.map(([value,,label])=>[value,label])]);
+  const select=(label,key,options)=>'<div class="winback-filter"><label for="winback-filter-'+key+'">'+
+    label+'</label><select id="winback-filter-'+key+'" class="fs" onchange="winbackSetFilter(\''+key+
+    '\',this.value)">'+winbackOptions(options,filter[key])+'</select></div>';
+  html+='<p class="winback-caption">Son yenilənmə · '+escHtml(fmtReqDate(state.snapshot.as_of))+'</p>'+
+    '<div class="winback-filters"><label>Ad və ya telefon<input class="fi" type="search" value="'+
+    escHtml(filter.search)+'" oninput="winbackSetFilter(\'search\',this.value)"></label>'+
+    select('Fasilə','segment',segments)+
+    select('Paket sayı','packages',{all:'Hamısı',one:'1 paket',repeat:'2 və daha çox'})+
+    select('Əlaqə statusu','status',{all:'Hamısı',...WINBACK_STATUSES})+
+    select('Sıralama','sort',WINBACK_SORTS)+
+    '</div><label class="winback-campaign"><input type="checkbox" onchange="winbackSetFilter(\'campaign\',this.checked)"'+
+    (filter.campaign?' checked':'')+'> Yalnız razılığı olan kampaniya namizədləri</label>'+
+    '<div id="winback-results">'+rWinbackResults(state)+'</div>';
+  if(state.draft)html+=rWinbackContact(state);
+  return html+'</section>';
+}
+function winbackCustomerCard(id){
+  if(!winbackIsOpen()||!winbackState().snapshot?.rows.some(row=>row.id===id))return;
+  S.view='cust';
+  selCust(id);
+}
+function openWinbackContact(id){
+  if(!winbackIsOpen())return;
+  const state=winbackState();
+  const row=state.snapshot?.rows.find(row=>row.id===id);
+  if(!row)return;
+  state.message='';
+  state.draft={row,status:row.contact_status,next:row.next_contact_date||'',note:row.note||'',
+    optOut:row.opt_out,attempt:false,saving:false,error:'',requestId:null,conflict:false};
+  render();
+  document.getElementById('winback-contact-status')?.focus();
+}
+function winbackEditField(key,value){
+  const draft=winbackState().draft;
+  if(!draft||draft.saving||draft.conflict)return;
+  draft[key]=value;
+  draft.requestId=null;
+}
+function closeWinbackContact(){
+  const state=winbackState();
+  if(!state.draft||state.draft.saving)return;
+  const id=state.draft.row.id;
+  const conflict=state.draft.conflict;
+  state.draft=null;
+  if(conflict){
+    refreshWinback();
+    return;
+  }
+  render();
+  Array.from(document.querySelectorAll('#winback-results button[data-id]'))
+    .find(button=>button.dataset.id===id)?.focus();
+}
+function rWinbackContact(state){
+  const draft=state.draft;
+  const disabled=draft.saving||draft.conflict?' disabled':'';
+  return '<div class="ov"><div class="modal" onkeydown="if(event.key===\'Escape\'){event.stopPropagation();closeWinbackContact()}">'+
+    '<div class="mtitle">Əlaqə qeydi · '+escHtml(draft.row.name||draft.row.id)+'</div>'+
+    '<form onsubmit="event.preventDefault();saveWinbackContact()">'+
+    (draft.error?'<p class="al al-r" role="alert">'+escHtml(draft.error)+'</p>':'')+
+    '<div class="fg"><label class="fl" for="winback-contact-status">Əlaqə statusu</label>'+
+    '<select class="fs" id="winback-contact-status" onchange="winbackEditField(\'status\',this.value)"'+disabled+'>'+
+    winbackOptions(WINBACK_STATUSES,draft.status)+'</select></div>'+
+    '<p class="winback-caption">Son əlaqə · '+(draft.row.last_contact_at
+      ?escHtml(fmtReqDate(draft.row.last_contact_at)):'—')+'</p>'+
+    (draft.row.actor_username?'<p class="winback-caption">Son yeniləyən · '+escHtml(draft.row.actor_username)+'</p>':'')+
+    '<div class="fg"><label class="fl" for="winback-contact-next">Növbəti əlaqə tarixi</label>'+
+    '<input class="fi" type="date" id="winback-contact-next" value="'+escHtml(draft.next)+
+    '" onchange="winbackEditField(\'next\',this.value)"'+disabled+'></div>'+
+    '<div class="fg"><label class="fl" for="winback-contact-note">Operator qeydi</label>'+
+    '<textarea class="fi" id="winback-contact-note" maxlength="1000" oninput="winbackEditField(\'note\',this.value)"'+
+    disabled+'>'+escHtml(draft.note)+'</textarea></div>'+
+    '<div class="winback-contact-flags"><label><input type="checkbox" onchange="winbackEditField(\'attempt\',this.checked)"'+
+    (draft.attempt?' checked':'')+disabled+'> Bu gün əlaqə cəhdi edilib</label>'+
+    '<label><input type="checkbox" onchange="winbackEditField(\'optOut\',this.checked)"'+
+    (draft.optOut?' checked':'')+disabled+'> Müştəri əlaqə istəmir</label></div>'+
+    '<div class="winback-actions"><button type="submit" class="btn btn-g"'+disabled+'>'+
+    (draft.saving?'Saxlanılır…':'Saxla')+'</button><button type="button" class="btn btn-gray"'+
+    (draft.saving?' disabled':'')+' onclick="closeWinbackContact()">'+(draft.conflict?'Bağla və yenilə':'Bağla')+
+    '</button></div></form></div></div>';
+}
+async function saveWinbackContact(){
+  if(!winbackIsOpen())return;
+  const state=winbackState();
+  const draft=state.draft;
+  if(!draft||draft.saving||draft.conflict)return;
+  if(draft.attempt&&draft.status==='uncontacted'){
+    draft.error='Əlaqə cəhdini qeyd etmək üçün nəticə statusunu seçin.';
+    render();
+    document.getElementById('winback-contact-status')?.focus();
+    return;
+  }
+  draft.requestId=draft.requestId||crypto.randomUUID();
+  draft.saving=true;
+  draft.error='';
+  render();
+  try{
+    const result=await winbackRpc('customer_winback_save',{
+      p_customer_id:draft.row.id,p_expected_revision:draft.row.revision,p_request_id:draft.requestId,
+      p_status:draft.status,p_contact_attempt:draft.attempt,p_next_contact_date:draft.next||null,
+      p_note:draft.note,p_opt_out:draft.optOut,p_actor_id:state.user.id,p_session_id:state.user.session_id
+    });
+    if(result?.customer_id!==draft.row.id||result.revision!==draft.row.revision+1){
+      throw new Error('Unconfirmed contact save');
+    }
+  }catch(error){
+    draft.saving=false;
+    draft.conflict=error.status===409;
+    draft.error=draft.conflict
+      ?'Qeyd başqa sessiyada dəyişib. Siyahını yeniləyib son qeydi açın.'
+      :'Saxlama təsdiqlənmədi. Qeydi yenidən göndərə bilərsiniz.';
+    if(S.winback===state&&winbackIsOpen()){
+      render();
+      document.querySelector('.winback .modal button:not(:disabled)')?.focus();
+    }
+    return;
+  }
+  if(S.winback!==state)return;
+  state.draft=null;
+  state.snapshot=null;
+  state.message='Əlaqə qeydi saxlanıldı.';
+  if(winbackIsOpen())await refreshWinback();
+}
 
 initApp();
 </script>
