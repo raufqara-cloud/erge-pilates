@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Erge Pilates — customer-birthday-v1</title>
+<title>Erge Pilates — customer-birthday-v1-hotfix1</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F6F4;color:#1a1a1a;min-height:100vh}
@@ -1568,7 +1568,7 @@ function render(){
     +'</div>';
   var _viewLabels={home:'Əsas səhifə',att:'Davamiyyət',cust:'Müştərilər',admin:'Admin',report:'Hesabat',kassa:'Kassa',leads:'CRM / Lead',bron:'Qrup Yerləri',clientRequests:'Müraciətlər'};
   var h='<a class="skip-link" href="#main-content">Əsas məzmuna keç</a><header class="topbar">'
-    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">customer-birthday-v1</small></div>'
+    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">customer-birthday-v1-hotfix1</small></div>'
     +'<button id="app-menu-toggle" class="menu-toggle" aria-controls="app-nav" aria-expanded="'+!!S.uiNavOpen+'" onclick="uiToggleMenu()">'
     +'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
     +'<span class="menu-view-label">'+escHtml(_viewLabels[S.view]||'Menyu')+'</span><span class="menu-caption">Menyu</span></button>'
@@ -13497,7 +13497,7 @@ async function birthdayFetchContacts(state){
       !Object.prototype.hasOwnProperty.call(WINBACK_STATUSES,row.contact_status)||
       !['granted','not_granted','unknown'].includes(row.consent)))throw new Error('Əlaqə məlumatı natamamdır.');
   return {rows:snapshot.rows.map(row=>({id:row.id,opt_out:row.opt_out,contact_status:row.contact_status,consent:row.consent})),asOf:snapshot.as_of,
-    warning:'Mövcud geri qazanma hesabatında olan əlaqə məhdudiyyətləri nəzərə alınır. Bu mənbədən kənar müştərilərin razılıq statusu təsdiqlənmir; avtomatik razılıq verilmiş sayılmır.'};
+    warning:'Mövcud geri qazanma hesabatında qeydə alınmış “Müştəri əlaqə istəmir” imtinaları nəzərə alınır. Bu mənbədən kənar müştərilərin imtina məlumatı tam yoxlanılmaya bilər.'};
 }
 function birthdayKnownContact(id,state){
   const own=state.contacts?.find(row=>row.id===id);
@@ -13515,8 +13515,7 @@ function birthdayWhatsAppDigits(raw){
 function birthdayContactReason(row,state){
   const contact=birthdayKnownContact(row.id,state);
   if(contact?.opt_out)return 'Əlaqədən imtina edilib';
-  if(contact?.contact_status==='declined')return 'Əlaqə təklifi rədd edilib';
-  if(contact?.consent==='not_granted')return 'Kommunikasiya razılığı verilməyib';
+  // CRM consent checkbox and a declined winback offer are not an explicit contact opt-out.
   if(state.contactError)return 'Əlaqə məhdudiyyətləri yoxlanılmadı — Yenilə';
   if(!birthdayWhatsAppDigits(row.phone))return 'Telefon yoxdur və ya etibarsızdır';
   return '';
