@@ -1568,7 +1568,7 @@ function render(){
     +'</div>';
   var _viewLabels={home:'Əsas səhifə',att:'Davamiyyət',cust:'Müştərilər',admin:'Admin',report:'Hesabat',kassa:'Kassa',leads:'CRM / Lead',bron:'Qrup Yerləri',clientRequests:'Müraciətlər'};
   var h='<a class="skip-link" href="#main-content">Əsas məzmuna keç</a><header class="topbar">'
-    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">customer-birthday-v1-hotfix1</small></div>'
+    +'<div class="logo">ERGE <span>PILATES</span><small class="build-marker">winback-black-friday-v1</small></div>'
     +'<button id="app-menu-toggle" class="menu-toggle" aria-controls="app-nav" aria-expanded="'+!!S.uiNavOpen+'" onclick="uiToggleMenu()">'
     +'<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
     +'<span class="menu-view-label">'+escHtml(_viewLabels[S.view]||'Menyu')+'</span><span class="menu-caption">Menyu</span></button>'
@@ -13042,6 +13042,23 @@ const WINBACK_SORTS={
   status:'Əlaqə statusu', follow_up:'Növbəti əlaqə tarixi'
 };
 const WINBACK_PAGE_SIZE=25;
+const WINBACK_BLACK_FRIDAY={
+  endsAt:Date.parse('2026-12-01T00:00:00+04:00'),
+  message:`Salam, [Ad] xanım! 🤍
+
+*Sizin üçün darıxmışıq!*
+
+Möhtəşəm Cümə münasibətilə sizi yenidən Erge-də görmək üçün gözəl bir fürsətimiz var.
+
+✨ *Reformer Pilates paketlərinə 30%-dək endirim!*
+
+📅 Bu fürsətdən *30 noyabr* daxil olmaqla yararlana bilərsiniz.
+
+Sizə uyğun məşq saatlarını birlikdə seçək?
+
+Sevgi ilə,
+*Erge Pilates Studio*`
+};
 
 function canUseWinback(){return isAdmin()||isManager()||isCashier();}
 function winbackIsOpen(){return S.view==='report'&&S.reportTab==='winback'&&canUseWinback();}
@@ -13168,17 +13185,49 @@ function winbackPage(page){
   results.innerHTML=rWinbackResults(state);
   uiEnhance(results);
 }
+function winbackWhatsAppBlockReason(row,digits){
+  if(row.opt_out)return 'Əlaqədən imtina edilib';
+  if(row.contact_status==='declined')return 'Geri qazanma təklifi rədd edilib';
+  return digits?'':'Telefon yoxdur və ya etibarsızdır';
+}
+function winbackCampaignFirstName(fullName){
+  const [first,second]=String(fullName||'').trim().normalize('NFC').split(/\s+/);
+  const nameToken=/^\p{L}[\p{L}\p{M}]*(?:[-'’]\p{L}[\p{L}\p{M}]*)*$/u;
+  const surnameEnding=/^.{2,}(?:[oe]va?|zad[əe])$/iu;
+  if(!nameToken.test(first))return '';
+  const firstIsSurname=surnameEnding.test(first);
+  if(!second)return firstIsSurname?'':first;
+  if(!nameToken.test(second))return '';
+  const secondIsSurname=surnameEnding.test(second);
+  // Customer records can contain either name order. Use a neutral greeting if it is ambiguous.
+  if(firstIsSurname===secondIsSurname)return '';
+  return firstIsSurname?second:first;
+}
+function winbackOpenWhatsApp(link){
+  if(!winbackIsOpen())return false;
+  const row=winbackState().snapshot?.rows.find(item=>item.id===link.dataset.id);
+  if(!row)return false;
+  const digits=winbackWhatsAppDigits(row);
+  if(winbackWhatsAppBlockReason(row,digits))return false;
+  if(row.phone_count>1&&!confirm('Bu nömrə bir neçə müştəriyə aiddir. WhatsApp söhbətini açmaq istəyirsiniz?'))return false;
+  const url='https://wa.me/'+digits;
+  link.href=url;
+  const campaignActive=Date.now()<WINBACK_BLACK_FRIDAY.endsAt;
+  if(!campaignActive||row.consent!=='granted')return true;
+  const name=winbackCampaignFirstName(row.name)||'əziz';
+  const message=WINBACK_BLACK_FRIDAY.message.replace('[Ad]',name);
+  window.open(url+'?text='+encodeURIComponent(message),'_blank','noopener,noreferrer');
+  return false;
+}
 function rWinbackWhatsApp(row){
   const digits=winbackWhatsAppDigits(row);
   const icon='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.8a8.5 8.5 0 0 1-12.6 7.5L4 20.5l1.2-3.9a8.5 8.5 0 1 1 15.3-4.8Z"/><path d="M9 8.4c-1.8 1.2 3 6 4.5 6.3.6 0 1.4-.5 1.7-1.1l-2-1-1 .6a6 6 0 0 1-2.1-2.1l.5-.7-.9-2.1Z"/></svg>';
-  const disabled=row.opt_out?'Əlaqədən imtina edilib':row.contact_status==='declined'
-    ?'Geri qazanma təklifi rədd edilib':!digits?'Telefon yoxdur və ya etibarsızdır':'';
+  const disabled=winbackWhatsAppBlockReason(row,digits);
   const label=disabled?'WhatsApp · '+disabled:'WhatsApp · '+(row.name||row.id);
   if(disabled)return '<button type="button" class="winback-wa" aria-label="'+escHtml(label)+'" title="'+escHtml(disabled)+'" disabled>'+icon+'</button>';
-  const shared=row.phone_count>1
-    ?' onclick="return confirm(\'Bu nömrə bir neçə müştəriyə aiddir. WhatsApp söhbətini açmaq istəyirsiniz?\')"':'';
   return '<a class="winback-wa" href="https://wa.me/'+digits+'" target="_blank" rel="noopener noreferrer" aria-label="'+
-    escHtml(label)+'" title="'+escHtml(label)+'"'+shared+'>'+icon+'</a>';
+    escHtml(label)+'" title="'+escHtml(label)+'" data-id="'+escHtml(row.id)+
+    '" onclick="return winbackOpenWhatsApp(this)">'+icon+'</a>';
 }
 function rWinbackRow(row){
   const digits=winbackWhatsAppDigits(row);
